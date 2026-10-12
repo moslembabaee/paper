@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T02-infinite-canvas-core",
+  "current_task_id": "T03-grid-rulers",
   "tasks": [
     {
       "id": "T01-project-init",
@@ -32,9 +32,10 @@
       "title": "Implement Paper Engineering Grid, Top/Side Rulers, and Vertex Markers",
       "description": "Render adaptive grid lines (120px major divisions, sub-ticks), precise pixel rulers along top and left edges synced with canvas pan/zoom, and vertex corner squares matching Paper aesthetic.",
       "assigned_agent": "claude",
-      "status": "pending",
+      "status": "completed",
       "retry_count": 0,
-      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-12T20:45:14.784784"
     },
     {
       "id": "T04-scene-graph-elements",

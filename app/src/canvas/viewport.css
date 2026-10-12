@@ -11,10 +11,68 @@
   overscroll-behavior: none;
   outline: none;
   user-select: none;
+  --ruler-size: 0px;
 }
+.canvas-viewport[data-rulers='true'] { --ruler-size: 20px; }
 .canvas-viewport:focus-visible { box-shadow: inset 0 0 0 2px var(--paper-blue); }
-.viewport-grid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.viewport-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
+.viewport-grid {
+  position: absolute;
+  left: var(--ruler-size);
+  top: var(--ruler-size);
+  right: 0;
+  bottom: 0;
+  width: calc(100% - var(--ruler-size));
+  height: calc(100% - var(--ruler-size));
+  pointer-events: none;
+}
+.viewport-world { position: absolute; left: var(--ruler-size); top: var(--ruler-size); width: 0; height: 0; transform-origin: 0 0; will-change: transform; }
+
+/* Rulers */
+.viewport-ruler-h {
+  position: absolute;
+  left: var(--ruler-size);
+  top: 0;
+  right: 0;
+  height: var(--ruler-size);
+  width: calc(100% - var(--ruler-size));
+  pointer-events: none;
+  display: block;
+}
+.viewport-ruler-v {
+  position: absolute;
+  left: 0;
+  top: var(--ruler-size);
+  width: var(--ruler-size);
+  bottom: 0;
+  height: calc(100% - var(--ruler-size));
+  pointer-events: none;
+  display: block;
+}
+/* Corner square that covers the intersection of the two rulers */
+.viewport-ruler-corner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--ruler-size);
+  height: var(--ruler-size);
+  background: #eae9e2;
+  border-right: 1px solid rgba(8,8,8,0.10);
+  border-bottom: 1px solid rgba(8,8,8,0.10);
+  z-index: 2;
+  pointer-events: none;
+  /* Vertex marker: small 4×4 square at the corner, matching Paper aesthetic */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.viewport-ruler-corner::after {
+  content: '';
+  display: block;
+  width: 4px;
+  height: 4px;
+  background: rgba(8,8,8,0.22);
+  border-radius: 0.5px;
+}
 .canvas-viewport[data-pan-mode='true'], .canvas-viewport[data-space='true'] { cursor: grab; }
 .canvas-viewport[data-panning='true'], .canvas-viewport[data-panning='true'] * { cursor: grabbing !important; }
 .viewport-ui { cursor: default; }

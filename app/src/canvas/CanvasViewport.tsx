@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { drawGrid } from './grid'
 import { Minimap } from './Minimap'
 import { unionBounds } from './math'
+import { drawHorizontalRuler, drawVerticalRuler } from './rulers'
 import { ViewportController } from './ViewportController'
 import { ZoomControls } from './ZoomControls'
 import type { Bounds, Camera, MinimapItem, Point, ViewportSnapshot } from './types'
@@ -21,22 +22,26 @@ export interface CanvasViewportProps {
   contentBounds?: Bounds
   minimapItems?: readonly MinimapItem[]
   gridVisible?: boolean
+  rulersVisible?: boolean
   panMode?: boolean
   showMinimap?: boolean
   className?: string
   onViewportChange?: (snapshot: ViewportSnapshot) => void
 }
 
-export function CanvasViewport({ children, controller: provided, initialCamera, contentBounds, minimapItems = EMPTY_ITEMS, gridVisible = true, panMode = false, showMinimap = true, className = '', onViewportChange }: CanvasViewportProps) {
+export function CanvasViewport({ children, controller: provided, initialCamera, contentBounds, minimapItems = EMPTY_ITEMS, gridVisible = true, rulersVisible = true, panMode = false, showMinimap = true, className = '', onViewportChange }: CanvasViewportProps) {
   const [owned] = useState(() => new ViewportController(initialCamera))
   const controller = provided ?? owned
   const rootRef = useRef<HTMLDivElement>(null)
   const worldRef = useRef<HTMLDivElement>(null)
   const gridRef = useRef<HTMLCanvasElement>(null)
+  const hRulerRef = useRef<HTMLCanvasElement>(null)
+  const vRulerRef = useRef<HTMLCanvasElement>(null)
   const coordinatesRef = useRef<HTMLSpanElement>(null)
   const callbackRef = useRef(onViewportChange)
   const panModeRef = useRef(panMode)
   const gridVisibleRef = useRef(gridVisible)
+  const rulersVisibleRef = useRef(rulersVisible)
   const fittedRef = useRef(false)
   const bounds = contentBounds ?? unionBounds(minimapItems)
   const boundsRef = useRef(bounds)
@@ -49,12 +54,18 @@ export function CanvasViewport({ children, controller: provided, initialCamera, 
       gridVisibleRef.current = gridVisible
       controller.resize(controller.getSnapshot().size)
     }
+    if (rulersVisibleRef.current !== rulersVisible) {
+      rulersVisibleRef.current = rulersVisible
+      controller.resize(controller.getSnapshot().size)
+    }
   })
 
   useLayoutEffect(() => {
     const root = rootRef.current!
     const world = worldRef.current!
     const grid = gridRef.current!
+    const hRuler = hRulerRef.current!
+    const vRuler = vRulerRef.current!
     let hovered = false
     let space = false
     let suppressClick = false
@@ -62,7 +73,11 @@ export function CanvasViewport({ children, controller: provided, initialCamera, 
     const touches = new Map<number, Point>()
     let pinch: { center: Point; distance: number; camera: Camera; world: Point } | null = null
     let rect = root.getBoundingClientRect()
-    const local = (event: { clientX: number; clientY: number }): Point => ({ x: event.clientX - rect.left, y: event.clientY - rect.top })
+    const rulerOffset = (): number => rulersVisibleRef.current ? 20 : 0
+    const local = (event: { clientX: number; clientY: number }): Point => {
+      const rs = rulerOffset()
+      return { x: event.clientX - rect.left - rs, y: event.clientY - rect.top - rs }
+    }
     const setCursor = () => {
       root.dataset.panning = String(pointer !== null || touches.size > 0)
       root.dataset.space = String(space)
@@ -76,15 +91,25 @@ export function CanvasViewport({ children, controller: provided, initialCamera, 
       const { x, y, zoom } = snapshot.camera
       world.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${zoom})`
       root.dataset.zoom = String(zoom)
-      if (gridVisibleRef.current) drawGrid(grid, snapshot)
-      const center = controller.screenToWorld({ x: snapshot.size.width / 2, y: snapshot.size.height / 2 })
+      const rs = rulerOffset()
+      const insetSnapshot = rs > 0
+        ? { ...snapshot, size: { width: snapshot.size.width - rs, height: snapshot.size.height - rs } }
+        : snapshot
+      if (gridVisibleRef.current) drawGrid(grid, insetSnapshot)
+      if (rulersVisibleRef.current) {
+        // Rulers get the full width/height minus the opposite ruler only
+        drawHorizontalRuler(hRuler, { ...snapshot, size: { width: snapshot.size.width - rs, height: snapshot.size.height } })
+        drawVerticalRuler(vRuler, { ...snapshot, size: { width: snapshot.size.width, height: snapshot.size.height - rs } })
+      }
+      const center = controller.screenToWorld({ x: (snapshot.size.width - rs) / 2, y: (snapshot.size.height - rs) / 2 })
       if (coordinatesRef.current) coordinatesRef.current.textContent = `${Math.round(center.x)}, ${Math.round(center.y)}`
       callbackRef.current?.(snapshot)
     })
 
     const resize = () => {
       rect = root.getBoundingClientRect()
-      controller.resize({ width: rect.width, height: rect.height })
+      const rs = rulerOffset()
+      controller.resize({ width: rect.width - rs, height: rect.height - rs })
       if (!fittedRef.current && rect.width > 0 && rect.height > 0) {
         fittedRef.current = true
         if (!initialCamera && (contentBounds || minimapItems.length)) controller.fit(boundsRef.current, rect.width < 600 ? 32 : 100, false)
@@ -222,8 +247,13 @@ export function CanvasViewport({ children, controller: provided, initialCamera, 
   }, [controller])
 
   return (
-    <div ref={rootRef} className={`canvas-viewport ${className}`} tabIndex={0} role="region" aria-label="Infinite design canvas" aria-describedby="canvas-instructions" data-pan-mode={panMode}>
+    <div ref={rootRef} className={`canvas-viewport ${className}`} tabIndex={0} role="region" aria-label="Infinite design canvas" aria-describedby="canvas-instructions" data-pan-mode={panMode} data-rulers={rulersVisible}>
       <canvas ref={gridRef} className="viewport-grid" aria-hidden="true" hidden={!gridVisible} />
+      {rulersVisible && <>
+        <canvas ref={hRulerRef} className="viewport-ruler-h" aria-hidden="true" />
+        <canvas ref={vRulerRef} className="viewport-ruler-v" aria-hidden="true" />
+        <div className="viewport-ruler-corner" aria-hidden="true" />
+      </>}
       <div ref={worldRef} className="viewport-world">{children}</div>
       <div className="viewport-origin" aria-hidden="true">WORLD <span ref={coordinatesRef}>0, 0</span></div>
       <div className="viewport-hint" id="canvas-instructions">Scroll to zoom <span>·</span> Space + drag to pan <span>·</span> Shift + scroll to pan</div>
