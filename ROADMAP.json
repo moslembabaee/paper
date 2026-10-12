@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T08-svg-export-import",
+  "current_task_id": "T09-self-hosted-docker",
   "tasks": [
     {
       "id": "T01-project-init",
@@ -98,9 +98,10 @@
       "title": "Create Production Dockerfile and docker-compose.yml for Single-Command Self-Hosting",
       "description": "Build multi-stage production Dockerfile (lightweight Node/Alpine or Nginx static server), write docker-compose.yml with volume persistence for projects, configure healthchecks and environment variables.",
       "assigned_agent": "claude",
-      "status": "pending",
+      "status": "completed",
       "retry_count": 0,
-      "verification_cmd": "cd /root/projects/paper && docker compose build"
+      "verification_cmd": "cd /root/projects/paper && docker compose build",
+      "completed_at": "2026-10-12T21:50:08.671984"
     },
     {
       "id": "T10-e2e-visual-tests",
