@@ -3,12 +3,14 @@ import type { CSSProperties } from 'react'
 import type { SceneStore } from './store'
 import type { SceneElement } from './types'
 import { useScene } from './useScene'
+import { ShapeShader } from '../shaders/ShapeShader'
 import './scene.css'
 
 interface NodeProps { store: SceneStore; id: string; interactive: boolean; inheritedLocked?: boolean }
 
 function Paint({ node }: { node: SceneElement }) {
-  const { fill, stroke, shadow } = node.style
+  const { fill: solidFill, stroke, shadow, shader } = node.style
+  const fill = shader ? null : solidFill
   const shadowStyle = shadow ? { filter: `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` } : undefined
   if (node.type === 'frame') return null
   if (node.type === 'text') {
@@ -16,7 +18,7 @@ function Paint({ node }: { node: SceneElement }) {
   }
   if (node.type === 'image') {
     return <div className="scene-image" style={{ background: fill ?? undefined, borderRadius: node.cornerRadius, boxShadow: shadow ? `${shadow.x}px ${shadow.y}px ${shadow.blur}px ${shadow.color}` : undefined }}>
-      <img src={node.src} alt={node.alt} draggable={false} style={{ objectFit: node.fit, borderRadius: node.cornerRadius }} />
+      <img src={node.src} alt={node.alt} draggable={false} style={{ objectFit: node.fit, borderRadius: node.cornerRadius, visibility: shader ? 'hidden' : undefined }} />
       {stroke && <div className="scene-image-border" style={{ border: `${stroke.width}px ${stroke.dash.length ? 'dashed' : 'solid'} ${stroke.color}`, borderRadius: node.cornerRadius }} />}
     </div>
   }
@@ -49,6 +51,7 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
   return <div className={`scene-node ${isFrame ? 'scene-frame' : ''} ${selected ? 'is-selected' : ''}`} style={style} data-element-id={id} data-element-type={node.type} aria-label={node.name}>
     {isFrame && node.parentId === null && <div className="artboard-label">{node.name}<span>{node.width} × {node.height}</span></div>}
     <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity }}>
+      {node.style.shader && <ShapeShader node={node} />}
       <Paint node={node} />
       {isFrame && node.children.map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} />)}
       {isFrame && node.style.stroke && <div className="scene-frame-border" style={{ border: `${node.style.stroke.width}px ${node.style.stroke.dash.length ? 'dashed' : 'solid'} ${node.style.stroke.color}`, borderRadius: node.cornerRadius }} />}

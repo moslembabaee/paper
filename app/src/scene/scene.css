@@ -1,5 +1,7 @@
 .scene-node { position: absolute; transform-origin: center; }
 .scene-content { position: relative; width: 100%; height: 100%; }
+/* Paint after the positioned shader fill so strokes stay above its pixels. */
+.scene-vector, .scene-text { position: relative; }
 .scene-frame > .scene-content { box-shadow: 0 2px 6px rgba(8,8,8,.06), 0 0 0 1px rgba(8,8,8,.05); }
 .scene-node.is-selected > .artboard-label { color: var(--paper-blue-deep); }
 .scene-vector { width: 100%; height: 100%; display: block; overflow: visible; }

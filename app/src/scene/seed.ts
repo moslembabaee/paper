@@ -1,4 +1,5 @@
 import { SceneStore } from './store.ts'
+import { createShader } from '../shaders/catalog.ts'
 
 /** The opening studies are ordinary editable elements, rather than special HTML. */
 export function createDemoScene(): SceneStore {
@@ -38,7 +39,7 @@ export function createDemoScene(): SceneStore {
     text(material.id, 'Simple things', 'Simple things.\nConsidered well.', 40, 66, 380, 82, 32, '#edebe1', -1)
     text(material.id, 'Material caption', 'FORM, COLOUR & A LITTLE CURIOSITY.', 40, 174, 300, 14, 8, '#a6a59e', .6)
     store.add('ellipse', { parentId: material.id, name: 'Outline circle', x: 440, y: 64, width: 112, height: 112, style: { fill: null, stroke: { color: '#edebe1', width: 1, dash: [] } } })
-    store.add('ellipse', { parentId: material.id, name: 'Blue circle', x: 504, y: 64, width: 112, height: 112 })
+    store.add('ellipse', { parentId: material.id, name: 'Mesh Gradient study', x: 504, y: 64, width: 112, height: 112, style: { shader: createShader('mesh-gradient') } })
     store.add('rectangle', { parentId: material.id, name: 'Cream square', x: 568, y: 64, width: 112, height: 112, style: { fill: '#edebe1' } })
   })
   return store

@@ -18,6 +18,8 @@ export interface CanvasViewportProps {
   children?: ReactNode
   /** Screen-space tools share the viewport's event routing and ruler origin. */
   overlay?: ReactNode
+  /** Screen-space paint below the engineering grid and scene. */
+  background?: ReactNode
   /** Supply a controller to access the camera from selection, tools, or handoff. */
   controller?: ViewportController
   initialCamera?: Camera
@@ -31,7 +33,7 @@ export interface CanvasViewportProps {
   onViewportChange?: (snapshot: ViewportSnapshot) => void
 }
 
-export function CanvasViewport({ children, overlay, controller: provided, initialCamera, contentBounds, minimapItems = EMPTY_ITEMS, gridVisible = true, rulersVisible = true, panMode = false, showMinimap = true, className = '', onViewportChange }: CanvasViewportProps) {
+export function CanvasViewport({ children, overlay, background, controller: provided, initialCamera, contentBounds, minimapItems = EMPTY_ITEMS, gridVisible = true, rulersVisible = true, panMode = false, showMinimap = true, className = '', onViewportChange }: CanvasViewportProps) {
   const [owned] = useState(() => new ViewportController(initialCamera))
   const controller = provided ?? owned
   const rootRef = useRef<HTMLDivElement>(null)
@@ -250,6 +252,7 @@ export function CanvasViewport({ children, overlay, controller: provided, initia
 
   return (
     <div ref={rootRef} className={`canvas-viewport ${className}`} tabIndex={0} role="region" aria-label="Infinite design canvas" aria-describedby="canvas-instructions" data-pan-mode={panMode} data-rulers={rulersVisible}>
+      {background && <div className="viewport-background">{background}</div>}
       <canvas ref={gridRef} className="viewport-grid" aria-hidden="true" hidden={!gridVisible} />
       {rulersVisible && <>
         <canvas ref={hRulerRef} className="viewport-ruler-h" aria-hidden="true" />

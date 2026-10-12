@@ -1,4 +1,5 @@
 import type { ElementInput, ElementOf, ElementType, SceneElement } from './types.ts'
+import { freezeShader, validateShader } from '../shaders/catalog.ts'
 
 const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectangle', ellipse: 'Ellipse', path: 'Vector path', text: 'Text', image: 'Image' }
 
@@ -6,6 +7,7 @@ const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectang
 export function freezeElement(element: SceneElement): SceneElement {
   const style = Object.freeze({
     ...element.style,
+    shader: element.style.shader ? freezeShader(element.style.shader) : null,
     stroke: element.style.stroke ? Object.freeze({ ...element.style.stroke, dash: Object.freeze([...element.style.stroke.dash]) }) : null,
     shadow: element.style.shadow ? Object.freeze({ ...element.style.shadow }) : null,
   })
@@ -22,6 +24,7 @@ export function validateElement(element: SceneElement): void {
   if (element.width <= 0 || element.height <= 0 || !Number.isInteger(element.zIndex) || element.zIndex < 0) throw new Error('Invalid element dimensions or order')
   if (typeof element.visible !== 'boolean' || typeof element.locked !== 'boolean') throw new Error('Invalid element flags')
   const { fill, stroke, opacity, shadow } = element.style
+  if (element.style.shader !== undefined && element.style.shader !== null) validateShader(element.style.shader)
   if ((fill !== null && typeof fill !== 'string') || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) throw new Error('Invalid fill or opacity')
   if (stroke && (typeof stroke.color !== 'string' || !Number.isFinite(stroke.width) || stroke.width < 0 || !Array.isArray(stroke.dash) || stroke.dash.some(n => !Number.isFinite(n) || n < 0))) throw new Error('Invalid stroke')
   if (shadow && (typeof shadow.color !== 'string' || ![shadow.x, shadow.y, shadow.blur].every(Number.isFinite) || shadow.blur < 0)) throw new Error('Invalid shadow')

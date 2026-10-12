@@ -1,4 +1,6 @@
 import { createElement, freezeElement, validateElement } from './elements.ts'
+import { freezeShader, validateShader } from '../shaders/catalog.ts'
+import type { ShaderPaint } from '../shaders/types.ts'
 import type { ElementInput, ElementOf, ElementPatch, ElementType, SceneDocument, SceneElement, SceneSnapshot } from './types.ts'
 
 type Listener = () => void
@@ -6,7 +8,7 @@ const EMPTY = Object.freeze([]) as readonly string[]
 
 /** Framework-independent immutable scene graph. Sibling arrays are the paint order. */
 export class SceneStore {
-  private state: SceneSnapshot = Object.freeze({ version: 1, elements: Object.freeze({}), rootIds: EMPTY, selection: EMPTY })
+  private state: SceneSnapshot = Object.freeze({ version: 1, backgroundShader: null, elements: Object.freeze({}), rootIds: EMPTY, selection: EMPTY })
   private listeners = new Set<Listener>()
   private batchDepth = 0
   private pending = false
@@ -28,7 +30,7 @@ export class SceneStore {
 
   private emit() { for (const listener of [...this.listeners]) listener() }
   private commit(elements: Record<string, SceneElement>, rootIds = this.state.rootIds, selection = this.state.selection) {
-    this.state = Object.freeze({ version: 1, elements: Object.freeze(elements), rootIds: rootIds === this.state.rootIds ? rootIds : Object.freeze([...rootIds]), selection: selection === this.state.selection ? selection : Object.freeze([...selection]) })
+    this.state = Object.freeze({ ...this.state, elements: Object.freeze(elements), rootIds: rootIds === this.state.rootIds ? rootIds : Object.freeze([...rootIds]), selection: selection === this.state.selection ? selection : Object.freeze([...selection]) })
     if (this.batchDepth) this.pending = true
     else this.emit()
   }
@@ -182,11 +184,19 @@ export class SceneStore {
     this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, this.state.selection.filter(selected => Object.hasOwn(elements, selected)))
   }
 
-  toJSON(): SceneDocument { return { version: 1, elements: this.state.elements, rootIds: this.state.rootIds } }
+  setBackgroundShader(paint: ShaderPaint | null): void {
+    if (paint !== null) validateShader(paint)
+    this.state = Object.freeze({ ...this.state, backgroundShader: paint ? freezeShader(paint) : null })
+    if (this.batchDepth) this.pending = true
+    else this.emit()
+  }
+
+  toJSON(): SceneDocument { return { version: 1, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
 
   /** Validate the whole document before replacing state; invalid imports are atomic. */
   load(document: SceneDocument): void {
     if (document.version !== 1 || !document.elements || !Array.isArray(document.rootIds)) throw new Error('Unsupported scene document')
+    if (document.backgroundShader !== undefined && document.backgroundShader !== null) validateShader(document.backgroundShader)
     const elements: Record<string, SceneElement> = {}
     for (const [id, node] of Object.entries(document.elements)) {
       if (id !== node.id || ['__proto__', 'prototype', 'constructor'].includes(id)) throw new Error('Invalid element ID')
@@ -203,6 +213,9 @@ export class SceneStore {
     }
     document.rootIds.forEach((id, i) => visit(id, null, i))
     if (visited.size !== Object.keys(elements).length) throw new Error('Unreachable scene elements')
-    this.commit(elements, document.rootIds, EMPTY)
+    this.batch(() => {
+      this.commit(elements, document.rootIds, EMPTY)
+      this.setBackgroundShader(document.backgroundShader ?? null)
+    })
   }
 }

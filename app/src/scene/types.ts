@@ -1,3 +1,5 @@
+import type { ShaderPaint } from '../shaders/types.ts'
+
 /** Coordinates are relative to the parent frame. Rotation is in degrees. */
 export interface ElementGeometry {
   readonly x: number
@@ -21,6 +23,8 @@ export interface Shadow {
 }
 
 export interface ElementStyle {
+  /** Optional to retain compatibility with version 1 documents. */
+  readonly shader?: ShaderPaint | null
   /** Any CSS color; null means no paint. Text uses fill as its text color. */
   readonly fill: string | null
   readonly stroke: Stroke | null
@@ -89,6 +93,7 @@ export type ElementPatch<T extends ElementType> = T extends ElementType ? Partia
 
 export interface SceneDocument {
   readonly version: 1
+  readonly backgroundShader?: ShaderPaint | null
   readonly elements: Readonly<Record<string, SceneElement>>
   readonly rootIds: readonly string[]
 }
