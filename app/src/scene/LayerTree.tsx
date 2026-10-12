@@ -31,7 +31,7 @@ const LayerRow = memo(function LayerRow({ store, id, depth }: { store: SceneStor
 export function LayerTree({ store, onHide }: { store: SceneStore; onHide: () => void }) {
   const rootIds = useScene(store, state => state.rootIds)
   const count = useScene(store, state => Object.keys(state.elements).length)
-  return <aside className="layers-panel" aria-label="Document layers">
+  return <aside className="layers-panel" data-testid="layer-tree" aria-label="Document layers">
     <div className="panel-heading"><span>Layers</span><button className="quiet-button" aria-label="Hide layers" onClick={onHide}><PanelLeftClose size={14} /></button></div>
     <div className="page-row"><Layers size={13} /><span>Explorations</span><span className="page-count">01</span></div>
     <div className="layer-section-heading">SCENE <span>{count} layers</span></div>

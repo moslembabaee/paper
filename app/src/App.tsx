@@ -54,19 +54,19 @@ export default function App() {
     <header className="app-header">
       <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
       <div className="document-name"><span className="document-divider" /><input className="document-title" aria-label="Project name" value={name} maxLength={200} onChange={event => setName(event.target.value)} onBlur={() => { if (!name.trim()) setName('Untitled') }} /><ChevronDown size={12} /><span className="document-state">Local document</span></div>
-      <div className="header-end"><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><span className="project-avatar" title="Your self-hosted workspace">P</span></div>
+      <div className="header-end"><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><span className="project-avatar" title="Your self-hosted workspace">P</span></div>
     </header>
     <div className="editor-layout">
       {layersVisible && <LayerTree store={store} onHide={() => setLayersVisible(false)} />}
       <main className="canvas-stage">
         <div className="canvas-toolbar viewport-ui" role="toolbar" aria-label="Canvas tools">
           {!layersVisible && <button className="tool-button" title="Show layers" aria-label="Show layers" onClick={() => setLayersVisible(true)}><Layers size={17} /></button>}
-          <button className={`tool-button ${tool === 'select' ? 'active' : ''}`} aria-label="Selection tool" aria-pressed={tool === 'select'} title="Selection tool" onClick={() => setTool('select')}><MousePointer2 size={17} /></button>
-          <button className={`tool-button ${tool === 'hand' ? 'active' : ''}`} aria-label="Pan tool" aria-pressed={tool === 'hand'} title="Pan tool (or hold Space)" onClick={() => setTool('hand')}><Hand size={17} /></button>
+          <button className={`tool-button ${tool === 'select' ? 'active' : ''}`} data-testid="tool-select" aria-label="Selection tool" aria-pressed={tool === 'select'} title="Selection tool" onClick={() => setTool('select')}><MousePointer2 size={17} /></button>
+          <button className={`tool-button ${tool === 'hand' ? 'active' : ''}`} data-testid="tool-hand" aria-label="Pan tool" aria-pressed={tool === 'hand'} title="Pan tool (or hold Space)" onClick={() => setTool('hand')}><Hand size={17} /></button>
           <span className="toolbar-divider" />
-          {creationTools.map(({ type, label, Icon }) => <button key={type} className="tool-button" aria-label={label} title={label} onClick={() => addElement(type)}><Icon size={16} /></button>)}
+          {creationTools.map(({ type, label, Icon }) => <button key={type} className="tool-button" data-testid={`tool-${type}`} aria-label={label} title={label} onClick={() => addElement(type)}><Icon size={16} /></button>)}
           <span className="toolbar-divider" />
-          <button className={`tool-button ${grid ? 'grid-active' : ''}`} aria-label="Toggle engineering grid" aria-pressed={grid} title="120px engineering grid" onClick={() => setGrid(!grid)}><Grid2X2 size={16} /></button>
+          <button className={`tool-button ${grid ? 'grid-active' : ''}`} data-testid="tool-grid" aria-label="Toggle engineering grid" aria-pressed={grid} title="120px engineering grid" onClick={() => setGrid(!grid)}><Grid2X2 size={16} /></button>
         </div>
         <SceneCanvas store={store} controller={controller} initialCamera={workspace.project?.viewport} grid={grid} panMode={tool === 'hand'} />
       </main>

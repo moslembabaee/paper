@@ -319,7 +319,7 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
   })() : null
 
   return (
-    <aside className="inspector-panel dev-mode-panel" aria-label="Dev mode properties">
+    <aside className="inspector-panel dev-mode-panel" data-testid="dev-mode-panel" aria-label="Dev mode properties">
       <div className="panel-heading dev-mode-heading">
         <div className="dev-mode-badge">
           <span className="dev-mode-dot" />

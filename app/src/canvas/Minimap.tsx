@@ -63,11 +63,12 @@ export function Minimap({ controller, items }: MinimapProps) {
   }
 
   return (
-    <div className="viewport-minimap viewport-ui">
+    <div className="viewport-minimap viewport-ui" data-testid="viewport-minimap">
       <div className="minimap-heading"><span>Navigator</span><span className="minimap-live" aria-hidden="true" /></div>
       <canvas
         ref={canvasRef}
         className="minimap-map"
+        data-testid="minimap-canvas"
         role="button"
         tabIndex={0}
         aria-label="Canvas navigator. Click or drag to navigate; use arrow keys to pan."

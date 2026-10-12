@@ -34,9 +34,9 @@ export function ZoomControls({ controller, contentBounds }: ZoomControlsProps) {
   }, [open])
 
   return (
-    <div className="viewport-zoom viewport-ui" ref={rootRef} onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false) }}>
+    <div className="viewport-zoom viewport-ui" data-testid="zoom-controls" ref={rootRef} onKeyDown={(event) => { if (event.key === 'Escape') setOpen(false) }}>
       {open && (
-        <div className="zoom-menu" aria-label="Zoom presets">
+        <div className="zoom-menu" data-testid="zoom-menu" aria-label="Zoom presets">
           <button onClick={() => { controller.fit(contentBounds); setOpen(false) }}>Fit canvas <kbd>1</kbd></button>
           <div className="zoom-menu-rule" />
           {PRESETS.map((percent) => (
@@ -44,11 +44,11 @@ export function ZoomControls({ controller, contentBounds }: ZoomControlsProps) {
           ))}
         </div>
       )}
-      <button className="viewport-icon-button" ref={minusRef} aria-label="Zoom out" title="Zoom out (−)" onClick={() => controller.zoomBy(1 / 1.25)}><Minus size={15} /></button>
-      <button className="zoom-value" aria-label="Choose zoom level" aria-expanded={open} onClick={() => setOpen(!open)}><span ref={outputRef}>100%</span></button>
-      <button className="viewport-icon-button" ref={plusRef} aria-label="Zoom in" title="Zoom in (+)" onClick={() => controller.zoomBy(1.25)}><Plus size={15} /></button>
+      <button className="viewport-icon-button" data-testid="zoom-out" ref={minusRef} aria-label="Zoom out" title="Zoom out (−)" onClick={() => controller.zoomBy(1 / 1.25)}><Minus size={15} /></button>
+      <button className="zoom-value" data-testid="zoom-value" aria-label="Choose zoom level" aria-expanded={open} onClick={() => setOpen(!open)}><span ref={outputRef}>100%</span></button>
+      <button className="viewport-icon-button" data-testid="zoom-in" ref={plusRef} aria-label="Zoom in" title="Zoom in (+)" onClick={() => controller.zoomBy(1.25)}><Plus size={15} /></button>
       <span className="zoom-divider" />
-      <button className="viewport-icon-button" aria-label="Fit canvas" title="Fit canvas (1)" onClick={() => controller.fit(contentBounds)}><Maximize size={14} /></button>
+      <button className="viewport-icon-button" data-testid="zoom-fit" aria-label="Fit canvas" title="Fit canvas (1)" onClick={() => controller.fit(contentBounds)}><Maximize size={14} /></button>
     </div>
   )
 }

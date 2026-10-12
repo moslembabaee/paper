@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T09-self-hosted-docker",
+  "current_task_id": "T10-e2e-visual-tests",
   "tasks": [
     {
       "id": "T01-project-init",
@@ -109,9 +109,10 @@
       "title": "Implement Playwright E2E Visual Verification Tests",
       "description": "Write Playwright tests in e2e/ verifying canvas mounting, pan/zoom responsiveness, shape creation, shader rendering, selection bounding box, and screenshot capture for regression prevention.",
       "assigned_agent": "antigravity",
-      "status": "pending",
-      "retry_count": 0,
-      "verification_cmd": "cd /root/projects/paper/app && npx playwright test --reporter=line"
+      "status": "completed",
+      "retry_count": 2,
+      "verification_cmd": "cd /root/projects/paper/app && npx playwright test --reporter=line",
+      "completed_at": "2026-10-12T22:21:41.149885"
     }
   ]
 }

@@ -30,7 +30,7 @@ export function ElementInspector({ store, controller, grid, onGridChange }: { st
     while (parent) { if (parent.id === node?.id) return false; parent = parent.parentId === null ? undefined : state.elements[parent.parentId] }
     return !store.isLocked(candidate.id)
   })
-  return <aside className="inspector-panel" aria-label="Canvas properties">
+  return <aside className="inspector-panel" data-testid="inspector-panel" aria-label="Canvas properties">
     <div className="panel-heading"><span>{node ? node.type === 'frame' ? 'Frame' : node.type[0].toUpperCase() + node.type.slice(1) : state.selection.length > 1 ? `${state.selection.length} layers` : 'Canvas'}</span>{state.selection.length ? <button className="quiet-button" aria-label="Deselect elements" onClick={() => store.select([])}><X size={14} /></button> : <Circle size={11} />}</div>
     {node ? <>
       <div className="inspector-section">

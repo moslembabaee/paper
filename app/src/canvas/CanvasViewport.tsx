@@ -251,18 +251,18 @@ export function CanvasViewport({ children, overlay, background, controller: prov
   }, [controller])
 
   return (
-    <div ref={rootRef} className={`canvas-viewport ${className}`} tabIndex={0} role="region" aria-label="Infinite design canvas" aria-describedby="canvas-instructions" data-pan-mode={panMode} data-rulers={rulersVisible}>
-      {background && <div className="viewport-background">{background}</div>}
-      <canvas ref={gridRef} className="viewport-grid" aria-hidden="true" hidden={!gridVisible} />
+    <div ref={rootRef} className={`canvas-viewport ${className}`} data-testid="canvas-viewport" tabIndex={0} role="region" aria-label="Infinite design canvas" aria-describedby="canvas-instructions" data-pan-mode={panMode} data-rulers={rulersVisible}>
+      {background && <div className="viewport-background" data-testid="viewport-background">{background}</div>}
+      <canvas ref={gridRef} className="viewport-grid" data-testid="viewport-grid" aria-hidden="true" hidden={!gridVisible} />
       {rulersVisible && <>
-        <canvas ref={hRulerRef} className="viewport-ruler-h" aria-hidden="true" />
-        <canvas ref={vRulerRef} className="viewport-ruler-v" aria-hidden="true" />
-        <div className="viewport-ruler-corner" aria-hidden="true" />
+        <canvas ref={hRulerRef} className="viewport-ruler-h" data-testid="viewport-ruler-h" aria-hidden="true" />
+        <canvas ref={vRulerRef} className="viewport-ruler-v" data-testid="viewport-ruler-v" aria-hidden="true" />
+        <div className="viewport-ruler-corner" data-testid="viewport-ruler-corner" aria-hidden="true" />
       </>}
-      <div ref={worldRef} className="viewport-world">{children}</div>
+      <div ref={worldRef} className="viewport-world" data-testid="viewport-world">{children}</div>
       {overlay}
-      <div className="viewport-origin" aria-hidden="true">WORLD <span ref={coordinatesRef}>0, 0</span></div>
-      <div className="viewport-hint" id="canvas-instructions">Scroll to zoom <span>·</span> Space + drag to pan <span>·</span> Shift + scroll to pan</div>
+      <div className="viewport-origin" data-testid="viewport-origin" aria-hidden="true">WORLD <span ref={coordinatesRef}>0, 0</span></div>
+      <div className="viewport-hint" data-testid="canvas-instructions" id="canvas-instructions">Scroll to zoom <span>·</span> Space + drag to pan <span>·</span> Shift + scroll to pan</div>
       {showMinimap && <Minimap controller={controller} items={minimapItems} />}
       <ZoomControls controller={controller} contentBounds={bounds} />
     </div>

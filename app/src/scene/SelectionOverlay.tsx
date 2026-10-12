@@ -233,10 +233,10 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
     }
   }, [store, controller, panMode])
 
-  return <div ref={overlayRef} className="selection-overlay" style={{ cursor: activeCursor ?? undefined }} data-transforming={activeCursor !== null}>
+  return <div ref={overlayRef} className="selection-overlay" data-testid="selection-overlay" style={{ cursor: activeCursor ?? undefined }} data-transforming={activeCursor !== null}>
     <SnapGuides guides={guides} camera={camera} />
-    {marquee && <div className="marquee-rect" style={{ left: marquee.x * camera.zoom + camera.x, top: marquee.y * camera.zoom + camera.y, width: marquee.width * camera.zoom, height: marquee.height * camera.zoom }} />}
-    {!panMode && box && <div className="sel-box" aria-label="Selection bounds" style={{ left: box.x * camera.zoom + camera.x, top: box.y * camera.zoom + camera.y, width: box.width * camera.zoom, height: box.height * camera.zoom, transform: `rotate(${box.rotation}deg)` }}>
+    {marquee && <div className="marquee-rect" data-testid="marquee-rect" style={{ left: marquee.x * camera.zoom + camera.x, top: marquee.y * camera.zoom + camera.y, width: marquee.width * camera.zoom, height: marquee.height * camera.zoom }} />}
+    {!panMode && box && <div className="sel-box" data-testid="selection-box" aria-label="Selection bounds" style={{ left: box.x * camera.zoom + camera.x, top: box.y * camera.zoom + camera.y, width: box.width * camera.zoom, height: box.height * camera.zoom, transform: `rotate(${box.rotation}deg)` }}>
       {HANDLES.map(handle => <div key={handle.id} data-handle={handle.id} className="sel-handle" title={`Resize ${handle.id.toUpperCase()} · Shift for proportions`} style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%`, cursor: resizeCursor(box.rotation + handle.angle) }} />)}
       <div data-handle="rotate" className="sel-rotate-handle" title="Rotate · Shift for 15° increments" />
     </div>}
