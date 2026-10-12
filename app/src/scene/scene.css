@@ -8,9 +8,3 @@
 .scene-image img { display: block; width: 100%; height: 100%; }
 .scene-image-border, .scene-frame-border { position: absolute; inset: 0; pointer-events: none; }
 .scene-frame-border { z-index: 2147483647; }
-.scene-selection { position: absolute; inset: -1px; outline: 1.5px solid var(--paper-blue-deep); pointer-events: none; z-index: 2147483647; }
-.scene-selection i { position: absolute; width: 5px; height: 5px; background: var(--paper-surface); border: 1px solid var(--paper-blue-deep); }
-.scene-selection i:nth-child(1) { top: -3px; left: -3px; }
-.scene-selection i:nth-child(2) { top: -3px; right: -3px; }
-.scene-selection i:nth-child(3) { bottom: -3px; right: -3px; }
-.scene-selection i:nth-child(4) { bottom: -3px; left: -3px; }

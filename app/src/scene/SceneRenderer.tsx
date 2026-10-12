@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import type { CSSProperties, MouseEvent } from 'react'
+import type { CSSProperties } from 'react'
 import type { SceneStore } from './store'
 import type { SceneElement } from './types'
 import { useScene } from './useScene'
@@ -46,20 +46,13 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
     overflow: node.clipContent ? 'hidden' : 'visible',
     boxShadow: node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : undefined,
   } : undefined
-  const select = (event: MouseEvent) => {
-    if (!interactive || locked) return
-    event.stopPropagation()
-    const current = store.getSnapshot().selection
-    store.select(event.shiftKey ? current.includes(id) ? current.filter(selectedId => selectedId !== id) : [...current, id] : [id])
-  }
-  return <div className={`scene-node ${isFrame ? 'scene-frame' : ''} ${selected ? 'is-selected' : ''}`} style={style} data-element-id={id} data-element-type={node.type} onClick={select} aria-label={node.name}>
-    {isFrame && node.parentId === null && <div className="artboard-label" onClick={select}>{node.name}<span>{node.width} × {node.height}</span></div>}
+  return <div className={`scene-node ${isFrame ? 'scene-frame' : ''} ${selected ? 'is-selected' : ''}`} style={style} data-element-id={id} data-element-type={node.type} aria-label={node.name}>
+    {isFrame && node.parentId === null && <div className="artboard-label">{node.name}<span>{node.width} × {node.height}</span></div>}
     <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity }}>
       <Paint node={node} />
       {isFrame && node.children.map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} />)}
       {isFrame && node.style.stroke && <div className="scene-frame-border" style={{ border: `${node.style.stroke.width}px ${node.style.stroke.dash.length ? 'dashed' : 'solid'} ${node.style.stroke.color}`, borderRadius: node.cornerRadius }} />}
     </div>
-    {selected && <div className="scene-selection" aria-hidden="true"><i /><i /><i /><i /></div>}
   </div>
 })
 

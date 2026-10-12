@@ -1,0 +1,47 @@
+.selection-overlay {
+  position: absolute;
+  inset: var(--ruler-size) 0 0 var(--ruler-size);
+  pointer-events: none;
+  z-index: 3;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+.selection-overlay[data-transforming='true'] { pointer-events: auto; }
+.selection-overlay[data-transforming='true'] * { cursor: inherit !important; }
+.marquee-rect {
+  position: absolute;
+  border: 1px solid #81adec;
+  background: rgba(129, 173, 236, .10);
+  pointer-events: none;
+}
+.sel-box {
+  position: absolute;
+  outline: 1px solid #81adec;
+  transform-origin: center;
+  pointer-events: auto;
+  cursor: move;
+}
+.sel-handle, .sel-rotate-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #edebe1;
+  border: 1px solid #81adec;
+  border-radius: 1px;
+  box-sizing: border-box;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+.sel-handle::after, .sel-rotate-handle::after { content: ''; position: absolute; inset: -5px; }
+.sel-handle:hover, .sel-rotate-handle:hover { background: #81adec; }
+.sel-rotate-handle { left: 50%; top: -24px; border-radius: 50%; cursor: crosshair; }
+.sel-rotate-handle::before { content: ''; position: absolute; left: 50%; top: 7px; width: 1px; height: 20px; background: #81adec; transform: translateX(-50%); pointer-events: none; }
+.snap-guides-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.snap-guides-svg line, .snap-guides-svg path { stroke: #81adec; stroke-width: 1; fill: none; }
+.snap-guides-svg text { fill: #080808; font: 10px var(--font-mono); paint-order: stroke; stroke: #edebe1; stroke-width: 3px; stroke-linejoin: round; }
+/* Controls remain above the selection affordances. */
+.canvas-viewport > .viewport-ui { z-index: 4; }
+.canvas-viewport[data-space='true'] .selection-overlay, .canvas-viewport[data-pan-mode='true'] .selection-overlay { pointer-events: none; }
+.canvas-viewport[data-space='true'] .sel-box, .canvas-viewport[data-space='true'] .sel-handle, .canvas-viewport[data-space='true'] .sel-rotate-handle { pointer-events: none; }
+.canvas-viewport[data-space='true'] .scene-node { cursor: grab; }

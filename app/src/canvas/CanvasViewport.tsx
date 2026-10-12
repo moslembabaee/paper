@@ -16,6 +16,8 @@ const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 
 export interface CanvasViewportProps {
   children?: ReactNode
+  /** Screen-space tools share the viewport's event routing and ruler origin. */
+  overlay?: ReactNode
   /** Supply a controller to access the camera from selection, tools, or handoff. */
   controller?: ViewportController
   initialCamera?: Camera
@@ -29,7 +31,7 @@ export interface CanvasViewportProps {
   onViewportChange?: (snapshot: ViewportSnapshot) => void
 }
 
-export function CanvasViewport({ children, controller: provided, initialCamera, contentBounds, minimapItems = EMPTY_ITEMS, gridVisible = true, rulersVisible = true, panMode = false, showMinimap = true, className = '', onViewportChange }: CanvasViewportProps) {
+export function CanvasViewport({ children, overlay, controller: provided, initialCamera, contentBounds, minimapItems = EMPTY_ITEMS, gridVisible = true, rulersVisible = true, panMode = false, showMinimap = true, className = '', onViewportChange }: CanvasViewportProps) {
   const [owned] = useState(() => new ViewportController(initialCamera))
   const controller = provided ?? owned
   const rootRef = useRef<HTMLDivElement>(null)
@@ -255,6 +257,7 @@ export function CanvasViewport({ children, controller: provided, initialCamera, 
         <div className="viewport-ruler-corner" aria-hidden="true" />
       </>}
       <div ref={worldRef} className="viewport-world">{children}</div>
+      {overlay}
       <div className="viewport-origin" aria-hidden="true">WORLD <span ref={coordinatesRef}>0, 0</span></div>
       <div className="viewport-hint" id="canvas-instructions">Scroll to zoom <span>·</span> Space + drag to pan <span>·</span> Shift + scroll to pan</div>
       {showMinimap && <Minimap controller={controller} items={minimapItems} />}

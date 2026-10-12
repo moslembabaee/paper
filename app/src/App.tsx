@@ -54,7 +54,7 @@ export default function App() {
     </header>
     <div className="editor-layout">
       {layersVisible && <LayerTree store={store} onHide={() => setLayersVisible(false)} />}
-      <main className="canvas-stage" onClick={event => { if (tool === 'select' && event.target instanceof Element && !event.target.closest('[data-element-id], .viewport-ui')) store.select([]) }}>
+      <main className="canvas-stage">
         <div className="canvas-toolbar viewport-ui" role="toolbar" aria-label="Canvas tools">
           {!layersVisible && <button className="tool-button" title="Show layers" aria-label="Show layers" onClick={() => setLayersVisible(true)}><Layers size={17} /></button>}
           <button className={`tool-button ${tool === 'select' ? 'active' : ''}`} aria-label="Selection tool" aria-pressed={tool === 'select'} title="Selection tool" onClick={() => setTool('select')}><MousePointer2 size={17} /></button>

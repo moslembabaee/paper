@@ -3,6 +3,7 @@ import { CanvasViewport, unionBounds } from '../canvas'
 import type { ViewportController } from '../canvas'
 import { getWorldBounds } from './geometry'
 import { SceneRenderer } from './SceneRenderer'
+import { SelectionOverlay } from './SelectionOverlay'
 import type { SceneStore } from './store'
 import { useScene } from './useScene'
 
@@ -14,5 +15,9 @@ export function SceneCanvas({ store, controller, grid, panMode }: { store: Scene
     return rootIds.filter(id => store.isVisible(id)).map(id => ({ id, ...getWorldBounds(state, id), color: elements[id].style.fill ?? '#edebe1' }))
   }, [store, rootIds, elements])
   const bounds = useMemo(() => unionBounds(items), [items])
-  return <CanvasViewport controller={controller} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode}><SceneRenderer store={store} interactive={!panMode} /></CanvasViewport>
+  return (
+    <CanvasViewport controller={controller} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} overlay={<SelectionOverlay store={store} controller={controller} panMode={panMode} />}>
+      <SceneRenderer store={store} interactive={!panMode} />
+    </CanvasViewport>
+  )
 }

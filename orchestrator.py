@@ -125,8 +125,50 @@ def run_loop():
                 break
                 
         if not pending_task:
-            log("🎉 All roadmap tasks have been successfully completed! Product is ready!")
-            break
+            stop_flag = PROJECT_ROOT / "STOP_IMPROVEMENTS"
+            if stop_flag.exists():
+                log("🛑 Stop flag detected (STOP_IMPROVEMENTS). Pausing continuous improvement loop.")
+                break
+                
+            log("✨ All scheduled tasks completed! Entering Continuous Evolution & Polish Phase...")
+            log("Running Autonomous Architecture & Craft Audit via Antigravity / Claude...")
+            
+            audit_prompt = """
+We are continuously perfecting 'Paper', our open-source self-hosted design tool.
+Review the entire project in /root/projects/paper/app.
+Identify the top 3 high-impact UX, performance, architectural, or MCP feature gaps needed to reach absolute parity with Paper.design.
+Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no backticks):
+[
+  {
+    "id": "T-POLISH-<timestamp>-1",
+    "phase": "Continuous Polish & Evolution",
+    "title": "<clear title>",
+    "description": "<concrete requirements>",
+    "assigned_agent": "codex",
+    "status": "pending",
+    "retry_count": 0,
+    "verification_cmd": "cd /root/projects/paper/app && npm run build"
+  }
+]
+"""
+            c_code, c_out = execute_agent_task("antigravity", audit_prompt)
+            try:
+                raw_json = c_out.strip()
+                if "```json" in raw_json:
+                    raw_json = raw_json.split("```json", 1)[1].split("```", 1)[0].strip()
+                elif "```" in raw_json:
+                    raw_json = raw_json.split("```", 1)[1].split("```", 1)[0].strip()
+                new_tasks = json.loads(raw_json)
+                if isinstance(new_tasks, list) and len(new_tasks) > 0:
+                    roadmap["tasks"].extend(new_tasks)
+                    save_roadmap(roadmap)
+                    log(f"🎯 Generated {len(new_tasks)} new evolution tasks for continuous perfection!")
+                    time.sleep(5)
+                    continue
+            except Exception as e:
+                log(f"Audit parse failed ({e}). Re-evaluating in 30s...")
+                time.sleep(30)
+                continue
             
         task_id = pending_task["id"]
         log(f"\n--- Starting Task: {task_id} - {pending_task['title']} ---")
