@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@theme {
+  /* Paper colour palette */
+  --color-paper-cream: #edebe1;
+  --color-paper-ink: #080808;
+  --color-paper-blue: #81adec;
+  --color-paper-blue-deep: #4c8eef;
+  --color-paper-charcoal: #222222;
+  --color-paper-surface: #f5f4ee;
+  --color-paper-border: rgba(8, 8, 8, 0.08);
+
+  /* Engineering grid */
+  --spacing-grid: 120px;
+  --spacing-grid-sub: 24px;
+
+  /* Typography */
+  --font-sans: "Inter", "Matter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "Fira Code", "Cascadia Code", monospace;
+
+  /* Motion */
+  --ease-paper: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-snap: 120ms;
+  --duration-smooth: 240ms;
+}
+
+/* ── Reset ── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--color-paper-cream);
+  color: var(--color-paper-ink);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Engineering grid overlay ── */
+.paper-grid {
+  --grid-color: rgba(8, 8, 8, 0.06);
+  --grid-tick: 120px;
+  --grid-sub: 24px;
+  background-image:
+    /* major 120px grid */
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px),
+    /* sub 24px grid */
+    linear-gradient(rgba(8, 8, 8, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(8, 8, 8, 0.03) 1px, transparent 1px);
+  background-size:
+    var(--grid-tick) var(--grid-tick),
+    var(--grid-tick) var(--grid-tick),
+    var(--grid-sub) var(--grid-sub),
+    var(--grid-sub) var(--grid-sub);
+}
+
+/* ── Vertex squares at grid intersections ── */
+.paper-vertex::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(8, 8, 8, 0.15) 1px, transparent 1px);
+  background-size: 120px 120px;
+  pointer-events: none;
+}
+
+/* ── Paper tokens as CSS custom properties ── */
+:root {
+  --paper-cream: #edebe1;
+  --paper-ink: #080808;
+  --paper-blue: #81adec;
+  --paper-blue-deep: #4c8eef;
+  --paper-charcoal: #222222;
+  --paper-surface: #f5f4ee;
+
+  --paper-radius-sm: 2px;
+  --paper-radius-md: 4px;
+  --paper-radius-lg: 8px;
+  --paper-radius-xl: 12px;
+
+  --paper-shadow-sm: 0 1px 2px rgba(8, 8, 8, 0.06);
+  --paper-shadow-md: 0 2px 8px rgba(8, 8, 8, 0.08), 0 0 0 1px rgba(8, 8, 8, 0.04);
+  --paper-shadow-panel: 0 4px 24px rgba(8, 8, 8, 0.10), 0 0 0 1px rgba(8, 8, 8, 0.06);
+}

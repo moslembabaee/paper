@@ -1,0 +1,109 @@
+{
+  "project": "Paper",
+  "version": "1.0.0",
+  "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
+  "current_task_id": "T01-project-init",
+  "tasks": [
+    {
+      "id": "T01-project-init",
+      "phase": "1. Foundation & Design System",
+      "title": "Initialize project with Vite + React + TypeScript + Tailwind CSS and Paper Design System Tokens",
+      "description": "Setup clean React TypeScript project in app/ with Tailwind v4 or v3, configure Paper design tokens (palette: #edebe1, #080808, #81adec, #4c8eef, #222222, typography: Matter/Inter, grid: 120px ticks, vertex squares). Install @paper-design/shaders-react and lucide-react.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-12T20:26:03.910685"
+    },
+    {
+      "id": "T02-infinite-canvas-core",
+      "phase": "2. Infinite Canvas Engine",
+      "title": "Build high-performance 60fps Infinite Canvas Engine with pan/zoom and viewport matrix transforms",
+      "description": "Implement CanvasViewport with world-to-screen and screen-to-world coordinate transforms, smooth zoom (wheel/trackpad), infinite pan (space+drag / middle click), minimap / zoom level indicator (10% to 3200%), and hardware-accelerated rendering loop.",
+      "assigned_agent": "codex",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test || npm run build"
+    },
+    {
+      "id": "T03-grid-rulers",
+      "phase": "2. Infinite Canvas Engine",
+      "title": "Implement Paper Engineering Grid, Top/Side Rulers, and Vertex Markers",
+      "description": "Render adaptive grid lines (120px major divisions, sub-ticks), precise pixel rulers along top and left edges synced with canvas pan/zoom, and vertex corner squares matching Paper aesthetic.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T04-scene-graph-elements",
+      "phase": "3. Vector Elements & Scene Graph",
+      "title": "Implement Scene Graph Data Model and Core Elements (Frames, Rects, Ellipses, Text, Paths)",
+      "description": "Build state store (Zustand or custom observable) managing canvas elements: Frame (artboard container), Rectangle, Ellipse, Vector Path, Text, Image. Support hierarchy, z-index, visibility, locking, and basic styling (fill, stroke, opacity, shadow).",
+      "assigned_agent": "codex",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test || npm run build"
+    },
+    {
+      "id": "T05-selection-transforms",
+      "phase": "3. Vector Elements & Scene Graph",
+      "title": "Build Selection, Dragging, Resize Handles, Rotation, and Smart Snapping",
+      "description": "Implement selection box (drag to marquee select), single and multi-select bounding box with 8 resize handles, rotation handle, cursor changes, and smart alignment guides (snap to center, edges, and distances with visual guide lines).",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T06-paper-shaders-integration",
+      "phase": "4. Paper Shaders & Visual Craft",
+      "title": "Integrate Paper Shaders Engine (MeshGradient, Halftone, Gooey, Dithering, Noise)",
+      "description": "Connect @paper-design/shaders-react so any shape or canvas background can have animated or static Paper Shaders (Mesh Gradient, Dot Orbit, Grain Gradient, Halftone CMYK, Neuro Noise) with live parameter controls in inspector panel.",
+      "assigned_agent": "codex",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T07-dev-handoff-code-export",
+      "phase": "5. Code-Bridged Dev Handoff",
+      "title": "Build Dev Mode Inspector and Production Code Generator (React + Tailwind)",
+      "description": "Implement Dev Mode toggle: clicking elements displays CSS properties, box model, tokens, and generates clean production-ready React + Tailwind CSS code (copyable with one click), matching Paper's bridge between design and code.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T08-svg-export-import",
+      "phase": "6. Export, Import & Persistence",
+      "title": "Implement Export (PNG, SVG, JSON) and Import (Figma / SVG paste support)",
+      "description": "Support exporting selected frames or whole canvas as crisp SVG and high-DPI PNG. Implement JSON project serialization / file save. Add clipboard paste handler allowing pasting SVG and HTML elements directly onto canvas.",
+      "assigned_agent": "codex",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T09-self-hosted-docker",
+      "phase": "7. Self-Hosted Docker Packaging",
+      "title": "Create Production Dockerfile and docker-compose.yml for Single-Command Self-Hosting",
+      "description": "Build multi-stage production Dockerfile (lightweight Node/Alpine or Nginx static server), write docker-compose.yml with volume persistence for projects, configure healthchecks and environment variables.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper && docker compose build"
+    },
+    {
+      "id": "T10-e2e-visual-tests",
+      "phase": "8. Quality Gate & Visual Testing",
+      "title": "Implement Playwright E2E Visual Verification Tests",
+      "description": "Write Playwright tests in e2e/ verifying canvas mounting, pan/zoom responsiveness, shape creation, shader rendering, selection bounding box, and screenshot capture for regression prevention.",
+      "assigned_agent": "antigravity",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npx playwright test --reporter=line"
+    }
+  ]
+}
