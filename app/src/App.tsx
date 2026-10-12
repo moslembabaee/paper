@@ -1,239 +1,117 @@
-import { tokens } from './design-system/tokens'
+import { useState } from 'react'
+import { ArrowDownRight, ArrowUpRight, ChevronDown, ChevronRight, Circle, Grid2X2, Hand, Layers, MousePointer2, PanelLeftClose, Square, X } from 'lucide-react'
+import { CanvasViewport, ViewportController, unionBounds } from './canvas'
+import type { MinimapItem } from './canvas'
+import './App.css'
 
-interface SwatchProps {
-  name: string
-  hex: string
-  light?: boolean
+const ARTBOARDS: readonly MinimapItem[] = [
+  { id: '01 — A little space', x: 0, y: 0, width: 720, height: 480, color: '#f5f4ee' },
+  { id: '02 — Make room', x: 840, y: 0, width: 360, height: 480, color: '#81adec' },
+  { id: '03 — Material studies', x: 0, y: 600, width: 720, height: 240, color: '#222222' },
+]
+const CONTENT_BOUNDS = unionBounds(ARTBOARDS)
+
+function PaperMark() {
+  return <svg width="23" height="25" viewBox="0 0 23 25" fill="none" aria-hidden="true"><path d="M2 1h13l6 6v17H2V1Z" fill="currentColor" /><path d="M14 1v7h7" stroke="#edebe1" strokeWidth="1.5" /><path d="M6 13h11M6 17h8" stroke="#edebe1" strokeWidth="1.5" /></svg>
 }
 
-function Swatch({ name, hex, light }: SwatchProps) {
+function OrbitStudy() {
   return (
-    <div className="flex flex-col gap-2">
-      <div
-        className="w-full aspect-square rounded"
-        style={{
-          background: hex,
-          border: light ? `1px solid ${tokens.color.border}` : 'none',
-          borderRadius: tokens.radius.md,
-          boxShadow: tokens.color.border,
-        }}
-      />
-      <div>
-        <p className="text-xs font-medium" style={{ color: tokens.color.charcoal }}>{name}</p>
-        <p className="text-xs font-mono" style={{ color: tokens.color.ink, opacity: 0.4 }}>{hex}</p>
-      </div>
-    </div>
-  )
-}
-
-interface TokenRowProps {
-  label: string
-  value: string | number
-}
-
-function TokenRow({ label, value }: TokenRowProps) {
-  return (
-    <div
-      className="flex items-center justify-between py-3 px-0"
-      style={{ borderBottom: `1px solid ${tokens.color.border}` }}
-    >
-      <span className="text-sm" style={{ color: tokens.color.charcoal }}>{label}</span>
-      <code
-        className="text-xs px-2 py-1"
-        style={{
-          background: tokens.color.surface,
-          borderRadius: tokens.radius.sm,
-          color: tokens.color.blueDeep,
-          fontFamily: tokens.font.mono,
-        }}
-      >
-        {String(value)}
-      </code>
-    </div>
-  )
-}
-
-function GridDemo() {
-  return (
-    <div
-      className="paper-grid relative w-full overflow-hidden"
-      style={{
-        height: 240,
-        borderRadius: tokens.radius.lg,
-        border: `1px solid ${tokens.color.border}`,
-      }}
-    >
-      {/* Vertex markers */}
-      {Array.from({ length: 3 }).map((_, row) =>
-        Array.from({ length: 4 }).map((_, col) => (
-          <div
-            key={`${row}-${col}`}
-            className="absolute"
-            style={{
-              left: col * 120,
-              top: row * 120,
-              width: 5,
-              height: 5,
-              background: tokens.color.blueDeep,
-              opacity: 0.5,
-              transform: 'translate(-2.5px, -2.5px)',
-            }}
-          />
-        ))
-      )}
-      <div
-        className="absolute bottom-4 left-4 text-xs font-mono"
-        style={{ color: tokens.color.ink, opacity: 0.4 }}
-      >
-        120px engineering grid · 24px sub-grid
-      </div>
-    </div>
+    <svg className="orbit-study" viewBox="0 0 360 320" fill="none" aria-hidden="true">
+      <circle cx="180" cy="160" r="116" stroke="#080808" strokeWidth="1" />
+      <ellipse cx="180" cy="160" rx="116" ry="40" stroke="#080808" transform="rotate(-45 180 160)" />
+      <ellipse cx="180" cy="160" rx="116" ry="40" stroke="#080808" transform="rotate(45 180 160)" />
+      <ellipse cx="180" cy="160" rx="40" ry="116" stroke="#080808" />
+      <path d="M40 160h280M180 20v280" stroke="#080808" strokeOpacity=".25" strokeDasharray="3 4" />
+      <circle cx="263" cy="79" r="8" fill="#080808" />
+      <circle cx="180" cy="160" r="6" fill="#edebe1" stroke="#080808" />
+    </svg>
   )
 }
 
 export default function App() {
+  const [controller] = useState(() => new ViewportController())
+  const [tool, setTool] = useState<'select' | 'hand'>('select')
+  const [grid, setGrid] = useState(true)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [layersVisible, setLayersVisible] = useState(true)
+  const activeBoard = ARTBOARDS.find((board) => board.id === selected)
+
+  function focusBoard(board: MinimapItem) {
+    setSelected(board.id)
+    controller.fit(board, 80)
+  }
+
   return (
-    <div
-      className="min-h-screen"
-      style={{ background: tokens.color.cream, fontFamily: tokens.font.sans }}
-    >
-      <div className="max-w-5xl mx-auto px-8 py-16">
+    <div className="paper-app">
+      <header className="app-header">
+        <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
+        <div className="document-name"><span className="document-divider" /><span>Space to think</span><ChevronDown size={12} /><span className="document-state">Local document</span></div>
+        <div className="header-end"><span className="local-status"><i />All changes local</span><span className="project-avatar" title="Your self-hosted workspace">P</span></div>
+      </header>
 
-        {/* Header */}
-        <header className="mb-16">
-          <div className="flex items-center gap-3 mb-6">
-            <div
-              style={{
-                width: 32,
-                height: 32,
-                background: tokens.color.ink,
-                borderRadius: tokens.radius.sm,
-              }}
-            />
-            <span className="text-sm font-medium tracking-widest uppercase" style={{ color: tokens.color.charcoal, opacity: 0.5, letterSpacing: '0.12em' }}>
-              Paper
-            </span>
+      <div className="editor-layout">
+        {layersVisible && (
+          <aside className="layers-panel" aria-label="Document layers">
+            <div className="panel-heading"><span>Layers</span><button className="quiet-button" aria-label="Hide layers" onClick={() => setLayersVisible(false)}><PanelLeftClose size={14} /></button></div>
+            <div className="page-row"><Layers size={13} /><span>Explorations</span><span className="page-count">01</span></div>
+            <div className="layer-section-heading">ARTBOARDS <span>3</span></div>
+            {ARTBOARDS.map((board, index) => (
+              <button key={board.id} className={`layer-row ${selected === board.id ? 'selected' : ''}`} onClick={() => focusBoard(board)}>
+                <Square size={13} /><span>{board.id.slice(5)}</span><span className="layer-index">0{index + 1}</span>
+              </button>
+            ))}
+            <div className="layers-bottom"><span className="workspace-label">YOUR WORKSPACE</span><p>Room for your next idea.</p><span>Infinite by design.</span></div>
+          </aside>
+        )}
+
+        <main className="canvas-stage">
+          <div className="canvas-toolbar viewport-ui" role="toolbar" aria-label="Canvas tools">
+            {!layersVisible && <button className="tool-button" title="Show layers" aria-label="Show layers" onClick={() => setLayersVisible(true)}><Layers size={17} /></button>}
+            <button className={`tool-button ${tool === 'select' ? 'active' : ''}`} aria-label="Selection tool" aria-pressed={tool === 'select'} title="Selection tool" onClick={() => setTool('select')}><MousePointer2 size={17} /></button>
+            <button className={`tool-button ${tool === 'hand' ? 'active' : ''}`} aria-label="Pan tool" aria-pressed={tool === 'hand'} title="Pan tool (or hold Space)" onClick={() => setTool('hand')}><Hand size={17} /></button>
+            <span className="toolbar-divider" />
+            <button className={`tool-button ${grid ? 'grid-active' : ''}`} aria-label="Toggle engineering grid" aria-pressed={grid} title="120px engineering grid" onClick={() => setGrid(!grid)}><Grid2X2 size={16} /></button>
           </div>
-          <h1
-            className="text-5xl font-semibold tracking-tight mb-3"
-            style={{ color: tokens.color.ink, letterSpacing: '-0.03em', lineHeight: 1.05 }}
-          >
-            Design System
-          </h1>
-          <p className="text-base" style={{ color: tokens.color.charcoal, opacity: 0.6 }}>
-            Foundation tokens for the Paper vector canvas tool.
-          </p>
-        </header>
+          <CanvasViewport controller={controller} contentBounds={CONTENT_BOUNDS} minimapItems={ARTBOARDS} gridVisible={grid} panMode={tool === 'hand'}>
+            {ARTBOARDS.map((board, index) => (
+              <div key={board.id} className={`artboard-wrap ${selected === board.id ? 'is-selected' : ''}`} style={{ left: board.x, top: board.y, width: board.width, height: board.height }}>
+                <div className="artboard-label">{board.id}<span>{board.width} × {board.height}</span></div>
+                <article className={`artboard artboard-${index}`} aria-label={board.id} onClick={() => { if (tool === 'select') setSelected(board.id) }}>
+                  {index === 0 && <>
+                    <div className="hero-card-top"><span>SPACE / STUDIO</span><span>Independent by nature <ArrowUpRight size={14} /></span></div>
+                    <h1>A little space.<br />A lot of possibility<span>.</span></h1>
+                    <p>A place for ideas to take shape.<br />Made for the way you think.</p>
+                    <div className="hero-card-bottom"><span className="hero-card-cta">Make something your own <ArrowUpRight size={16} /></span><span>EST. 2026</span></div>
+                    <span className="hero-corner" aria-hidden="true">+</span>
+                  </>}
+                  {index === 1 && <>
+                    <div className="poster-top"><span>STUDY / 002</span><ArrowDownRight size={21} /></div>
+                    <OrbitStudy />
+                    <div className="poster-bottom"><h2>Make room.</h2><span>FOR SOMETHING NEW</span></div>
+                  </>}
+                  {index === 2 && <>
+                    <div className="material-copy"><span>MATERIAL / 003</span><h2>Simple things.<br />Considered well.</h2><span>FORM, COLOUR & A LITTLE CURIOSITY.</span></div>
+                    <div className="material-shapes" aria-hidden="true"><span /><span /><span /></div>
+                  </>}
+                </article>
+              </div>
+            ))}
+          </CanvasViewport>
+        </main>
 
-        {/* Colour Palette */}
-        <section className="mb-16">
-          <h2
-            className="text-xs font-medium tracking-widest uppercase mb-6"
-            style={{ color: tokens.color.ink, opacity: 0.4, letterSpacing: '0.1em' }}
-          >
-            Colour Palette
-          </h2>
-          <div className="grid grid-cols-6 gap-4">
-            <Swatch name="Cream" hex={tokens.color.cream} light />
-            <Swatch name="Ink" hex={tokens.color.ink} />
-            <Swatch name="Blue" hex={tokens.color.blue} />
-            <Swatch name="Blue Deep" hex={tokens.color.blueDeep} />
-            <Swatch name="Charcoal" hex={tokens.color.charcoal} />
-            <Swatch name="Surface" hex={tokens.color.surface} light />
-          </div>
-        </section>
-
-        {/* Engineering Grid */}
-        <section className="mb-16">
-          <h2
-            className="text-xs font-medium tracking-widest uppercase mb-6"
-            style={{ color: tokens.color.ink, opacity: 0.4, letterSpacing: '0.1em' }}
-          >
-            Engineering Grid
-          </h2>
-          <GridDemo />
-        </section>
-
-        {/* Typography */}
-        <section className="mb-16">
-          <h2
-            className="text-xs font-medium tracking-widest uppercase mb-6"
-            style={{ color: tokens.color.ink, opacity: 0.4, letterSpacing: '0.1em' }}
-          >
-            Typography
-          </h2>
-          <div
-            className="p-8 rounded-lg"
-            style={{
-              background: tokens.color.surface,
-              border: `1px solid ${tokens.color.border}`,
-              borderRadius: tokens.radius.lg,
-            }}
-          >
-            <p
-              className="text-5xl font-semibold mb-2"
-              style={{ color: tokens.color.ink, letterSpacing: '-0.03em', lineHeight: 1.05 }}
-            >
-              Aa
-            </p>
-            <p className="text-sm mb-1" style={{ color: tokens.color.charcoal }}>Inter / Matter — Primary Sans</p>
-            <p
-              className="text-sm font-mono"
-              style={{ color: tokens.color.blueDeep, fontFamily: tokens.font.mono }}
-            >
-              ABCDEFGHIJKLMNOPQRSTUVWXYZ
-            </p>
-            <p
-              className="text-sm font-mono"
-              style={{ color: tokens.color.blueDeep, fontFamily: tokens.font.mono }}
-            >
-              abcdefghijklmnopqrstuvwxyz 0123456789
-            </p>
-          </div>
-        </section>
-
-        {/* Design Tokens */}
-        <section className="mb-16">
-          <h2
-            className="text-xs font-medium tracking-widest uppercase mb-6"
-            style={{ color: tokens.color.ink, opacity: 0.4, letterSpacing: '0.1em' }}
-          >
-            Tokens
-          </h2>
-          <div
-            className="rounded-lg overflow-hidden"
-            style={{ border: `1px solid ${tokens.color.border}`, borderRadius: tokens.radius.lg }}
-          >
-            <div className="px-6" style={{ background: tokens.color.surface }}>
-              <TokenRow label="grid.tick" value={`${tokens.grid.tick}px`} />
-              <TokenRow label="grid.sub" value={`${tokens.grid.sub}px`} />
-              <TokenRow label="radius.sm" value={`${tokens.radius.sm}px`} />
-              <TokenRow label="radius.md" value={`${tokens.radius.md}px`} />
-              <TokenRow label="radius.lg" value={`${tokens.radius.lg}px`} />
-              <TokenRow label="duration.snap" value={`${tokens.duration.snap}ms`} />
-              <TokenRow label="duration.smooth" value={`${tokens.duration.smooth}ms`} />
-              <TokenRow label="ease.paper" value={tokens.ease.paper} />
-            </div>
-          </div>
-        </section>
-
-        {/* Status bar */}
-        <footer
-          className="flex items-center gap-2"
-          style={{ color: tokens.color.ink, opacity: 0.35 }}
-        >
-          <div
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: '#22c55e',
-              opacity: 1,
-            }}
-          />
-          <span className="text-xs font-mono">T01 · Foundation ready · Vite + React + TypeScript + Tailwind CSS v4</span>
-        </footer>
+        <aside className="inspector-panel" aria-label="Canvas properties">
+          <div className="panel-heading"><span>{activeBoard ? 'Artboard' : 'Canvas'}</span>{activeBoard ? <button className="quiet-button" aria-label="Deselect artboard" onClick={() => setSelected(null)}><X size={14} /></button> : <Circle size={11} />}</div>
+          {activeBoard ? <>
+            <div className="inspector-section"><span className="section-caption">SELECTION</span><h3>{activeBoard.id.slice(5)}</h3><div className="dimension-row"><span>W <strong>{activeBoard.width}</strong></span><span>H <strong>{activeBoard.height}</strong></span></div><div className="dimension-row"><span>X <strong>{activeBoard.x}</strong></span><span>Y <strong>{activeBoard.y}</strong></span></div><button className="text-action" onClick={() => controller.fit(activeBoard)}>Focus artboard <ChevronRight size={12} /></button></div>
+          </> : <div className="inspector-section"><span className="section-caption">WORKING SPACE</span><h3>Beyond the edges.</h3><p>Pan freely. Get closer.<br />There’s always more room.</p></div>}
+          <div className="inspector-section"><span className="section-caption">ENGINEERING GRID</span><div className="setting-row"><span>Show grid</span><button className={`grid-switch ${grid ? 'on' : ''}`} role="switch" aria-checked={grid} aria-label="Show engineering grid" onClick={() => setGrid(!grid)}><span /></button></div><div className="setting-row"><span>Major interval</span><code>120 px</code></div><div className="setting-row"><span>Subdivisions</span><code>24 px</code></div></div>
+          <div className="inspector-section"><span className="section-caption">CANVAS FILL</span><div className="fill-setting"><span /><code>EDEBE1</code><span>100%</span></div></div>
+          <div className="inspector-section navigation-guide"><span className="section-caption">FIND YOUR WAY</span><div><span>Pan</span><kbd>Space + drag</kbd></div><div><span>Also pan</span><kbd>Middle drag</kbd></div><div><span>Zoom</span><kbd>Scroll / pinch</kbd></div><div><span>Actual size</span><kbd>0</kbd></div><div><span>Fit canvas</span><kbd>1</kbd></div></div>
+          <div className="inspector-bottom"><PaperMark /><p>Your ideas.<br />Your tools. Your space.</p><span>OPEN SOURCE · SELF HOSTED</span></div>
+        </aside>
       </div>
+      <footer className="app-footer"><span><span className="footer-dot" />Paper / Infinite canvas</span><span>120 px grid<span className="footer-separator">/</span>Made to be yours.</span></footer>
     </div>
   )
 }
