@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { CanvasViewport, unionBounds } from '../canvas'
 import type { ViewportController } from '../canvas'
+import type { Camera } from '../canvas/types'
 import { getWorldBounds } from './geometry'
 import { SceneRenderer } from './SceneRenderer'
 import { SelectionOverlay } from './SelectionOverlay'
@@ -8,7 +9,7 @@ import type { SceneStore } from './store'
 import { useScene } from './useScene'
 import { ShaderSurface } from '../shaders/ShaderSurface'
 
-export function SceneCanvas({ store, controller, grid, panMode }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean }) {
+export function SceneCanvas({ store, controller, grid, panMode, initialCamera }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; initialCamera?: Camera }) {
   const elements = useScene(store, state => state.elements)
   const rootIds = useScene(store, state => state.rootIds)
   const backgroundShader = useScene(store, state => state.backgroundShader)
@@ -18,7 +19,7 @@ export function SceneCanvas({ store, controller, grid, panMode }: { store: Scene
   }, [store, rootIds, elements])
   const bounds = useMemo(() => unionBounds(items), [items])
   return (
-    <CanvasViewport controller={controller} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<SelectionOverlay store={store} controller={controller} panMode={panMode} />}>
+    <CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<SelectionOverlay store={store} controller={controller} panMode={panMode} />}>
       <SceneRenderer store={store} interactive={!panMode} />
     </CanvasViewport>
   )
