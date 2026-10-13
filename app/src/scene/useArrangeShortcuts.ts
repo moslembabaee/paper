@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { ViewportController } from '../canvas'
-import { alignSelection, distributeSelection, nudgeSelection, orderSelection, resizeSelection } from './arrange'
+import { alignSelection, deleteSelection, distributeSelection, duplicateSelection, nudgeSelection, orderSelection, resizeSelection } from './arrange'
 import type { Alignment } from './arrange'
 import type { SceneStore } from './store'
 
@@ -37,6 +37,20 @@ export function useArrangeShortcuts(store: SceneStore, controller: ViewportContr
         const front = key === 'BracketRight' || key === 'ArrowUp'
         orderSelection(store, command ? front ? 'forward' : 'backward' : front ? 'front' : 'back')
         return
+      }
+      if (command && (key === 'KeyD' || event.key === 'd' || event.key === 'D') && !event.altKey) {
+        if (store.getSnapshot().selection.length > 0) {
+          event.preventDefault(); finish()
+          duplicateSelection(store)
+          return
+        }
+      }
+      if ((event.key === 'Delete' || event.key === 'Backspace') && !event.altKey && !command) {
+        if (store.getSnapshot().selection.length > 0) {
+          event.preventDefault(); finish()
+          deleteSelection(store)
+          return
+        }
       }
       if (!ARROWS.has(event.key) || event.altKey) { if (!['Shift', 'Control', 'Meta', 'Alt'].includes(event.key)) finish(); return }
       const hasSelection = store.getSnapshot().selection.length > 0

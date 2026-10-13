@@ -108,3 +108,49 @@ export function orderSelection(store: SceneStore, order: LayerOrder): void {
     }
   }, `Arrange ${order}`)
 }
+
+export function duplicateSelection(store: SceneStore): string[] {
+  const state = store.getSnapshot()
+  const ids = selectionRoots(state, state.selection)
+  if (!ids.length) return []
+  const duplicated: string[] = []
+  store.batch(() => {
+    for (const id of ids) {
+      const node = state.elements[id]
+      if (!node || store.isLocked(id)) continue
+      const { id: _id, zIndex: _z, children: _c, ...rest } = node as any
+      const copy = {
+        ...rest,
+        x: node.x + 20,
+        y: node.y + 20,
+        name: `${node.name.replace(/ copy( \d+)?$/, '')} copy`,
+      }
+      try {
+        const added = store.add(node.type, copy)
+        duplicated.push(added.id)
+      } catch (err) {
+        console.error('Failed to duplicate element:', err)
+      }
+    }
+  }, 'Duplicate elements')
+  if (duplicated.length) store.select(duplicated)
+  return duplicated
+}
+
+export function deleteSelection(store: SceneStore): void {
+  const state = store.getSnapshot()
+  const ids = selectionRoots(state, state.selection)
+  if (!ids.length) return
+  store.batch(() => {
+    for (const id of ids) {
+      if (!store.isLocked(id) && store.getSnapshot().elements[id]) {
+        try {
+          store.remove(id)
+        } catch (err) {
+          console.error('Failed to remove element:', err)
+        }
+      }
+    }
+  }, 'Delete elements')
+  store.select([])
+}

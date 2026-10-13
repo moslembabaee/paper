@@ -2,7 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { CanvasViewport, unionBounds } from '../canvas'
 import type { ViewportController } from '../canvas'
-import type { Camera } from '../canvas/types'
+import type { Camera, Point } from '../canvas/types'
 import { getWorldBounds } from './geometry'
 import { SceneRenderer } from './SceneRenderer'
 import { SelectionOverlay } from './SelectionOverlay'
@@ -16,10 +16,12 @@ import { useArrangeShortcuts } from './useArrangeShortcuts'
 import { measurementHit } from './measurementGeometry'
 import { CollaborationOverlay } from '../collaboration/CollaborationOverlay'
 import type { CollaborationSession } from '../collaboration/session'
+import { CanvasContextMenu } from './CanvasContextMenu'
 
 export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity, prototypeOverlay, collaboration, annotationOverlay, commentMode = false }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null; prototypeOverlay?: ReactNode; collaboration?: CollaborationSession | null; annotationOverlay?: ReactNode; commentMode?: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; worldPos: Point } | null>(null)
   useLayoutEffect(() => {
     let active = true
     const refresh = () => { if (active) store.refreshLayout() }
@@ -48,13 +50,29 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || (event.target as Element).closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return
       if (event.key === 'Enter' && !penMode && !panMode && !editingId) { event.preventDefault(); enter(store.getSnapshot().selection[0]) }
     }
-    viewport.addEventListener('dblclick', doubleClick); document.addEventListener('keydown', keydown)
+    const handleContextMenu = (event: MouseEvent) => {
+      if (panMode || penMode || (event.target as Element).closest('.viewport-ui, button, input, textarea, select, [role="dialog"], [role="menu"]')) return
+      event.preventDefault()
+      const rect = viewport.getBoundingClientRect()
+      const worldPos = controller.screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top })
+      const hit = measurementHit(store.getSnapshot(), worldPos, true)
+      const currentSelection = store.getSnapshot().selection
+      if (hit) {
+        if (!currentSelection.includes(hit)) {
+          store.select([hit])
+        }
+      } else {
+        store.select([])
+      }
+      setContextMenu({ x: event.clientX, y: event.clientY, worldPos })
+    }
+    viewport.addEventListener('dblclick', doubleClick); document.addEventListener('keydown', keydown); viewport.addEventListener('contextmenu', handleContextMenu)
     const unsubscribe = store.subscribe(() => {
       if (!editingId) return
       const state = store.getSnapshot(), node = state.elements[editingId]
       if (node?.type !== 'path' || node.boolean || store.isLocked(editingId) || !store.isVisible(editingId) || state.selection.length !== 1 || state.selection[0] !== editingId) setEditingId(null)
     })
-    return () => { unsubscribe(); viewport.removeEventListener('dblclick', doubleClick); document.removeEventListener('keydown', keydown) }
+    return () => { unsubscribe(); viewport.removeEventListener('dblclick', doubleClick); document.removeEventListener('keydown', keydown); viewport.removeEventListener('contextmenu', handleContextMenu) }
   }, [store, controller, panMode, penMode, editingId, interactionDisabled])
   const elements = useScene(store, state => state.elements)
   const rootIds = useScene(store, state => state.rootIds)
@@ -65,8 +83,18 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   }, [store, rootIds, elements])
   const bounds = useMemo(() => unionBounds(items), [items])
   return (
-    <div ref={hostRef} style={{ display: 'contents' }}><CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (!panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <SelectionOverlay store={store} controller={controller} panMode={panMode} />)}</>}>
-      <SceneRenderer store={store} interactive={!panMode && !commentMode} />
-    </CanvasViewport></div>
+    <div ref={hostRef} style={{ display: 'contents' }}>
+      <CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (!panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <SelectionOverlay store={store} controller={controller} panMode={panMode} />)}</>}>
+        <SceneRenderer store={store} interactive={!panMode && !commentMode} />
+      </CanvasViewport>
+      {contextMenu && (
+        <CanvasContextMenu
+          store={store}
+          controller={controller}
+          position={contextMenu}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+    </div>
   )
 }
