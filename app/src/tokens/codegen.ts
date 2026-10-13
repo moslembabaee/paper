@@ -112,6 +112,16 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
     props.push({ property: 'overflow', value: 'hidden' })
   }
 
+  const elevation = boundToken(node, 'shadow', tokens)
+  if (elevation) {
+    const variable = tokenVariable(elevation)
+    const property = node.type === 'path' ? 'filter' : 'box-shadow'
+    const value = node.type === 'path' ? `drop-shadow(0px var(${variable}) var(${variable}) #08080826)` : `0px var(${variable}) calc(var(${variable}) * 2) #08080826`
+    const index = props.findIndex(prop => prop.property === property)
+    const prop = { property, value, token: variable, resolvedValue: index >= 0 ? props[index].value : 'none' }
+    if (index >= 0) props[index] = prop
+    else props.push(prop)
+  }
   const properties: Partial<Record<string, TokenProperty>> = { left: 'x', top: 'y', width: 'width', height: 'height', fill: 'fill', stroke: 'stroke', color: 'fill', 'background-color': 'fill', border: 'stroke', '-webkit-text-stroke': 'stroke', 'border-radius': 'cornerRadius', 'font-family': 'fontFamily', 'font-size': 'fontSize', 'font-weight': 'fontWeight', 'line-height': 'lineHeight', 'letter-spacing': 'letterSpacing' }
   return props.map(prop => {
     const property = properties[prop.property]
@@ -204,9 +214,14 @@ export function buildTailwindClasses(node: SceneElement, tokens: readonly Design
 
   if (node.style.shadow && !node.style.effects?.some(effect => effect.enabled)) {
     const { x, y, blur } = node.style.shadow
-    if (node.type === 'path') classes.push(`drop-shadow-[${x}px_${y}px_${blur / 2}px_${node.style.shadow.color}]`)
+    if (boundToken(node, 'shadow', tokens)) {
+      const variable = tokenVariable(boundToken(node, 'shadow', tokens)!)
+      classes.push(node.type === 'path' ? `[filter:drop-shadow(0px_var(${variable})_var(${variable})_#08080826)]` : bindingClass('shadow')!)
+    } else if (node.type === 'path') classes.push(`drop-shadow-[${x}px_${y}px_${blur / 2}px_${node.style.shadow.color}]`)
     else classes.push(`shadow-[${x}px_${y}px_${blur}px_${node.style.shadow.color.replace(/ /g, '_')}]`)
   }
+
+  if (!node.style.shadow && boundToken(node, 'shadow', tokens)) classes.push(bindingClass('shadow')!)
 
   if (node.type === 'text') {
     const t = node as TextElement

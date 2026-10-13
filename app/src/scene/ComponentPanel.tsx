@@ -1,3 +1,4 @@
+import { ComponentPropertiesPanel } from './ComponentPropertiesPanel'
 import { useMemo, useState, useSyncExternalStore } from 'react'
 import { ArrowUpRight, Diamond, Component as Diamonds, Plus, RotateCcw, Search, Unlink } from 'lucide-react'
 import type { ViewportController } from '../canvas/ViewportController'
@@ -10,7 +11,7 @@ import './components.css'
 
 function overrideCount(overrides: ComponentOverrides): number {
   const stroke = overrides.style?.stroke
-  return Object.keys(overrides.properties ?? {}).length + Object.keys(overrides.style ?? {}).length + (stroke ? Math.max(0, Object.keys(stroke).length - 1) : 0) + Object.keys(overrides.tokenBindings ?? {}).length
+  return Object.keys(overrides.properties ?? {}).length + Object.keys(overrides.style ?? {}).length + (stroke ? Math.max(0, Object.keys(stroke).length - 1) : 0) + Object.keys(overrides.tokenBindings ?? {}).length + Object.keys(overrides.sharedStyleBindings ?? {}).length
 }
 function overrideLabels(node: SceneElement): string[] {
   if (node.component?.kind !== 'instance') return []
@@ -38,10 +39,11 @@ export function ComponentInspector({ store, controller, node }: { store: SceneSt
   const master = state.elements[masterId]
   const instances = Object.values(state.elements).filter(layer => layer.component?.kind === 'instance' && layer.component.masterId === masterId && layer.component.instanceId === layer.id).length
   const layers = node.id === root.id ? subtree(state.elements, root.id) : [node]
-  const count = layers.reduce((total, layer) => total + (layer.component?.kind === 'instance' ? overrideCount(layer.component.overrides) : 0), 0)
+  const count = Object.keys(node.id === root.id && root.component.kind === 'instance' ? root.component.propertyValues ?? {} : {}).length + layers.reduce((total, layer) => total + (layer.component?.kind === 'instance' ? overrideCount(layer.component.overrides) : 0), 0)
   return <div className="inspector-section component-section" data-testid="component-inspector">
     <div className="component-section-heading"><span className="section-caption">{instance ? 'COMPONENT INSTANCE' : 'MASTER COMPONENT'}</span>{instance ? <Diamond size={13} /> : <Diamonds size={13} />}</div>
     <div className="component-identity"><span className={`component-mark ${instance ? '' : 'is-master'}`}><Diamond size={18} /></span><div><strong>{master?.name}</strong><span>{instance ? count ? `${count} local override${count === 1 ? '' : 's'}` : 'Synced with master' : `${instances} instance${instances === 1 ? '' : 's'} in this document`}</span></div></div>
+    {master && <ComponentPropertiesPanel key={root.id} store={store} master={master} root={root} disabled={active || store.isLocked(root.id) || (!instance && store.isLocked(masterId))} />}
     {instance ? <>
       <button className="text-action" disabled={active || !store.isVisible(masterId) || store.isLocked(masterId)} onClick={() => focus(masterId)}>Go to master<ArrowUpRight size={12} /></button>
       {count > 0 && <div className="component-override-list" aria-label="Property overrides">{layers.filter(layer => overrideLabels(layer).length).map(layer => <div key={layer.id}><span>{layer.name}</span><div>{overrideLabels(layer).map(label => <span key={label} className="component-override-chip">{label}</span>)}</div></div>)}</div>}

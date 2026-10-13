@@ -104,3 +104,6 @@
 .effect-add-row .text-action { font-size: 9px; }
 .shared-binding .property-input { min-width: 0; }
 .shared-style-row button:focus-visible, .effect-stack button:focus-visible { outline: 2px solid var(--paper-accent-text); outline-offset: 2px; }
+.token-foundations { margin: 0 14px 16px; padding: 10px; border: 1px solid var(--paper-border); border-radius: 4px; background: var(--paper-accent-soft); }
+.token-foundations .text-action { color: var(--paper-accent-text); width: 100%; justify-content: space-between; }
+.token-foundations p { font-size: 9px; color: var(--paper-text-muted); line-height: 1.6; margin: 6px 0 0; }

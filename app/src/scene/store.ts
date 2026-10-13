@@ -1,3 +1,5 @@
+import type { ComponentProperty, ComponentPropertyValue } from './types.ts'
+import { releaseComponentResources, validPropertyValue, validatePropertyTargets } from './componentProperties.ts'
 import { EMPTY_COMMENTS, validateComments } from '../comments/model.ts'
 import type { CommentDocument } from '../comments/types.ts'
 import { EMPTY_LIBRARY, detachEditedSharedStyles, resolveSharedStyles, resolveTokens, validateLibrary } from '../tokens/library.ts'
@@ -328,6 +330,33 @@ export class SceneStore {
     return node
   }
 
+  /** Definitions are document data; updating them is one undoable command. */
+  setComponentProperties(masterId: string, properties: readonly ComponentProperty[]): void {
+    const master = this.require(masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    validatePropertyTargets(master, this.state.elements, properties, resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), this.state.styleLibrary)
+    if (equalValue(properties, master.component.properties ?? [])) return
+    const next = freezeElement({ ...master, component: { ...master.component, properties } })
+    this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, 'Edit component properties')
+  }
+
+  /** Null releases a property value so it follows future master defaults. */
+  setComponentProperty(id: string, propertyId: string, value: ComponentPropertyValue | null): void {
+    const root = componentRoot(this.state.elements, id)
+    if (root?.component?.kind !== 'instance') throw new Error('Choose a component instance')
+    if (this.isLocked(root.id) || this.history.getSnapshot().active) throw new Error('Unlock the instance and finish the active edit first')
+    const master = this.require(root.component.masterId)
+    const property = master.component?.kind === 'master' ? master.component.properties?.find(property => property.id === propertyId) : undefined
+    if (!property || (value !== null && !validPropertyValue(property, value))) throw new Error('Choose a valid component property value')
+    const propertyValues = { ...root.component.propertyValues }
+    if (value === null) delete propertyValues[propertyId]
+    else propertyValues[propertyId] = value
+    if (equalValue(propertyValues, root.component.propertyValues ?? {})) return
+    const next = freezeElement({ ...root, component: { ...root.component, propertyValues } })
+    this.commit({ ...this.state.elements, [root.id]: next }, this.state.rootIds, this.state.selection, `Change ${property.name}`)
+  }
+
   createComponentInstance(masterId: string, placement: { x?: number; y?: number; parentId?: string | null } = {}): SceneElement {
     const master = this.require(masterId)
     if (master.component?.kind !== 'master') throw new Error('Choose a master component')
@@ -376,7 +405,7 @@ export class SceneStore {
     if (this.isLocked(id) || this.history.getSnapshot().active) throw new Error('Unlock the layer and finish the active edit first')
     const elements = { ...this.state.elements }
     const nodes = node.component.instanceId === id ? subtree(elements, id) : [node]
-    for (const child of nodes) if (child.component?.kind === 'instance') elements[child.id] = freezeElement({ ...child, component: { ...child.component, overrides: {} } })
+    for (const child of nodes) if (child.component?.kind === 'instance') elements[child.id] = freezeElement({ ...child, component: { ...child.component, overrides: {}, ...(child.id === id && child.component.propertyValues ? { propertyValues: {} } : {}) } })
     this.commit(elements, this.state.rootIds, this.state.selection, `Reset ${node.name} overrides`)
   }
 
@@ -615,7 +644,8 @@ export class SceneStore {
     const elements = { ...this.state.elements }
     for (const node of Object.values(elements)) {
       // Values were already resolved; removing a token detaches, retaining its appearance.
-      let next = detachRemovedTokenBindings(node, removed)
+      let next = releaseComponentResources(node, this.state.elements, resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), this.state.styleLibrary, removed, 'tokens')
+      next = detachRemovedTokenBindings(next, removed)
       if (next.component?.kind === 'instance' && next.component.overrides.tokenBindings) {
         for (const [property, tokenId] of Object.entries(next.component.overrides.tokenBindings)) {
           if (tokenId !== null && removed.has(tokenId)) next = recordComponentTokenEdit(next, next, property as TokenProperty, null)
@@ -659,7 +689,7 @@ export class SceneStore {
     if (this.isLocked(id)) throw new Error('Element is locked')
     if (!supportsTokenProperty(node, property)) throw new Error('Unsupported token property')
     if (node.tokenBindings?.[property] === tokenId) return
-    const next = this.resolveStyles({ ...node, ...(node.sharedStyleBindings ? { sharedStyleBindings: detachEditedSharedStyles(node.sharedStyleBindings, property === 'fill' ? { style: { fill: true } } : { [property]: true }) } : {}), ...(property === 'width' || property === 'height' ? { sizing: { ...(node.sizing ?? FIXED_SIZING), [property]: 'fixed' } } : {}), tokenBindings: { ...node.tokenBindings, [property]: tokenId } })
+    const next = this.resolveStyles({ ...node, ...(node.sharedStyleBindings ? { sharedStyleBindings: detachEditedSharedStyles(node.sharedStyleBindings, property === 'shadow' ? { style: { shadow: true } } : property === 'fill' ? { style: { fill: true } } : { [property]: true }) } : {}), ...(property === 'width' || property === 'height' ? { sizing: { ...(node.sizing ?? FIXED_SIZING), [property]: 'fixed' } } : {}), tokenBindings: { ...node.tokenBindings, [property]: tokenId } })
     validateElement(next)
     const updated = recordComponentTokenEdit(node, next, property, tokenId)
     this.commit({ ...this.state.elements, [id]: freezeElement(updated) }, this.state.rootIds, this.state.selection, `Bind ${property} token`)
@@ -744,6 +774,7 @@ export class SceneStore {
     if (this.isLocked(id)) throw new Error('Element is locked')
     if (node.sharedStyleBindings?.[kind] === styleId) return
     const tokenBindings = { ...node.tokenBindings }
+    if (kind === 'effects') delete tokenBindings.shadow
     if (kind === 'color') delete tokenBindings.fill
     if (kind === 'typography') for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'] as const) delete tokenBindings[key]
     const next = this.resolveStyles({ ...node, tokenBindings, sharedStyleBindings: { ...node.sharedStyleBindings, [kind]: styleId } })
@@ -757,7 +788,7 @@ export class SceneStore {
     const overrides = { ...original, properties: { ...original.properties }, style: { ...original.style }, tokenBindings: { ...original.tokenBindings } }
     if (id !== null) {
       if (kind === 'color') { delete overrides.style.fill; delete overrides.tokenBindings.fill }
-      if (kind === 'effects') { delete overrides.style.effects; delete overrides.style.shadow }
+      if (kind === 'effects') { delete overrides.style.effects; delete overrides.style.shadow; delete overrides.tokenBindings.shadow }
       if (kind === 'typography') for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign'] as const) {
         delete (overrides.properties as Record<string, unknown>)[key]
         delete (overrides.tokenBindings as Record<string, unknown>)[key]
@@ -779,7 +810,7 @@ export class SceneStore {
   removeSharedStyle(id: string): void {
     if (!this.state.styleLibrary.styles.some(style => style.id === id)) return
     const detach = (node: SceneElement): SceneElement => {
-      let next = node
+      let next = releaseComponentResources(node, this.state.elements, resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), this.state.styleLibrary, new Set([id]), 'styles')
       for (const kind of ['color', 'typography', 'effects'] as const) if (next.sharedStyleBindings?.[kind] === id) {
         const sharedStyleBindings = { ...next.sharedStyleBindings }; delete sharedStyleBindings[kind]
         next = this.recordSharedStyleBinding(next, { ...next, sharedStyleBindings }, kind, null)

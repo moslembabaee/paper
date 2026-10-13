@@ -163,12 +163,25 @@ export interface ComponentOverrides {
   /** Only local bindings are stored. Null releases a binding while retaining its value. */
   readonly tokenBindings?: Readonly<Partial<Record<TokenProperty, string | null>>>
 }
-export type ComponentLink = { readonly kind: 'master' } | {
+export type ComponentPropertyValue = string | boolean
+export type ComponentProperty = Readonly<{ id: string; name: string }> & (
+  | { readonly kind: 'text'; readonly sourceId: string; readonly defaultValue: string }
+  | { readonly kind: 'boolean'; readonly sourceId: string; readonly defaultValue: boolean }
+  | { readonly kind: 'variant'; readonly defaultValue: string; readonly options: readonly ComponentVariant[] }
+)
+export interface ComponentVariant {
+  readonly value: string
+  /** Patches use master layer IDs; instance IDs never leak into definitions. */
+  readonly layers: Readonly<Record<string, ComponentOverrides>>
+}
+export type ComponentLink = { readonly kind: 'master'; readonly properties?: readonly ComponentProperty[] } | {
   readonly kind: 'instance'
   readonly masterId: string
   readonly sourceId: string
   readonly instanceId: string
   readonly overrides: ComponentOverrides
+  /** Stored on the instance root only. Absent entries inherit the current default. */
+  readonly propertyValues?: Readonly<Record<string, ComponentPropertyValue>>
 }
 
 export interface SceneDocument {

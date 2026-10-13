@@ -1,10 +1,12 @@
 import { resolveTokens, validateEffects } from './library.ts'
-import type { PathElement, SceneElement, VectorElement } from '../scene/types.ts'
+import { equalValue } from '../scene/history.ts'
+import type { Shadow, PathElement, SceneElement, VectorElement } from '../scene/types.ts'
 import { refreshBooleanElement, sameVectorGeometry } from '../scene/booleanGeometry.ts'
 import type { DesignToken, TokenBindings, TokenProperty, TokenType } from './types.ts'
 
 export const TOKEN_META = {
   color: { label: 'Color', namespace: 'color', defaultValue: '#81adec', unit: '' },
+  elevation: { label: 'Elevation', namespace: 'elevation', defaultValue: 4, unit: 'px' },
   radius: { label: 'Radius', namespace: 'radius', defaultValue: 8, unit: 'px' },
   spacing: { label: 'Spacing', namespace: 'spacing', defaultValue: 24, unit: 'px' },
   fontFamily: { label: 'Font family', namespace: 'font', defaultValue: 'Inter, sans-serif', unit: '' },
@@ -63,8 +65,13 @@ export function validateTokens(tokens: readonly DesignToken[]): readonly DesignT
   return Object.freeze(tokens.map(token => Object.freeze({ ...Object.fromEntries(Object.entries(token).filter(([, value]) => value !== undefined)), ...(token.themeValues ? { themeValues: Object.freeze({ ...token.themeValues }) } : {}) }) as DesignToken))
 }
 
+export function elevationShadow(distance: number): Shadow | null {
+  return distance === 0 ? null : { color: '#08080826', x: 0, y: distance, blur: distance * 2 }
+}
+
 export function propertyTokenTypes(property: TokenProperty): readonly TokenType[] {
   if (property === 'fill' || property === 'stroke') return ['color']
+  if (property === 'shadow') return ['elevation']
   if (property === 'cornerRadius') return ['radius']
   if (property === 'width') return ['spacing', 'container']
   if (['x', 'y', 'height'].includes(property)) return ['spacing']
@@ -72,7 +79,7 @@ export function propertyTokenTypes(property: TokenProperty): readonly TokenType[
 }
 
 export function supportsTokenProperty(node: SceneElement, property: string): property is TokenProperty {
-  return property === 'fill' || property === 'stroke' || ['x', 'y', 'width', 'height'].includes(property) || (property === 'cornerRadius' && 'cornerRadius' in node) || (node.type === 'text' && ['fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing'].includes(property))
+  return property === 'shadow' || property === 'fill' || property === 'stroke' || ['x', 'y', 'width', 'height'].includes(property) || (property === 'cornerRadius' && 'cornerRadius' in node) || (node.type === 'text' && ['fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing'].includes(property))
 }
 
 /** Materialize bound values at the store boundary, preserving every unbound node's identity. */
@@ -109,6 +116,9 @@ export function resolveTokenBindings(node: SceneElement, tokens: readonly Design
     } else if (property === 'stroke') {
       if (!next.style.stroke) throw new Error('A stroke binding requires a stroke')
       if (next.style.stroke.color !== token.value) next = { ...next, style: { ...next.style, stroke: { ...next.style.stroke, color: token.value as string } } }
+    } else if (property === 'shadow') {
+      const shadow = elevationShadow(token.value as number)
+      if (!equalValue(next.style.shadow, shadow) || next.style.effects?.length) next = { ...next, style: { ...next.style, shadow, effects: [] } }
     } else if (next[property as keyof SceneElement] !== token.value) next = { ...next, [property]: token.value } as SceneElement
   }
   return next
@@ -147,6 +157,8 @@ export function detachEditedBindings(bindings: TokenBindings | undefined, patch:
       if (!style || !Object.hasOwn(style, 'stroke')) continue
       const stroke = style.stroke as { color?: string } | null
       if (stroke === null || (stroke && Object.hasOwn(stroke, 'color') && stroke.color !== previous.style.stroke?.color)) delete next.stroke
+    } else if (property === 'shadow') {
+      if (style && (Object.hasOwn(style, 'shadow') || Object.hasOwn(style, 'effects'))) delete next.shadow
     } else if (Object.hasOwn(patch, property)) delete next[property]
   }
   return next
@@ -157,7 +169,8 @@ export function boundToken(node: SceneElement, property: TokenProperty, tokens: 
   return id ? tokens.find(token => token.id === id) : undefined
 }
 export function tokenClass(token: DesignToken, property: TokenProperty, text = false, tokens: readonly DesignToken[] = []): string {
-  const prefix: Record<TokenProperty, string> = { fill: text ? 'text' : 'bg', stroke: 'border', cornerRadius: 'rounded', fontSize: 'text', fontFamily: 'font', fontWeight: 'font', lineHeight: 'leading', letterSpacing: 'tracking', x: 'left', y: 'top', width: 'w', height: 'h' }
+  const prefix: Record<TokenProperty, string> = { fill: text ? 'text' : 'bg', stroke: 'border', shadow: 'shadow', cornerRadius: 'rounded', fontSize: 'text', fontFamily: 'font', fontWeight: 'font', lineHeight: 'leading', letterSpacing: 'tracking', x: 'left', y: 'top', width: 'w', height: 'h' }
+  if (property === 'shadow') return `shadow-[0px_var(${tokenVariable(token)})_calc(var(${tokenVariable(token)})*2)_#08080826]`
   // These built-in color utilities bypass theme variables entirely.
   if (token.type === 'color' && ['inherit', 'current', 'transparent'].includes(token.name)) return `${prefix[property]}-[color:var(${tokenVariable(token)})]`
   // Tailwind resolves text-* colors before sizes and font-* families before weights.

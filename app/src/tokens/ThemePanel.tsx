@@ -1,3 +1,4 @@
+import { foundationTokens } from './foundation'
 import { DocumentThemes } from './DocumentThemes'
 import { StyleLibraryPanel } from './StyleLibraryPanel'
 import { resolveTokens } from './library'
@@ -13,6 +14,7 @@ import './tokens.css'
 
 const groups: { label: string; types: TokenType[] }[] = [
   { label: 'Color', types: ['color'] }, { label: 'Radius', types: ['radius'] },
+  { label: 'Elevation', types: ['elevation'] },
   { label: 'Spacing', types: ['spacing'] },
   { label: 'Typography', types: ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'] },
   { label: 'Layout', types: ['container', 'breakpoint'] },
@@ -112,6 +114,7 @@ export function ThemePanel({ store }: { store: SceneStore }) {
     if (event.key === 'Escape') { setMenu(null); setSelected([]) }
   }}>
     <div className="theme-intro"><span className="section-caption">DESIGN SYSTEM</span><h3>One value. Everywhere.</h3><p>A shared language for your canvas and code.</p></div>
+    <div className="token-foundations"><button className="text-action" onClick={() => { try { const missing = foundationTokens(snapshot.tokens); if (missing.length) store.addTokens(missing); setNotice(missing.length ? `Added ${missing.length} foundation tokens.` : 'Foundation tokens are already in this document.') } catch (cause) { setNotice(cause instanceof Error ? cause.message : 'Unable to add tokens') } }}>Add foundation tokens <Plus size={12} /></button><p>Semantic colors, a type scale, and elevation.</p></div>
     <DocumentThemes store={store} />
     <div className="theme-tools"><label className="token-search"><Search size={12} /><input aria-label="Search tokens" placeholder="Find a token…" value={search} onChange={event => setSearch(event.currentTarget.value)} /></label><button className="quiet-button" aria-label="Add token" title="Add token" onClick={() => setEditor({ type: 'color' })}><Plus size={15} /></button></div>
     <div className="token-groups">{groups.map(group => {
@@ -124,7 +127,7 @@ export function ThemePanel({ store }: { store: SceneStore }) {
               if (event.shiftKey || event.metaKey || event.ctrlKey) { setSelected(ids => ids.includes(token.id) ? ids.filter(id => id !== token.id) : [...ids, token.id]); return }
               setSelected([token.id]); setEditor({ token: snapshot.tokens.find(value => value.id === token.id), type: token.type })
             }}>
-              <span className={`token-preview token-preview-${token.type}`} style={token.type === 'color' ? { background: token.value } : token.type === 'radius' ? { borderRadius: Math.min(token.value, 10) } : token.type === 'fontFamily' ? { fontFamily: token.value } : undefined}>{token.type === 'color' || token.type === 'radius' ? '' : group.label === 'Typography' ? 'Aa' : '↔'}</span>
+              <span className={`token-preview token-preview-${token.type}`} style={token.type === 'color' ? { background: token.value } : token.type === 'radius' ? { borderRadius: Math.min(token.value, 10) } : token.type === 'elevation' ? { background: '#edebe1', boxShadow: `0 ${token.value / 2}px ${token.value}px #08080826` } : token.type === 'fontFamily' ? { fontFamily: token.value } : undefined}>{token.type === 'color' || token.type === 'radius' ? '' : group.label === 'Typography' ? 'Aa' : '↔'}</span>
               <span className="token-item-content"><strong>{token.name}</strong><code>{token.aliasId ? `↗ ${tokens.find(value => value.id === token.aliasId)?.name}` : tokenCSSValue(token)}{token.palette ? ` · ${token.palette}` : ''}</code></span>{uses > 0 && <span className="token-usage">{uses}</span>}
             </button>
             {menu === token.id && <div className="token-context-menu" role="menu" aria-label="Token actions"><button role="menuitem" onClick={() => { const duplicate = store.duplicateToken(token.id); setEditor({ token: duplicate, type: duplicate.type }); setMenu(null) }}><Copy size={12} />Duplicate</button><button role="menuitem" onClick={() => copy(token.id)}><Copy size={12} />Copy{selected.length > 1 ? ` ${selected.length} tokens` : ''}</button><button role="menuitem" onClick={() => { store.removeTokens(chosen(token.id).map(value => value.id)); setSelected([]); setMenu(null) }}><Trash2 size={12} />Delete{selected.length > 1 ? ` ${selected.length} tokens` : ''}</button></div>}

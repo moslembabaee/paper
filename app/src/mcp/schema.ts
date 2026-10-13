@@ -81,11 +81,11 @@ const specific: Record<string, Record<string, JsonSchema>> = {
   text: { text: { type: 'string' }, fontFamily: str(), fontSize: positive, fontWeight: { type: 'number', minimum: 1, maximum: 1000 }, lineHeight: positive, letterSpacing: num, textAlign: { type: 'string', enum: ['left', 'center', 'right'] } },
   image: { src: { type: 'string' }, alt: { type: 'string' }, fit: { type: 'string', enum: ['cover', 'contain', 'fill'] }, cornerRadius: nonnegative },
 }
-const tokenProperties = ['fill', 'stroke', 'cornerRadius', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'x', 'y', 'width', 'height'] as const
+const tokenProperties = ['fill', 'stroke', 'shadow', 'cornerRadius', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'x', 'y', 'width', 'height'] as const
 const tokenBindings = object(Object.fromEntries(tokenProperties.map(property => [property, str()])))
 const sharedStyleBindings = object({ color: str(), typography: str(), effects: str() })
 function tokenValueSchema(type: string): JsonSchema {
-  return type === 'color' || type === 'fontFamily' ? str() : type === 'letterSpacing' ? num : type === 'fontWeight' ? { type: 'number', minimum: 1, maximum: 1000 } : type === 'radius' || type === 'spacing' ? nonnegative : positive
+  return type === 'color' || type === 'fontFamily' ? str() : type === 'letterSpacing' ? num : type === 'fontWeight' ? { type: 'number', minimum: 1, maximum: 1000 } : type === 'radius' || type === 'spacing' || type === 'elevation' ? nonnegative : positive
 }
 export const tokenSchema: JsonSchema = {
   anyOf: Object.keys(TOKEN_META).map(type => object({
@@ -108,10 +108,28 @@ export const styleLibrarySchema: JsonSchema = object({
   themes: list(object({ id: { ...str(), pattern: '^[a-zA-Z0-9_-]{1,200}$' }, name: { ...str(), maxLength: 100 } }, ['id', 'name'])),
   activeThemeId: nullable(str()), styles: list(sharedStyleSchema),
 }, ['themes', 'activeThemeId', 'styles'])
+const overrideFields: Record<string, JsonSchema> = { name: str(), ...geometry, visible: flag, locked: flag, sizing, ...Object.assign({}, ...Object.values(specific)), nodes: list({ type: 'object', additionalProperties: true }) }
+delete overrideFields.children
+const componentOverridesSchema = object({
+  properties: object(overrideFields),
+  style: object({ ...styleProperties, stroke: nullable(object({ color: str(), width: nonnegative, dash: list(nonnegative) })) }),
+  tokenBindings: object(Object.fromEntries(tokenProperties.map(property => [property, nullable(str())]))),
+  sharedStyleBindings: object({ color: nullable(str()), typography: nullable(str()), effects: nullable(str()) }),
+})
+const propertyIdentity = { id: { ...str(), maxLength: 200 }, name: { ...str(), maxLength: 100 } }
+export const componentPropertySchema: JsonSchema = { anyOf: [
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['text'] }, sourceId: str(), defaultValue: { type: 'string' } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['boolean'] }, sourceId: str(), defaultValue: flag }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['variant'] }, defaultValue: str(), options: { ...list(object({ value: { ...str(), maxLength: 100 }, layers: { type: 'object', additionalProperties: componentOverridesSchema } }, ['value', 'layers'])), minItems: 1, maxItems: 100 } }, ['id', 'name', 'kind', 'defaultValue', 'options']),
+] }
+export const componentSchema: JsonSchema = { anyOf: [
+  object({ kind: { type: 'string', enum: ['master'] }, properties: { ...list(componentPropertySchema), maxItems: 100 } }, ['kind']),
+  object({ kind: { type: 'string', enum: ['instance'] }, masterId: str(), sourceId: str(), instanceId: str(), overrides: componentOverridesSchema, propertyValues: { type: 'object', additionalProperties: { anyOf: [{ type: 'string' }, flag] } } }, ['kind', 'masterId', 'sourceId', 'instanceId', 'overrides']),
+] }
 export const elementSchema: JsonSchema = {
   anyOf: Object.entries(specific).map(([type, fields]) => {
     const properties = { ...identity, ...geometry, type: { type: 'string', enum: [type] } as JsonSchema, style: object(styleProperties, ['fill', 'stroke', 'opacity', 'shadow']), ...fields }
-    return object({ ...properties, tokenBindings, sharedStyleBindings, sizing }, Object.keys(properties).filter(key => key !== 'layout'))
+    return object({ ...properties, tokenBindings, sharedStyleBindings, sizing, component: componentSchema }, Object.keys(properties).filter(key => key !== 'layout'))
   }),
 }
 export const projectSchema = {

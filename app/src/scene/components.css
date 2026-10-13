@@ -48,3 +48,17 @@
 .scene-layer-row.is-master .layer-select > svg { fill: var(--paper-accent-soft); }
 .layer-instance-dot { width: 4px; height: 4px; flex-shrink: 0; background: var(--paper-accent-text); border-radius: 50%; }
 .component-action:focus-visible, .component-card-master:focus-visible, .component-card-insert:focus-visible { outline: 2px solid var(--paper-accent-text); outline-offset: 2px; }
+.component-properties { border-top: 1px solid var(--paper-border); margin-top: 12px; padding-top: 12px; }
+.component-property { display: grid; gap: 7px; margin-top: 12px; }
+.component-property-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10px; color: var(--paper-text-secondary); }
+.component-property-heading > span { min-width: 0; overflow-wrap: anywhere; }
+.component-property small { display: block; margin-top: 3px; font: 8px var(--font-mono); color: var(--paper-text-muted); }
+.component-property.is-local .component-property-heading { color: var(--paper-accent-text); }
+.component-properties .property-input { width: 100%; min-width: 0; height: 30px; }
+.component-property-switch { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--paper-border); border-radius: 4px; font-size: 10px; color: var(--paper-text-secondary); }
+.component-property-switch input { accent-color: var(--paper-accent-text); }
+.component-variant-capture { display: grid; gap: 8px; padding: 8px; background: var(--paper-hover); border-radius: 4px; }
+.component-variant-capture > div { display: flex; align-items: center; gap: 6px; }
+.component-variant-capture > div > span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 9px; }
+.component-property-form { display: grid; gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid var(--paper-border-strong); border-radius: 4px; }
+.component-properties input:focus-visible, .component-properties select:focus-visible { outline: 1px solid var(--paper-accent-text); outline-offset: 2px; }
