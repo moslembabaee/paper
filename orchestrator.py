@@ -9,10 +9,13 @@ import os
 import sys
 import json
 import time
+import re
 import shlex
 import subprocess
 from datetime import datetime
 from pathlib import Path
+
+import roadmap_sync
 
 # Ensure complete PATH is always available even when launched via cron
 FULL_PATH = "/root/.local/bin:/root/.hermes/tools/node-26.7.0-linux-x64/bin:/root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -66,6 +69,10 @@ def load_roadmap() -> dict:
 def save_roadmap(data: dict):
     with open(ROADMAP_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+    try:
+        roadmap_sync.sync_roadmap_to_github()
+    except Exception as e:
+        log(f"Warning: Failed to sync roadmap to GitHub: {e}")
 
 def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple[int, str]:
     log(f"Dispatching task to agent [{agent.upper()}] (retry={is_retry})...")
@@ -163,7 +170,13 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                     raw_json = raw_json.split("```json", 1)[1].split("```", 1)[0].strip()
                 elif "```" in raw_json:
                     raw_json = raw_json.split("```", 1)[1].split("```", 1)[0].strip()
-                new_tasks = json.loads(raw_json)
+                
+                # Resilient JSON array extraction
+                match = re.search(r'\[\s*\{.*\}\s*\]', raw_json, re.DOTALL)
+                if match:
+                    new_tasks = json.loads(match.group(0))
+                else:
+                    new_tasks = json.loads(raw_json)
                 if isinstance(new_tasks, list) and len(new_tasks) > 0:
                     ts = int(time.time())
                     for idx, t in enumerate(new_tasks):
