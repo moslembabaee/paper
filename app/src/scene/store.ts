@@ -1,5 +1,6 @@
+import { EMPTY_LIBRARY, detachEditedSharedStyles, resolveSharedStyles, resolveTokens, validateLibrary } from '../tokens/library.ts'
 import { detachEditedBindings, detachRemovedTokenBindings, resolveTokenBindings, supportsTokenProperty, tokenVariable, validateTokens } from '../tokens/model.ts'
-import type { DesignToken, TokenInput, TokenProperty } from '../tokens/types.ts'
+import type { DesignToken, SharedStyle, SharedStyleInput, SharedStyleKind, StyleLibrary, TokenInput, TokenProperty } from '../tokens/types.ts'
 import { createElement, freezeElement, validateElement } from './elements.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
 import { CommandHistory, equalValue } from './history.ts'
@@ -15,7 +16,7 @@ const EMPTY = Object.freeze([]) as readonly string[]
 
 /** Framework-independent immutable scene graph. Sibling arrays are the paint order. */
 export class SceneStore {
-  private state: SceneSnapshot = Object.freeze({ version: 1, tokens: Object.freeze([]), backgroundShader: null, elements: Object.freeze({}), rootIds: EMPTY, selection: EMPTY })
+  private state: SceneSnapshot = Object.freeze({ version: 1, tokens: Object.freeze([]), styleLibrary: EMPTY_LIBRARY, backgroundShader: null, elements: Object.freeze({}), rootIds: EMPTY, selection: EMPTY })
   private listeners = new Set<Listener>()
   private batchDepth = 0
   private pending = false
@@ -93,7 +94,7 @@ export class SceneStore {
     const before = this.state
     if (documentChanged) {
       let elements = reflowAutoLayout(next.elements, next.rootIds)
-      elements = synchronizeComponents(elements, next.tokens, before.elements)
+      elements = synchronizeComponents(elements, resolveTokens(next.tokens, next.styleLibrary.activeThemeId), before.elements, next.styleLibrary)
       elements = reflowAutoLayout(elements, next.rootIds)
       if (elements !== next.elements) next = Object.freeze({ ...next, elements: Object.freeze(elements) })
       const selection = next.selection.filter(id => {
@@ -171,7 +172,7 @@ export class SceneStore {
   }
 
   add<T extends ElementType>(type: T, input: ElementInput<T> = {}, index?: number): ElementOf<T> {
-    const node = freezeElement(resolveTokenBindings(createElement(type, input), this.state.tokens))
+    const node = freezeElement(this.resolveStyles(createElement(type, input)))
     validateElement(node)
     if (Object.hasOwn(this.state.elements, node.id)) throw new Error(`Duplicate element: ${node.id}`)
     if (['__proto__', 'prototype', 'constructor'].includes(node.id)) throw new Error('Reserved element ID')
@@ -191,12 +192,12 @@ export class SceneStore {
     const node = this.require(id)
     if (node.type !== type) throw new Error('Element type mismatch')
     if (this.isLocked(id)) throw new Error('Element is locked')
-    for (const key of ['component', 'id', 'type', 'children', 'parentId', 'zIndex', 'tokenBindings', 'boolean']) {
+    for (const key of ['component', 'id', 'type', 'children', 'parentId', 'zIndex', 'tokenBindings', 'sharedStyleBindings', 'boolean']) {
       if (Object.hasOwn(patch, key)) throw new Error(`Use structural actions to change ${key}`)
     }
     if (node.type === 'path' && node.boolean && ['d', 'viewBox', 'fillRule', 'nodes'].some(key => Object.hasOwn(patch, key))) throw new Error('Flatten the compound before editing its merged outline')
     const tokenBindings = detachEditedBindings(node.tokenBindings, patch as Record<string, unknown>, node)
-    const updated = { ...node, ...patch, ...(tokenBindings ? { tokenBindings } : {}), style: { ...node.style, ...patch.style } } as SceneElement
+    const updated = { ...node, ...patch, ...(node.sharedStyleBindings ? { sharedStyleBindings: detachEditedSharedStyles(node.sharedStyleBindings, patch as Record<string, unknown>) } : {}), ...(tokenBindings ? { tokenBindings } : {}), style: { ...node.style, ...patch.style } } as SceneElement
     // A direct resize is an explicit fixed-size edit; layout settings remain
     // authoritative when the caller supplies sizing in the same patch.
     if (!Object.hasOwn(patch, 'sizing') && node.sizing && (Object.hasOwn(patch, 'width') || Object.hasOwn(patch, 'height'))) {
@@ -206,6 +207,7 @@ export class SceneStore {
       if (Object.hasOwn(patch, 'nodes') && updated.nodes) Object.assign(updated, { d: serializePath(updated.nodes) })
       else if (Object.hasOwn(patch, 'd')) delete (updated as { nodes?: unknown }).nodes
     }
+    Object.assign(updated, this.resolveStyles(updated))
     validateElement(updated)
     if (Object.hasOwn(patch, 'sizing') && updated.sizing && tokenBindings) {
       for (const axis of ['width', 'height'] as const) if (updated.sizing[axis] !== 'fixed') delete tokenBindings[axis]
@@ -429,7 +431,7 @@ export class SceneStore {
   updateBooleanOperand(id: string, operandId: string, patch: ElementPatch<'rectangle' | 'ellipse' | 'path'>): void {
     const node = this.requireCompound(id), operand = node.boolean.operands.find(source => source.id === operandId)
     if (!operand) throw new Error('Unknown boolean source')
-    for (const key of ['component', 'id', 'type', 'children', 'parentId', 'zIndex', 'boolean', 'tokenBindings', 'visible', 'locked']) if (Object.hasOwn(patch, key)) throw new Error(`Cannot change source ${key}`)
+    for (const key of ['component', 'id', 'type', 'children', 'parentId', 'zIndex', 'boolean', 'tokenBindings', 'sharedStyleBindings', 'visible', 'locked']) if (Object.hasOwn(patch, key)) throw new Error(`Cannot change source ${key}`)
     if (operand.type === 'path' && operand.boolean && ['d', 'viewBox', 'fillRule', 'nodes'].some(key => Object.hasOwn(patch, key))) throw new Error('Release the compound to edit a nested operation')
     const updated = { ...operand, ...patch, ...(operand.tokenBindings ? { tokenBindings: detachEditedBindings(operand.tokenBindings, patch as Record<string, unknown>, operand) } : {}), style: { ...operand.style, ...patch.style } } as VectorElement
     if (updated.type === 'path') {
@@ -487,6 +489,7 @@ export class SceneStore {
         }
         restored = { ...restored, tokenBindings }
       }
+      if (operand.sharedStyleBindings) restored = { ...restored, sharedStyleBindings: operand.sharedStyleBindings }
       validateElement(restored)
       elements[sourceId] = freezeElement(restored); released.push(sourceId)
     }
@@ -510,7 +513,7 @@ export class SceneStore {
     return this.state.tokens.slice(-tokens.length)
   }
 
-  updateToken(id: string, patch: { name?: string; value?: string | number }): void {
+  updateToken(id: string, patch: { name?: string; value?: string | number; aliasId?: string; themeValues?: Readonly<Record<string, string | number>>; palette?: string }): void {
     const token = this.state.tokens.find(candidate => candidate.id === id)
     if (!token) throw new Error('Unknown token')
     const next = { ...token, ...patch } as DesignToken
@@ -540,7 +543,35 @@ export class SceneStore {
       }
       if (next !== node) elements[node.id] = freezeElement(next)
     }
-    this.publish(Object.freeze({ ...this.state, tokens: validateTokens(this.state.tokens.filter(token => !removed.has(token.id))), elements: Object.freeze(elements) }), 'Delete tokens')
+    const resolved = resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId)
+    const lookup = new Map(resolved.map(token => [token.id, token]))
+    const tokens = validateTokens(this.state.tokens.filter(token => !removed.has(token.id)).map(token => {
+      if (!token.aliasId || !removed.has(token.aliasId)) return token
+      const { aliasId, ...literal } = token; void aliasId
+      const themeValues = Object.fromEntries(this.state.styleLibrary.themes.map(theme => [theme.id, resolveTokens(this.state.tokens, theme.id).find(value => value.id === token.id)!.value]))
+      return { ...literal, value: resolveTokens(this.state.tokens).find(value => value.id === token.id)!.value, themeValues } as DesignToken
+    }))
+    const styles = this.state.styleLibrary.styles.map(style => {
+      if (style.kind === 'color' && style.tokenId && removed.has(style.tokenId)) {
+        const { tokenId, ...literal } = style
+        return { ...literal, value: lookup.get(tokenId)!.value as string }
+      }
+      if (style.kind === 'typography') {
+        const value = { ...style.value, tokenBindings: { ...style.value.tokenBindings } }
+        for (const [key, id] of Object.entries(value.tokenBindings)) if (removed.has(id)) {
+          Object.assign(value, { [key]: lookup.get(id)!.value }); delete value.tokenBindings[key as TokenProperty]
+        }
+        return { ...style, value }
+      }
+      if (style.kind === 'effects') return { ...style, value: style.value.map(effect => {
+        if (effect.type === 'layer-blur' || !effect.colorTokenId || !removed.has(effect.colorTokenId)) return effect
+        const { colorTokenId, ...literal } = effect
+        return { ...literal, color: lookup.get(colorTokenId)!.value as string }
+      }) }
+      return style
+    })
+    const styleLibrary = validateLibrary({ ...this.state.styleLibrary, styles }, tokens)
+    this.publish(Object.freeze({ ...this.state, tokens, styleLibrary, elements: Object.freeze(elements) }), 'Delete tokens')
   }
 
   bindToken(id: string, property: TokenProperty, tokenId: string): void {
@@ -548,7 +579,7 @@ export class SceneStore {
     if (this.isLocked(id)) throw new Error('Element is locked')
     if (!supportsTokenProperty(node, property)) throw new Error('Unsupported token property')
     if (node.tokenBindings?.[property] === tokenId) return
-    const next = resolveTokenBindings({ ...node, ...(property === 'width' || property === 'height' ? { sizing: { ...(node.sizing ?? FIXED_SIZING), [property]: 'fixed' } } : {}), tokenBindings: { ...node.tokenBindings, [property]: tokenId } }, this.state.tokens)
+    const next = this.resolveStyles({ ...node, ...(node.sharedStyleBindings ? { sharedStyleBindings: detachEditedSharedStyles(node.sharedStyleBindings, property === 'fill' ? { style: { fill: true } } : { [property]: true }) } : {}), ...(property === 'width' || property === 'height' ? { sizing: { ...(node.sizing ?? FIXED_SIZING), [property]: 'fixed' } } : {}), tokenBindings: { ...node.tokenBindings, [property]: tokenId } })
     validateElement(next)
     const updated = recordComponentTokenEdit(node, next, property, tokenId)
     this.commit({ ...this.state.elements, [id]: freezeElement(updated) }, this.state.rootIds, this.state.selection, `Bind ${property} token`)
@@ -564,18 +595,121 @@ export class SceneStore {
     this.commit({ ...this.state.elements, [id]: freezeElement(updated) }, this.state.rootIds, this.state.selection, `Detach ${property} token`)
   }
 
+  private resolveStyles(node: SceneElement, tokens = resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), library = this.state.styleLibrary): SceneElement {
+    return resolveTokenBindings(resolveSharedStyles(node, library, tokens), tokens)
+  }
+
   private setTokens(input: readonly DesignToken[], label: string): void {
-    const tokens = validateTokens(input)
-    const tokenLookup = new Map(tokens.map(token => [token.id, token]))
+    this.setDesignSystem(input, this.state.styleLibrary, label)
+  }
+
+  private setDesignSystem(input: readonly DesignToken[], inputLibrary: StyleLibrary, label: string): void {
+    const tokens = input === this.state.tokens ? input : validateTokens(input), styleLibrary = validateLibrary(inputLibrary, tokens)
+    const resolved = resolveTokens(tokens, styleLibrary.activeThemeId)
     let elements = this.state.elements
     for (const node of Object.values(elements)) {
-      const next = resolveTokenBindings(node, tokenLookup)
+      const next = this.resolveStyles(node, resolved, styleLibrary)
       if (next === node) continue
       validateElement(next)
       if (elements === this.state.elements) elements = { ...elements }
       ;(elements as Record<string, SceneElement>)[node.id] = freezeElement(next)
     }
-    this.publish(Object.freeze({ ...this.state, tokens, elements: Object.freeze(elements) }), label)
+    this.publish(Object.freeze({ ...this.state, tokens, styleLibrary, elements: Object.freeze(elements) }), label)
+  }
+
+  addTheme(name: string): string {
+    const id = crypto.randomUUID()
+    this.setDesignSystem(this.state.tokens, { ...this.state.styleLibrary, themes: [...this.state.styleLibrary.themes, { id, name }] }, 'Add theme')
+    return id
+  }
+
+  setActiveTheme(id: string | null): void {
+    if (id === this.state.styleLibrary.activeThemeId) return
+    this.setDesignSystem(this.state.tokens, { ...this.state.styleLibrary, activeThemeId: id }, 'Switch document theme')
+  }
+
+  removeTheme(id: string): void {
+    const tokens = this.state.tokens.map(token => {
+      const themeValues: Record<string, string | number> = { ...token.themeValues }; delete themeValues[id]
+      return { ...token, ...(token.themeValues ? { themeValues } : {}) } as DesignToken
+    })
+    const library = this.state.styleLibrary
+    this.setDesignSystem(tokens, { ...library, themes: library.themes.filter(theme => theme.id !== id), activeThemeId: library.activeThemeId === id ? null : library.activeThemeId }, 'Delete theme')
+  }
+
+  setTokenThemeValue(id: string, themeId: string, value: string | number | undefined): void {
+    const token = this.state.tokens.find(token => token.id === id)
+    if (!token) throw new Error('Unknown token')
+    if (!this.state.styleLibrary.themes.some(theme => theme.id === themeId)) throw new Error('Unknown theme')
+    const themeValues: Record<string, string | number> = { ...token.themeValues }
+    if (value === undefined) delete themeValues[themeId]; else themeValues[themeId] = value
+    this.updateToken(id, { themeValues })
+  }
+
+  addSharedStyle(input: SharedStyleInput): SharedStyle {
+    const style = { ...input, id: input.id ?? crypto.randomUUID() } as SharedStyle
+    this.setDesignSystem(this.state.tokens, { ...this.state.styleLibrary, styles: [...this.state.styleLibrary.styles, style] }, 'Add shared style')
+    return this.state.styleLibrary.styles.at(-1)!
+  }
+
+  updateSharedStyle(style: SharedStyle): void {
+    const previous = this.state.styleLibrary.styles.find(candidate => candidate.id === style.id)
+    if (!previous || previous.kind !== style.kind) throw new Error('Unknown or incompatible shared style')
+    if (equalValue(previous, style)) return
+    this.setDesignSystem(this.state.tokens, { ...this.state.styleLibrary, styles: this.state.styleLibrary.styles.map(candidate => candidate.id === style.id ? style : candidate) }, `Edit ${style.name} style`)
+  }
+
+  bindSharedStyle(id: string, kind: SharedStyleKind, styleId: string): void {
+    const node = this.require(id)
+    if (this.isLocked(id)) throw new Error('Element is locked')
+    if (node.sharedStyleBindings?.[kind] === styleId) return
+    const tokenBindings = { ...node.tokenBindings }
+    if (kind === 'color') delete tokenBindings.fill
+    if (kind === 'typography') for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'] as const) delete tokenBindings[key]
+    const next = this.resolveStyles({ ...node, tokenBindings, sharedStyleBindings: { ...node.sharedStyleBindings, [kind]: styleId } })
+    validateElement(next)
+    this.commit({ ...this.state.elements, [id]: freezeElement(this.recordSharedStyleBinding(node, next, kind, styleId)) }, this.state.rootIds, this.state.selection, `Bind ${kind} style`)
+  }
+
+  private recordSharedStyleBinding(node: SceneElement, next: SceneElement, kind: SharedStyleKind, id: string | null): SceneElement {
+    if (node.component?.kind !== 'instance') return next
+    const original = node.component.overrides
+    const overrides = { ...original, properties: { ...original.properties }, style: { ...original.style }, tokenBindings: { ...original.tokenBindings } }
+    if (id !== null) {
+      if (kind === 'color') { delete overrides.style.fill; delete overrides.tokenBindings.fill }
+      if (kind === 'effects') { delete overrides.style.effects; delete overrides.style.shadow }
+      if (kind === 'typography') for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign'] as const) {
+        delete (overrides.properties as Record<string, unknown>)[key]
+        delete (overrides.tokenBindings as Record<string, unknown>)[key]
+      }
+    }
+    const detached = id === null ? kind === 'color' ? { style: { ...overrides.style, fill: node.style.fill } } : kind === 'effects' ? { style: { ...overrides.style, effects: node.style.effects } } : { properties: { ...overrides.properties, ...(node.type === 'text' ? { fontFamily: node.fontFamily, fontSize: node.fontSize, fontWeight: node.fontWeight, lineHeight: node.lineHeight, letterSpacing: node.letterSpacing, textAlign: node.textAlign } : {}) } } : {}
+    return { ...next, component: { ...node.component, overrides: { ...overrides, ...detached, sharedStyleBindings: { ...overrides.sharedStyleBindings, [kind]: id } } } }
+  }
+
+  detachSharedStyle(id: string, kind: SharedStyleKind): void {
+    const node = this.require(id)
+    if (this.isLocked(id)) throw new Error('Element is locked')
+    if (!node.sharedStyleBindings?.[kind]) return
+    const sharedStyleBindings = { ...node.sharedStyleBindings }; delete sharedStyleBindings[kind]
+    const next = this.recordSharedStyleBinding(node, { ...node, sharedStyleBindings }, kind, null)
+    this.commit({ ...this.state.elements, [id]: freezeElement(next) }, this.state.rootIds, this.state.selection, `Detach ${kind} style`)
+  }
+
+  removeSharedStyle(id: string): void {
+    if (!this.state.styleLibrary.styles.some(style => style.id === id)) return
+    const detach = (node: SceneElement): SceneElement => {
+      let next = node
+      for (const kind of ['color', 'typography', 'effects'] as const) if (next.sharedStyleBindings?.[kind] === id) {
+        const sharedStyleBindings = { ...next.sharedStyleBindings }; delete sharedStyleBindings[kind]
+        next = this.recordSharedStyleBinding(next, { ...next, sharedStyleBindings }, kind, null)
+      }
+      if (next.type === 'path' && next.boolean) next = { ...next, boolean: { ...next.boolean, operands: next.boolean.operands.map(source => detach(source) as VectorElement) } }
+      return next === node ? node : freezeElement(next)
+    }
+    const elements = Object.fromEntries(Object.entries(this.state.elements).map(([key, node]) => [key, detach(node)]))
+    const styleLibrary = validateLibrary({ ...this.state.styleLibrary, styles: this.state.styleLibrary.styles.filter(style => style.id !== id) }, this.state.tokens)
+    this.publish(Object.freeze({ ...this.state, elements: Object.freeze(elements), styleLibrary }), 'Delete shared style')
   }
 
   setBackgroundShader(paint: ShaderPaint | null): void {
@@ -584,7 +718,7 @@ export class SceneStore {
     this.publish(Object.freeze({ ...this.state, backgroundShader: paint ? freezeShader(paint) : null }), 'Style canvas background')
   }
 
-  toJSON(): SceneDocument { return { version: 1, tokens: this.state.tokens, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
+  toJSON(): SceneDocument { return { version: 1, tokens: this.state.tokens, styleLibrary: this.state.styleLibrary, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
 
   /** Font loading changes text metrics without creating a user edit. */
   refreshLayout(): void {
@@ -598,12 +732,13 @@ export class SceneStore {
     if (document.version !== 1 || !document.elements || !Array.isArray(document.rootIds)) throw new Error('Unsupported scene document')
     if (document.backgroundShader !== undefined && document.backgroundShader !== null) validateShader(document.backgroundShader)
     const tokens = validateTokens(document.tokens ?? [])
-    const tokenLookup = new Map(tokens.map(token => [token.id, token]))
+    const styleLibrary = validateLibrary(document.styleLibrary, tokens)
+    const resolvedTokens = resolveTokens(tokens, styleLibrary.activeThemeId)
     const elements: Record<string, SceneElement> = {}
     for (const [id, node] of Object.entries(document.elements)) {
       if (id !== node.id || ['__proto__', 'prototype', 'constructor'].includes(id)) throw new Error('Invalid element ID')
       validateElement(node)
-      const resolved = resolveTokenBindings(node, tokenLookup)
+      const resolved = this.resolveStyles(node, resolvedTokens, styleLibrary)
       validateElement(resolved)
       elements[id] = freezeElement(resolved)
     }
@@ -617,7 +752,7 @@ export class SceneStore {
     }
     document.rootIds.forEach((id, i) => visit(id, null, i))
     if (visited.size !== Object.keys(elements).length) throw new Error('Unreachable scene elements')
-    validateComponentGraph(elements, tokens)
-    this.publish(Object.freeze({ version: 1, tokens, elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
+    validateComponentGraph(elements, resolvedTokens, styleLibrary)
+    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
   }
 }

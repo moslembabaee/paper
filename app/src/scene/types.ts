@@ -1,4 +1,4 @@
-import type { DesignToken, TokenBindings, TokenProperty } from '../tokens/types.ts'
+import type { DesignToken, LayerEffect, SharedStyleBindings, StyleLibrary, TokenBindings, TokenProperty } from '../tokens/types.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { PathNodes } from './pathGeometry.ts'
 
@@ -32,6 +32,7 @@ export interface ElementStyle {
   readonly stroke: Stroke | null
   readonly opacity: number
   readonly shadow: Shadow | null
+  readonly effects?: readonly LayerEffect[]
 }
 
 export interface BaseElement extends ElementGeometry {
@@ -40,6 +41,7 @@ export interface BaseElement extends ElementGeometry {
   /** Absent in legacy documents: both axes are fixed. */
   readonly sizing?: ElementSizing
   readonly tokenBindings?: TokenBindings
+  readonly sharedStyleBindings?: SharedStyleBindings
   readonly id: string
   readonly name: string
   readonly parentId: string | null
@@ -131,8 +133,9 @@ export type ElementOf<T extends ElementType> = Extract<SceneElement, { type: T }
 export type ElementInput<T extends ElementType> = Partial<Omit<ElementOf<T>, 'component' | 'type' | 'children' | 'zIndex' | 'style'>> & { readonly style?: Partial<ElementStyle> }
 export type ElementPatch<T extends ElementType> = T extends ElementType ? Partial<Omit<ElementOf<T>, 'component' | 'type' | 'id' | 'parentId' | 'children' | 'zIndex' | 'boolean' | 'style'>> & { readonly style?: Partial<ElementStyle> } : never
 
-type OverrideProperties<T extends ElementType> = T extends ElementType ? Omit<ElementPatch<T>, 'style' | 'tokenBindings'> : never
+type OverrideProperties<T extends ElementType> = T extends ElementType ? Omit<ElementPatch<T>, 'style' | 'tokenBindings' | 'sharedStyleBindings'> : never
 export interface ComponentOverrides {
+  readonly sharedStyleBindings?: Readonly<Partial<Record<keyof SharedStyleBindings, string | null>>>
   readonly properties?: OverrideProperties<ElementType>
   /** Stroke channels override independently; a color edit still inherits width. */
   readonly style?: Partial<Omit<ElementStyle, 'stroke'>> & { readonly stroke?: Partial<Stroke> | null }
@@ -151,6 +154,7 @@ export interface SceneDocument {
   readonly version: 1
   /** Absent in legacy documents. */
   readonly tokens?: readonly DesignToken[]
+  readonly styleLibrary?: StyleLibrary
   readonly backgroundShader?: ShaderPaint | null
   readonly elements: Readonly<Record<string, SceneElement>>
   readonly rootIds: readonly string[]
@@ -158,5 +162,6 @@ export interface SceneDocument {
 
 export interface SceneSnapshot extends SceneDocument {
   readonly tokens: readonly DesignToken[]
+  readonly styleLibrary: StyleLibrary
   readonly selection: readonly string[]
 }

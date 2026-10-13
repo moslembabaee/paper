@@ -52,7 +52,14 @@ export const shaderSchema: JsonSchema = {
 }
 const stroke = object({ color: str(), width: nonnegative, dash: list(nonnegative) }, ['color', 'width', 'dash'])
 const shadow = object({ color: str(), x: num, y: num, blur: nonnegative }, ['color', 'x', 'y', 'blur'])
-const styleProperties = { fill: nullable({ type: 'string' }), opacity: { type: 'number', minimum: 0, maximum: 1 } as JsonSchema, stroke: nullable(stroke), shadow: nullable(shadow), shader: nullable(shaderSchema) }
+const effectBlur: JsonSchema = { type: 'number', minimum: 0, maximum: 500 }
+const effectOffset: JsonSchema = { type: 'number', minimum: -10000, maximum: 10000 }
+export const effectSchema: JsonSchema = { anyOf: [
+  object({ id: str(), enabled: flag, type: { type: 'string', enum: ['layer-blur'] }, blur: effectBlur }, ['id', 'enabled', 'type', 'blur']),
+  object({ id: str(), enabled: flag, type: { type: 'string', enum: ['drop-shadow', 'inner-shadow'] }, color: str(), colorTokenId: str(), x: effectOffset, y: effectOffset, spread: effectOffset, blur: effectBlur }, ['id', 'enabled', 'type', 'color', 'x', 'y', 'spread', 'blur']),
+] }
+const effects: JsonSchema = { ...list(effectSchema), maxItems: 32 }
+const styleProperties = { fill: nullable({ type: 'string' }), opacity: { type: 'number', minimum: 0, maximum: 1 } as JsonSchema, stroke: nullable(stroke), shadow: nullable(shadow), shader: nullable(shaderSchema), effects }
 const style = object(styleProperties)
 const geometry = { x: num, y: num, width: positive, height: positive, rotation: num }
 const sizingRule: JsonSchema = { type: 'string', enum: ['fixed', 'hug', 'fill'] }
@@ -73,16 +80,35 @@ const specific: Record<string, Record<string, JsonSchema>> = {
 }
 const tokenProperties = ['fill', 'stroke', 'cornerRadius', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'x', 'y', 'width', 'height'] as const
 const tokenBindings = object(Object.fromEntries(tokenProperties.map(property => [property, str()])))
+const sharedStyleBindings = object({ color: str(), typography: str(), effects: str() })
+function tokenValueSchema(type: string): JsonSchema {
+  return type === 'color' || type === 'fontFamily' ? str() : type === 'letterSpacing' ? num : type === 'fontWeight' ? { type: 'number', minimum: 1, maximum: 1000 } : type === 'radius' || type === 'spacing' ? nonnegative : positive
+}
 export const tokenSchema: JsonSchema = {
   anyOf: Object.keys(TOKEN_META).map(type => object({
     id: str(), name: { ...str(), pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 100 }, type: { type: 'string', enum: [type] },
-    value: type === 'color' || type === 'fontFamily' ? str() : type === 'letterSpacing' ? num : type === 'fontWeight' ? { type: 'number', minimum: 1, maximum: 1000 } : type === 'radius' || type === 'spacing' ? nonnegative : positive,
+    value: tokenValueSchema(type), aliasId: str(), palette: { type: 'string', maxLength: 100 },
+    themeValues: { type: 'object', additionalProperties: tokenValueSchema(type) },
   }, ['id', 'name', 'type', 'value'])),
 }
+const typographyKeys = ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing']
+const typography = object({ ...specific.text, tokenBindings: object(Object.fromEntries(typographyKeys.map(key => [key, str()]))) }, [...typographyKeys, 'textAlign'])
+// Text content belongs to the layer, never to a typography preset.
+const typographyProperties = { ...typography.properties }
+delete typographyProperties.text
+export const sharedStyleSchema: JsonSchema = { anyOf: [
+  object({ id: str(), name: { ...str(), maxLength: 100 }, kind: { type: 'string', enum: ['color'] }, value: str(), tokenId: str() }, ['id', 'name', 'kind', 'value']),
+  object({ id: str(), name: { ...str(), maxLength: 100 }, kind: { type: 'string', enum: ['typography'] }, value: { ...typography, properties: typographyProperties } }, ['id', 'name', 'kind', 'value']),
+  object({ id: str(), name: { ...str(), maxLength: 100 }, kind: { type: 'string', enum: ['effects'] }, value: effects }, ['id', 'name', 'kind', 'value']),
+] }
+export const styleLibrarySchema: JsonSchema = object({
+  themes: list(object({ id: { ...str(), pattern: '^[a-zA-Z0-9_-]{1,200}$' }, name: { ...str(), maxLength: 100 } }, ['id', 'name'])),
+  activeThemeId: nullable(str()), styles: list(sharedStyleSchema),
+}, ['themes', 'activeThemeId', 'styles'])
 export const elementSchema: JsonSchema = {
   anyOf: Object.entries(specific).map(([type, fields]) => {
     const properties = { ...identity, ...geometry, type: { type: 'string', enum: [type] } as JsonSchema, style: object(styleProperties, ['fill', 'stroke', 'opacity', 'shadow']), ...fields }
-    return object({ ...properties, tokenBindings, sizing }, Object.keys(properties).filter(key => key !== 'layout'))
+    return object({ ...properties, tokenBindings, sharedStyleBindings, sizing }, Object.keys(properties).filter(key => key !== 'layout'))
   }),
 }
 export const projectSchema = {
@@ -92,7 +118,7 @@ export const projectSchema = {
     format: { type: 'string', enum: ['paper'] }, version: { type: 'integer', enum: [1] },
     name: { ...str(), maxLength: 200 }, grid: flag,
     viewport: object({ x: num, y: num, zoom: { type: 'number', minimum: .1, maximum: 32 } }, ['x', 'y', 'zoom']),
-    scene: object({ tokens: list(tokenSchema), version: { type: 'integer', enum: [1] }, backgroundShader: nullable(shaderSchema), rootIds: list(str()), elements: { type: 'object', additionalProperties: elementSchema } }, ['version', 'rootIds', 'elements']),
+    scene: object({ tokens: list(tokenSchema), styleLibrary: styleLibrarySchema, version: { type: 'integer', enum: [1] }, backgroundShader: nullable(shaderSchema), rootIds: list(str()), elements: { type: 'object', additionalProperties: elementSchema } }, ['version', 'rootIds', 'elements']),
   }, ['format', 'version', 'name', 'grid', 'viewport', 'scene']),
 }
 

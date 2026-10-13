@@ -1,3 +1,5 @@
+import { validateEffects } from '../tokens/library.ts'
+import type { LayerEffect } from '../tokens/types.ts'
 import type { BooleanCompound, ElementInput, ElementOf, ElementType, SceneElement, VectorElement } from './types.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
 import { serializePath } from './pathGeometry.ts'
@@ -6,6 +8,14 @@ import { freezeComponent, validateComponent } from './components.ts'
 const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectangle', ellipse: 'Ellipse', path: 'Vector path', text: 'Text', image: 'Image' }
 const frozenElements = new WeakSet<SceneElement>()
 const frozenCompounds = new WeakSet<BooleanCompound>()
+const frozenEffectStacks = new WeakSet<readonly LayerEffect[]>()
+
+function freezeEffects(effects: readonly LayerEffect[]): readonly LayerEffect[] {
+  if (frozenEffectStacks.has(effects)) return effects
+  const frozen = Object.freeze(effects.map(effect => Object.freeze(Object.fromEntries(Object.entries(effect).filter(([, value]) => value !== undefined))) as LayerEffect))
+  frozenEffectStacks.add(frozen)
+  return frozen
+}
 
 function freezeCompound(compound: BooleanCompound): BooleanCompound {
   if (frozenCompounds.has(compound)) return compound
@@ -17,13 +27,15 @@ function freezeCompound(compound: BooleanCompound): BooleanCompound {
 /** Freeze records at the boundary so consumers cannot corrupt the observable state. */
 export function freezeElement(element: SceneElement): SceneElement {
   if (frozenElements.has(element)) return element
+  element = Object.fromEntries(Object.entries(element).filter(([, value]) => value !== undefined)) as unknown as SceneElement
   const tokenBindings = element.tokenBindings ? Object.freeze({ ...element.tokenBindings }) : undefined
-  element = { ...element, ...(tokenBindings ? { tokenBindings } : {}) }
+  element = { ...element, ...(tokenBindings ? { tokenBindings } : {}), ...(element.sharedStyleBindings ? { sharedStyleBindings: Object.freeze({ ...element.sharedStyleBindings }) } : {}) }
   if (element.component) element = { ...element, component: freezeComponent(element.component) }
   if (element.sizing) element = { ...element, sizing: Object.freeze({ ...element.sizing }) }
   if (element.type === 'frame' && element.layout) element = { ...element, layout: Object.freeze({ ...element.layout, padding: Object.freeze({ ...element.layout.padding }) }) }
   const style = Object.freeze({
     ...element.style,
+    ...(element.style.effects ? { effects: freezeEffects(element.style.effects) } : {}),
     shader: element.style.shader ? freezeShader(element.style.shader) : null,
     stroke: element.style.stroke ? Object.freeze({ ...element.style.stroke, dash: Object.freeze([...element.style.stroke.dash]) }) : null,
     shadow: element.style.shadow ? Object.freeze({ ...element.style.shadow }) : null,
@@ -56,6 +68,7 @@ export function validateElement(element: SceneElement, depth = 0): void {
   }
   if (typeof element.visible !== 'boolean' || typeof element.locked !== 'boolean') throw new Error('Invalid element flags')
   const { fill, stroke, opacity, shadow } = element.style
+  if (element.style.effects !== undefined) validateEffects(element.style.effects)
   if (element.style.shader !== undefined && element.style.shader !== null) validateShader(element.style.shader)
   if ((fill !== null && typeof fill !== 'string') || !Number.isFinite(opacity) || opacity < 0 || opacity > 1) throw new Error('Invalid fill or opacity')
   if (stroke && (typeof stroke.color !== 'string' || !Number.isFinite(stroke.width) || stroke.width < 0 || !Array.isArray(stroke.dash) || stroke.dash.some(n => !Number.isFinite(n) || n < 0))) throw new Error('Invalid stroke')

@@ -1,4 +1,4 @@
-import { tokensToCSS } from '../tokens/model'
+import { designSystemToCSS } from '../tokens/libraryCodegen'
 import { buildCSSProps, buildTailwindClasses, buildReactComponent, elementToComponentName } from '../tokens/codegen'
 import type { CSSProp } from '../tokens/codegen'
 import type { DesignToken } from '../tokens/types'
@@ -298,7 +298,7 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
         </>
       )}
 
-      {state.tokens.length > 0 && <div className="inspector-section"><span className="section-caption">THEME / TOKENS</span><div className="dev-code-block"><div className="dev-code-header"><span>{tab === 'code' ? 'Tailwind theme' : 'CSS variables'}</span><CopyButton text={tokensToCSS(state.tokens, tab === 'code')} /></div><pre className="dev-code-pre">{tokensToCSS(state.tokens, tab === 'code')}</pre></div></div>}
+      {(state.tokens.length > 0 || state.styleLibrary.styles.length > 0) && <div className="inspector-section"><span className="section-caption">THEME / TOKENS</span><div className="dev-code-block"><div className="dev-code-header"><span>{tab === 'code' ? 'Tailwind theme' : 'CSS variables'}</span><CopyButton text={designSystemToCSS(state.tokens, state.styleLibrary, tab === 'code')} /></div><pre className="dev-code-pre">{designSystemToCSS(state.tokens, state.styleLibrary, tab === 'code')}</pre></div></div>}
       <div className="inspector-bottom">
         <p>Copy any snippet.<br />Paste into your codebase.</p>
         <span>DEV MODE · PAPER HANDOFF</span>

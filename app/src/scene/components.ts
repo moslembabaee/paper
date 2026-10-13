@@ -1,14 +1,15 @@
+import { EMPTY_LIBRARY, detachEditedSharedStyles, resolveSharedStyles } from '../tokens/library.ts'
 import type { ComponentLink, ComponentOverrides, ElementPatch, ElementType, SceneElement } from './types.ts'
 import { freezeElement, validateElement } from './elements.ts'
 import { equalValue } from './history.ts'
 import { detachEditedBindings, resolveTokenBindings } from '../tokens/model.ts'
-import type { DesignToken, TokenProperty } from '../tokens/types.ts'
+import type { DesignToken, SharedStyleKind, StyleLibrary, TokenProperty } from '../tokens/types.ts'
 
 const PROPERTY_KEYS = new Set(['name', 'x', 'y', 'width', 'height', 'rotation', 'visible', 'locked', 'sizing', 'cornerRadius', 'clipContent', 'layout', 'd', 'viewBox', 'fillRule', 'nodes', 'text', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign', 'src', 'alt', 'fit'])
-const STYLE_KEYS = new Set(['fill', 'stroke', 'opacity', 'shadow', 'shader'])
+const STYLE_KEYS = new Set(['fill', 'stroke', 'opacity', 'shadow', 'shader', 'effects'])
 const STROKE_KEYS = new Set(['color', 'width', 'dash'])
 const TOKEN_KEYS = new Set(['fill', 'stroke', 'cornerRadius', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'x', 'y', 'width', 'height'])
-const OVERRIDE_KEYS = new Set(['properties', 'style', 'tokenBindings'])
+const OVERRIDE_KEYS = new Set(['properties', 'style', 'tokenBindings', 'sharedStyleBindings'])
 const frozenLinks = new WeakSet<object>()
 function freezeTree<T>(value: T): T {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value
@@ -35,6 +36,7 @@ export function validateComponent(link: ComponentLink): void {
     checkKeys(link.overrides.style, STYLE_KEYS)
     if (link.overrides.style.stroke !== undefined && link.overrides.style.stroke !== null) checkKeys(link.overrides.style.stroke, STROKE_KEYS)
   }
+  if (link.overrides.sharedStyleBindings !== undefined && (!record(link.overrides.sharedStyleBindings) || Object.entries(link.overrides.sharedStyleBindings).some(([key, value]) => !['color', 'typography', 'effects'].includes(key) || (value !== null && (typeof value !== 'string' || !value))))) throw new Error('Invalid shared style override')
   if (link.overrides.tokenBindings !== undefined && (!record(link.overrides.tokenBindings) || Object.entries(link.overrides.tokenBindings).some(([key, value]) => !TOKEN_KEYS.has(key) || (value !== null && (typeof value !== 'string' || !value))))) throw new Error('Invalid component token bindings')
 }
 
@@ -84,7 +86,9 @@ export function recordComponentEdit(node: SceneElement, updated: SceneElement, p
   }
   const tokenBindings = { ...link.overrides.tokenBindings }
   for (const property of Object.keys(tokenBindings) as TokenProperty[]) if (node.tokenBindings?.[property] && !updated.tokenBindings?.[property]) tokenBindings[property] = null
-  const overrides: ComponentOverrides = { ...link.overrides, properties, style, ...(Object.keys(tokenBindings).length ? { tokenBindings } : {}) }
+  const sharedStyleBindings = { ...link.overrides.sharedStyleBindings }
+  for (const kind of ['color', 'typography', 'effects'] as const) if (node.sharedStyleBindings?.[kind] && !updated.sharedStyleBindings?.[kind]) sharedStyleBindings[kind] = null
+  const overrides: ComponentOverrides = { ...link.overrides, properties, style, ...(Object.keys(sharedStyleBindings).length ? { sharedStyleBindings } : {}), ...(Object.keys(tokenBindings).length ? { tokenBindings } : {}) }
   return { ...updated, component: { ...link, overrides } }
 }
 
@@ -102,10 +106,12 @@ export function recordComponentTokenEdit(node: SceneElement, updated: SceneEleme
     else properties[property] = node[property as keyof SceneElement]
   }
   if (!equalValue(node.sizing, updated.sizing)) properties.sizing = updated.sizing
-  return { ...updated, component: { ...link, overrides: { ...link.overrides, properties, style, tokenBindings: { ...link.overrides.tokenBindings, [property]: tokenId } } } }
+  const sharedStyleBindings = { ...link.overrides.sharedStyleBindings }
+  for (const kind of ['color', 'typography', 'effects'] as const) if (node.sharedStyleBindings?.[kind] && !updated.sharedStyleBindings?.[kind]) sharedStyleBindings[kind] = null
+  return { ...updated, component: { ...link, overrides: { ...link.overrides, properties, style, ...(Object.keys(sharedStyleBindings).length ? { sharedStyleBindings } : {}), tokenBindings: { ...link.overrides.tokenBindings, [property]: tokenId } } } }
 }
 
-export function applyComponentOverrides(source: SceneElement, link: Extract<ComponentLink, { kind: 'instance' }>, tokens: readonly DesignToken[]): SceneElement {
+export function applyComponentOverrides(source: SceneElement, link: Extract<ComponentLink, { kind: 'instance' }>, tokens: readonly DesignToken[], library: StyleLibrary = EMPTY_LIBRARY): SceneElement {
   const { properties = {}, style = {} } = link.overrides
   // A partial stroke can survive a master removing its stroke, too.
   const stroke = Object.hasOwn(style, 'stroke') ? style.stroke === null ? null : { color: '#080808', width: 1, dash: [], ...source.style.stroke, ...style.stroke } : source.style.stroke
@@ -116,14 +122,21 @@ export function applyComponentOverrides(source: SceneElement, link: Extract<Comp
     if (id === null) delete tokenBindings[property as TokenProperty]
     else tokenBindings[property as TokenProperty] = id
   }
-  const node = { ...source, ...properties, component: link, tokenBindings, style: { ...source.style, ...style, stroke } } as SceneElement
+  const sharedStyleBindings = { ...detachEditedSharedStyles(source.sharedStyleBindings, { ...properties, style }) }
+  for (const [kind, id] of Object.entries(link.overrides.sharedStyleBindings ?? {})) {
+    if (id === null) delete sharedStyleBindings[kind as SharedStyleKind]
+    else sharedStyleBindings[kind as SharedStyleKind] = id
+  }
+  if (sharedStyleBindings.color) delete tokenBindings.fill
+  if (sharedStyleBindings.typography) for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'] as const) delete tokenBindings[key]
+  const node = { ...source, ...(source.sharedStyleBindings || Object.keys(sharedStyleBindings).length ? { sharedStyleBindings } : {}), ...properties, component: link, tokenBindings, style: { ...source.style, ...style, stroke } } as SceneElement
   if (!source.tokenBindings && !Object.keys(tokenBindings).length) delete (node as { tokenBindings?: unknown }).tokenBindings
   if (node.type === 'path' && Object.hasOwn(properties, 'd') && !Object.hasOwn(properties, 'nodes')) delete (node as { nodes?: unknown }).nodes
-  return resolveTokenBindings(node, tokens)
+  return resolveTokenBindings(resolveSharedStyles(node, library, tokens), tokens)
 }
 
 /** Reconcile materialized instance trees, preserving IDs, overrides and unchanged references. */
-export function synchronizeComponents(input: Readonly<Record<string, SceneElement>>, tokens: readonly DesignToken[], previous?: Readonly<Record<string, SceneElement>>): Readonly<Record<string, SceneElement>> {
+export function synchronizeComponents(input: Readonly<Record<string, SceneElement>>, tokens: readonly DesignToken[], previous?: Readonly<Record<string, SceneElement>>, library: StyleLibrary = EMPTY_LIBRARY): Readonly<Record<string, SceneElement>> {
   const roots = Object.values(input).filter(node => node.component?.kind === 'instance' && node.component.instanceId === node.id)
   if (!roots.length) return input
   let elements = input
@@ -155,7 +168,7 @@ export function synchronizeComponents(input: Readonly<Record<string, SceneElemen
       const old = oldBySource.get(source.id)
       const id = ids.get(source.id)!
       const component: Extract<ComponentLink, { kind: 'instance' }> = old?.component?.kind === 'instance' ? old.component : { kind: 'instance', masterId: master.id, instanceId: root.id, sourceId: source.id, overrides: {} }
-      let node = applyComponentOverrides(source, component, tokens)
+      let node = applyComponentOverrides(source, component, tokens, library)
       node = { ...node, id, parentId: source.id === master.id ? root.parentId : ids.get(source.parentId!)!, zIndex: source.id === master.id ? root.zIndex : source.zIndex,
         ...(source.id === master.id ? { x: root.x, y: root.y, rotation: root.rotation } : {}),
         ...(source.type === 'frame' ? { children: source.children.map(child => ids.get(child)!) } : {}),
@@ -170,7 +183,7 @@ export function synchronizeComponents(input: Readonly<Record<string, SceneElemen
 }
 
 /** Cross-reference validation runs after hierarchy validation, before accepting a project. */
-export function validateComponentGraph(elements: Readonly<Record<string, SceneElement>>, tokens: readonly DesignToken[]): void {
+export function validateComponentGraph(elements: Readonly<Record<string, SceneElement>>, tokens: readonly DesignToken[], library: StyleLibrary = EMPTY_LIBRARY): void {
   for (const node of Object.values(elements)) {
     const link = node.component
     if (link?.kind === 'master') {
@@ -186,7 +199,7 @@ export function validateComponentGraph(elements: Readonly<Record<string, SceneEl
         const parent = node.parentId ? elements[node.parentId] : undefined
         if (parent?.component?.kind !== 'instance' || parent.component.instanceId !== root.id || parent.component.sourceId !== source.parentId) throw new Error('Invalid instance hierarchy')
       }
-      const resolved = applyComponentOverrides(source, link, tokens)
+      const resolved = applyComponentOverrides(source, link, tokens, library)
       for (const key of Object.keys(link.overrides.properties ?? {})) if (!(key in source) && key !== 'sizing' && !(source.type === 'frame' && key === 'layout') && !(source.type === 'path' && key === 'nodes')) throw new Error('Unsupported component override')
       validateElement(resolved)
     } else if (node.parentId && componentRoot(elements, node.parentId)?.component?.kind === 'instance') throw new Error('Unlinked instance child')

@@ -1,4 +1,5 @@
-import type { SceneElement, VectorElement } from '../scene/types.ts'
+import { resolveTokens, validateEffects } from './library.ts'
+import type { PathElement, SceneElement, VectorElement } from '../scene/types.ts'
 import { refreshBooleanElement, sameVectorGeometry } from '../scene/booleanGeometry.ts'
 import type { DesignToken, TokenBindings, TokenProperty, TokenType } from './types.ts'
 
@@ -17,14 +18,27 @@ export const TOKEN_META = {
 
 export function tokenVariable(token: Pick<DesignToken, 'type' | 'name'>): string { return `--${TOKEN_META[token.type].namespace}-${token.name}` }
 export function tokenCSSValue(token: DesignToken): string { return `${token.value}${TOKEN_META[token.type].unit}` }
+const tokenIndexes = new WeakMap<readonly DesignToken[], ReadonlyMap<string, DesignToken>>()
+/** Store snapshots are immutable, so every layer can reuse the same index. */
+export function indexTokens(tokens: readonly DesignToken[] | ReadonlyMap<string, DesignToken>): ReadonlyMap<string, DesignToken> {
+  if (!Array.isArray(tokens)) return tokens as ReadonlyMap<string, DesignToken>
+  const cached = tokenIndexes.get(tokens)
+  if (cached) return cached
+  const index = new Map(tokens.map(token => [token.id, token]))
+  if (Object.isFrozen(tokens)) tokenIndexes.set(tokens, index)
+  return index
+}
 export function tokensToCSS(tokens: readonly DesignToken[], tailwind = false): string {
-  return `${tailwind ? '@theme static' : ':root'} {\n${tokens.map(token => `  ${tokenVariable(token)}: ${tokenCSSValue(token)};`).join('\n')}\n}`
+  return `${tailwind ? '@theme static' : ':root'} {\n${tokens.map(token => `  ${tokenVariable(token)}: ${token.aliasId && tokens.some(target => target.id === token.aliasId) ? `var(${tokenVariable(tokens.find(target => target.id === token.aliasId)!)})` : tokenCSSValue(token)};`).join('\n')}\n}`
 }
 
 const NAMED_COLORS = new Set('transparent aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen'.split(' '))
 
 export function validateToken(token: DesignToken): void {
   if (!token || typeof token.id !== 'string' || !token.id || token.id.length > 200 || typeof token.name !== 'string' || token.name.length > 100 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(token.name) || !Object.hasOwn(TOKEN_META, token.type)) throw new Error('Use a token name like brand-blue or body-size.')
+  if (token.themeValues !== undefined && (!token.themeValues || typeof token.themeValues !== 'object' || Array.isArray(token.themeValues))) throw new Error('Invalid theme values.')
+  if (token.palette !== undefined && (typeof token.palette !== 'string' || token.palette.length > 100)) throw new Error('Invalid palette name.')
+  if (token.aliasId !== undefined && (typeof token.aliasId !== 'string' || !token.aliasId)) throw new Error('Invalid token alias.')
   if (token.type === 'color') {
     const value = token.value
     // No unresolved variables: the scene and standalone exports must agree.
@@ -45,7 +59,8 @@ export function validateTokens(tokens: readonly DesignToken[]): readonly DesignT
     if (ids.has(token.id) || names.has(variable)) throw new Error('Token names must be unique within their type.')
     ids.add(token.id); names.add(variable)
   }
-  return Object.freeze(tokens.map(token => Object.freeze({ ...token })))
+  resolveTokens(tokens)
+  return Object.freeze(tokens.map(token => Object.freeze({ ...Object.fromEntries(Object.entries(token).filter(([, value]) => value !== undefined)), ...(token.themeValues ? { themeValues: Object.freeze({ ...token.themeValues }) } : {}) }) as DesignToken))
 }
 
 export function propertyTokenTypes(property: TokenProperty): readonly TokenType[] {
@@ -62,21 +77,32 @@ export function supportsTokenProperty(node: SceneElement, property: string): pro
 
 /** Materialize bound values at the store boundary, preserving every unbound node's identity. */
 export function resolveTokenBindings(node: SceneElement, tokens: readonly DesignToken[] | ReadonlyMap<string, DesignToken>): SceneElement {
+  const tokenIndex = indexTokens(tokens)
   let next = node
+  if (node.style.effects?.length) {
+    validateEffects(node.style.effects)
+    const effects = node.style.effects.map(effect => {
+      if (effect.type === 'layer-blur' || !effect.colorTokenId) return effect
+      const token = tokenIndex.get(effect.colorTokenId)
+      if (!token || token.type !== 'color') throw new Error('Missing shadow color token.')
+      return effect.color === token.value ? effect : { ...effect, color: token.value }
+    })
+    if (effects.some((effect, index) => effect !== node.style.effects![index])) next = { ...node, style: { ...node.style, effects } }
+  }
   if (node.type === 'path' && node.boolean) {
     const operands = node.boolean.operands.map(source => resolveTokenBindings(source, tokens) as VectorElement)
     if (operands.some((source, index) => source !== node.boolean!.operands[index])) {
       const compound = { ...node.boolean, operands }
       // Paint-only changes do not invalidate the cached outline.
       const geometryChanged = operands.some((source, index) => !sameVectorGeometry(source, node.boolean!.operands[index]))
-      next = geometryChanged ? refreshBooleanElement(node, compound) : { ...node, boolean: compound }
+      next = geometryChanged ? refreshBooleanElement(next as PathElement, compound) : { ...(next as PathElement), boolean: compound }
     }
   }
   if (node.tokenBindings === undefined) return next
   if (!node.tokenBindings || typeof node.tokenBindings !== 'object' || Array.isArray(node.tokenBindings)) throw new Error('Invalid token bindings')
   if (!Object.keys(node.tokenBindings).length) return next
   for (const [property, id] of Object.entries(node.tokenBindings)) {
-    const token = Array.isArray(tokens) ? tokens.find(candidate => candidate.id === id) : (tokens as ReadonlyMap<string, DesignToken>).get(id)
+    const token = tokenIndex.get(id)
     if (!supportsTokenProperty(node, property) || !token || !propertyTokenTypes(property).includes(token.type)) throw new Error('Missing or incompatible token binding')
     if (property === 'fill') {
       if (next.style.fill !== token.value) next = { ...next, style: { ...next.style, fill: token.value as string } }
@@ -94,6 +120,12 @@ export function detachRemovedTokenBindings(node: SceneElement, removed: Readonly
   if (node.type === 'path' && node.boolean) {
     const operands = node.boolean.operands.map(source => detachRemovedTokenBindings(source, removed) as VectorElement)
     if (operands.some((source, index) => source !== node.boolean!.operands[index])) next = { ...node, boolean: { ...node.boolean, operands } }
+  }
+  if (next.style.effects?.some(effect => effect.type !== 'layer-blur' && effect.colorTokenId && removed.has(effect.colorTokenId))) {
+    next = { ...next, style: { ...next.style, effects: next.style.effects.map(effect => {
+      if (effect.type === 'layer-blur' || !effect.colorTokenId || !removed.has(effect.colorTokenId)) return effect
+      const { colorTokenId, ...literal } = effect; void colorTokenId; return literal
+    }) } }
   }
   if (Object.values(node.tokenBindings ?? {}).some(id => removed.has(id))) {
     const tokenBindings = { ...node.tokenBindings }

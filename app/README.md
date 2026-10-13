@@ -1,5 +1,15 @@
 # React + TypeScript + Vite
 
+## Design tokens and shared styles
+
+Open **Theme / Tokens** in the document sidebar to create named tokens, organize colors with palette names, and save shared color styles, typography presets, and ordered effect stacks. Capture a preset from the selected layer, apply it to the selection, or bind it in the inspector. Editing a shared value updates every bound layer, including component instances and retained Boolean sources. Manual edits detach the affected preset; explicit detach and deletion retain the current appearance. All library edits participate in undo/redo and native project saves.
+
+Use **Document theme** to add a named theme and switch between it and **Base**. Edit a token while that theme is selected to set an override, or choose **Reset to base value** to restore inheritance. Aliases reference another token of the same type and follow its value across every theme; invalid references and alias cycles reject the entire edit. Document themes are independent of the editor's light/dark appearance.
+
+Typography presets include font family, size, weight, unitless line height, tracking, alignment, and optional token bindings. Effects support up to 32 enabled or disabled drop shadows, inner shadows, and layer blurs, with reorder controls and token-bound shadow colors. Canvas and SVG exports share the same ordered filter primitives. **Copy theme CSS** exports base variables, aliases, theme scopes, and shared-style classes; CSS paste imports base tokens and alias chains. Native JSON retains the complete library and active theme, and same-project tabs synchronize library-only changes.
+
+The framework-independent engine is in `src/tokens/library.ts` and `src/scene/store.ts`. Resolved tokens and lookup indexes are cached by immutable snapshot identity; unrelated layers retain their references. Run `npm test` for aliases, themes, preset propagation, detach, persistence, effects, and live synchronization regressions.
+
 ## Precision canvas
 
 Hold **Option / Alt** to measure between your selection and another layer. Use the inspector's **Arrange** bar for alignment and equal spacing, arrows to nudge, Cmd/Ctrl + arrows to resize, and brackets to change layer depth. See [precision controls and shortcuts](docs/precision.md).

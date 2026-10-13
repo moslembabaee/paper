@@ -1,3 +1,4 @@
+import { effectFilterMarkup } from '../tokens/effects.ts'
 import type { Bounds } from '../canvas/types.ts'
 import { unionBounds } from '../canvas/math.ts'
 import { getWorldBounds, getWorldMatrix } from '../scene/geometry.ts'
@@ -49,7 +50,8 @@ export function exportBounds(state: SceneSnapshot, scope: ExportOptions['scope']
     // Selected frames are artboards: export their exact dimensions. Unclipped
     // descendants contribute to the extent of a whole-canvas export.
     const shadow = node.style.shadow
-    const padding = crop ? 0 : Math.max(node.style.stroke?.width ?? 0, shadow ? shadow.blur * 2 + Math.abs(shadow.x) + Math.abs(shadow.y) : 0)
+    const effectPadding = (node.style.effects ?? []).filter(effect => effect.enabled && effect.type !== 'inner-shadow').reduce((sum, effect) => sum + effect.blur * 2 + (effect.type === 'layer-blur' ? 0 : Math.abs(effect.x) + Math.abs(effect.y) + Math.abs(effect.spread)), 0)
+    const padding = crop ? 0 : Math.max(effectPadding, Math.max(node.style.stroke?.width ?? 0, shadow ? shadow.blur * 2 + Math.abs(shadow.x) + Math.abs(shadow.y) : 0))
     bounds.push({ x: b.x - padding, y: b.y - padding, width: b.width + padding * 2, height: b.height + padding * 2 })
     if (node.type === 'frame' && !node.clipContent && !crop) node.children.forEach(child => visit(child, false))
   }
@@ -104,7 +106,11 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
     const shaderSrc = assets.shaders.get(id)
     if (shader && !shaderSrc) throw new Error(`The shader on “${node.name}” could not be captured.`)
     let shadowAttr = ''
-    if (shadow) {
+    if (node.style.effects?.some(effect => effect.enabled)) {
+      const filter = unique()
+      defs.push(effectFilterMarkup(node.style.effects, filter))
+      shadowAttr = `filter="url(#${filter})"`
+    } else if (shadow) {
       const filter = unique()
       defs.push(`<filter id="${filter}" x="-100%" y="-100%" width="300%" height="300%" color-interpolation-filters="sRGB"><feDropShadow dx="${num(shadow.x)}" dy="${num(shadow.y)}" stdDeviation="${num(shadow.blur / 2)}" flood-color="${xml(shadow.color)}"/></filter>`)
       shadowAttr = `filter="url(#${filter})"`

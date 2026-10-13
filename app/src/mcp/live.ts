@@ -53,7 +53,7 @@ export class LiveCanvas {
       const next = this.options.store.getSnapshot()
       const previous = this.lastScene
       this.lastScene = next
-      const changed = next.elements !== previous.elements || next.rootIds !== previous.rootIds || next.tokens !== previous.tokens || next.backgroundShader !== previous.backgroundShader
+      const changed = next.elements !== previous.elements || next.rootIds !== previous.rootIds || next.tokens !== previous.tokens || next.styleLibrary !== previous.styleLibrary || next.backgroundShader !== previous.backgroundShader
       if (!this.applying && changed) {
         this.synchronized = true
         this.stamp = { clock: this.stamp.clock + 1, source: this.clientId }

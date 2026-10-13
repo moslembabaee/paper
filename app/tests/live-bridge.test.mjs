@@ -102,6 +102,24 @@ test('real BroadcastChannels sync agent edits, late tabs and human undo with pro
   assert.equal(isolatedStore.getSnapshot().rootIds.length, 0)
 })
 
+test('library-only edits advance live revisions and synchronize themes, presets and undo', async t => {
+  const first = canvas(t), peer = canvas(t)
+  const before = first.live.revision
+  const theme = first.store.addTheme('Dark')
+  assert.notEqual(first.live.revision, before)
+  await untilState(peer.store, () => peer.store.getSnapshot().styleLibrary.themes.some(value => value.id === theme))
+  first.store.setActiveTheme(theme)
+  await untilState(peer.store, () => peer.store.getSnapshot().styleLibrary.activeThemeId === theme)
+  const preset = first.store.addSharedStyle({ kind: 'color', name: 'Accent', value: '#81adec' })
+  await untilState(peer.store, () => peer.store.getSnapshot().styleLibrary.styles.some(value => value.id === preset.id))
+  first.store.updateSharedStyle({ ...preset, value: '#222222' })
+  await untilState(peer.store, () => peer.store.getSnapshot().styleLibrary.styles[0]?.value === '#222222')
+  first.store.undo()
+  await untilState(peer.store, () => peer.store.getSnapshot().styleLibrary.styles[0]?.value === '#81adec')
+  assert.equal(peer.live.revision, first.live.revision)
+  assert.equal(peer.store.getSnapshot().tokens.length, 0)
+})
+
 // Exercise the exact HTTP middleware without binding sockets, so this suite also
 // runs in restricted build environments. Browser integration lives in Playwright.
 function transport(bridge) {

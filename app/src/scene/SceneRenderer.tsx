@@ -1,4 +1,5 @@
-import { memo } from 'react'
+import { effectFilterMarkup } from '../tokens/effects'
+import { memo, useId, useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import type { SceneStore } from './store'
 import type { SceneElement } from './types'
@@ -9,7 +10,8 @@ import './scene.css'
 interface NodeProps { store: SceneStore; id: string; interactive: boolean; inheritedLocked?: boolean }
 
 function Paint({ node }: { node: SceneElement }) {
-  const { fill: solidFill, stroke, shadow, shader } = node.style
+  const { fill: solidFill, stroke, shader } = node.style
+  const shadow = node.style.effects?.some(effect => effect.enabled) ? null : node.style.shadow
   const fill = shader ? null : solidFill
   const shadowStyle = shadow ? { filter: `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` } : undefined
   if (node.type === 'frame') return null
@@ -33,8 +35,11 @@ function Paint({ node }: { node: SceneElement }) {
 }
 
 const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLocked = false }: NodeProps) {
+  const effectId = useId().replace(/:/g, "")
   const node = useScene(store, state => state.elements[id])
   const selected = useScene(store, state => state.selection.includes(id))
+  const effects = node?.style.effects
+  const effectMarkup = useMemo(() => effects ? effectFilterMarkup(effects, effectId) : '', [effects, effectId])
   if (!node || !node.visible) return null
   const locked = inheritedLocked || node.locked
   const isFrame = node.type === 'frame'
@@ -43,14 +48,16 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
     zIndex: node.zIndex, transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined,
     pointerEvents: interactive && !locked ? 'auto' : 'none',
   }
+  const hasEffects = node.style.effects?.some(effect => effect.enabled)
   const frameStyle: CSSProperties | undefined = isFrame ? {
     background: node.style.fill ?? undefined, borderRadius: node.cornerRadius,
     overflow: node.clipContent ? 'hidden' : 'visible',
-    boxShadow: node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : undefined,
+    boxShadow: !hasEffects && node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : undefined,
   } : undefined
   return <div className={`scene-node ${isFrame ? 'scene-frame' : ''} ${selected ? 'is-selected' : ''}`} style={style} data-element-id={id} data-element-type={node.type} data-component-kind={node.component?.kind} data-component-master={node.component?.kind === 'instance' ? node.component.masterId : undefined} data-boolean-operation={node.type === 'path' ? node.boolean?.operation : undefined} aria-label={node.name}>
     {isFrame && node.parentId === null && <div className="artboard-label">{node.name}<span>{node.width} × {node.height}</span></div>}
-    <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity }}>
+    {hasEffects && <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }} aria-hidden="true"><defs dangerouslySetInnerHTML={{ __html: effectMarkup }} /></svg>}
+    <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity, filter: hasEffects ? `url(#${effectId})` : undefined }}>
       {node.style.shader && <ShapeShader node={node} />}
       <Paint node={node} />
       {isFrame && node.children.map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} />)}

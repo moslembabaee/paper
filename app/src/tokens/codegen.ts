@@ -1,3 +1,4 @@
+import { effectsCSS, effectFilterMarkup } from './effects.ts'
 import type { SceneElement, TextElement } from '../scene/types.ts'
 import { boundToken, tokenClass, tokenVariable } from './model.ts'
 import type { DesignToken, TokenProperty } from './types.ts'
@@ -72,7 +73,12 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
     } else props.push({ property: 'border', value: `${width}px solid ${color}` })
   }
 
-  if (node.style.shadow) {
+  if (node.style.effects?.length) {
+    const effects = effectsCSS(node.style.effects)
+    if (effects.boxShadow) props.push({ property: 'box-shadow', value: effects.boxShadow })
+    if (effects.filter) props.push({ property: 'filter', value: effects.filter })
+  }
+  if (node.style.shadow && !node.style.effects?.some(effect => effect.enabled)) {
     const { x, y, blur, color } = node.style.shadow
     props.push(node.type === 'path'
       ? { property: 'filter', value: `drop-shadow(${x}px ${y}px ${blur / 2}px ${hexToRgba(color)})` }
@@ -181,7 +187,9 @@ export function buildTailwindClasses(node: SceneElement, tokens: readonly Design
     }
   }
 
-  if (node.style.shadow) {
+  for (const prop of buildCSSProps(node, tokens, parent).filter(prop => ['box-shadow', 'filter'].includes(prop.property) && node.style.effects?.length)) classes.push(`[${prop.property}:${prop.value.replace(/ /g, '_')}]`)
+
+  if (node.style.shadow && !node.style.effects?.some(effect => effect.enabled)) {
     const { x, y, blur } = node.style.shadow
     if (node.type === 'path') classes.push(`drop-shadow-[${x}px_${y}px_${blur / 2}px_${node.style.shadow.color}]`)
     else if (x === 0 && y === 2 && blur === 4) classes.push('shadow-sm')
@@ -231,6 +239,11 @@ export function buildReactComponent(node: SceneElement, tokens: readonly DesignT
   }).map(property => `${property === 'x' ? 'left' : property === 'y' ? 'top' : property}: ${node[property]}`)
   if (node.rotation !== 0) geometryStyle.push(`transform: 'rotate(${node.rotation}deg)'`)
   if (node.type === 'text' && !node.tokenBindings?.fontFamily) geometryStyle.push(`fontFamily: ${JSON.stringify(node.fontFamily)}`)
+  if (node.style.effects?.some(effect => effect.enabled) && node.type !== 'path') {
+    const effects = effectsCSS(node.style.effects)
+    if (effects.boxShadow) geometryStyle.push(`boxShadow: ${JSON.stringify(effects.boxShadow)}`)
+    if (effects.filter) geometryStyle.push(`filter: ${JSON.stringify(effects.filter)}`)
+  }
   const inlineStyle = geometryStyle.length ? `{{ ${geometryStyle.join(', ')} }}` : null
   const styleAttribute = inlineStyle ? `\n      style=${inlineStyle}` : ''
 
@@ -256,11 +269,13 @@ export function buildReactComponent(node: SceneElement, tokens: readonly DesignT
   }
 
   if (node.type === 'path') {
+    const effectId = `paper-${node.id.replace(/[^a-zA-Z0-9-]/g, '')}-effects`
+    const effectDefs = node.style.effects?.some(effect => effect.enabled) ? `<defs>${effectFilterMarkup(node.style.effects, effectId)}</defs>` : ''
     const fillToken = boundToken(node, 'fill', tokens), strokeToken = boundToken(node, 'stroke', tokens)
     const fill = fillToken ? `var(${tokenVariable(fillToken)})` : node.style.fill ?? 'none'
     const stroke = strokeToken ? `var(${tokenVariable(strokeToken)})` : node.style.stroke?.color ?? 'none'
     // A real SVG outline keeps compound holes and curves intact in handoff.
-    return `export function ${name}() {\n  return (\n    <svg\n      className="${tw}"${styleAttribute}\n      viewBox="${node.viewBox.join(' ')}"\n      preserveAspectRatio="none"\n      overflow="visible"\n    >\n      <path\n        d={${JSON.stringify(node.d)}}\n        fillRule="${node.fillRule}"\n        fill={${JSON.stringify(fill)}}\n        stroke={${JSON.stringify(stroke)}}\n        strokeWidth={${node.style.stroke?.width ?? 0}}\n        strokeDasharray="${node.style.stroke?.dash.join(' ') ?? ''}"\n        strokeLinejoin="round"\n      />\n    </svg>\n  )\n}`
+    return `export function ${name}() {\n  return (\n    <svg\n      className="${tw}"${styleAttribute}\n      viewBox="${node.viewBox.join(' ')}"\n      preserveAspectRatio="none"\n      overflow="visible"\n    >\n      ${effectDefs}\n      <path${effectDefs ? ` filter="url(#${effectId})"` : ''}\n        d={${JSON.stringify(node.d)}}\n        fillRule="${node.fillRule}"\n        fill={${JSON.stringify(fill)}}\n        stroke={${JSON.stringify(stroke)}}\n        strokeWidth={${node.style.stroke?.width ?? 0}}\n        strokeDasharray="${node.style.stroke?.dash.join(' ') ?? ''}"\n        strokeLinejoin="round"\n      />\n    </svg>\n  )\n}`
   }
 
   return `export function ${name}() {\n  return (\n    <div\n      className="${tw}"${styleAttribute}\n    />\n  )\n}`

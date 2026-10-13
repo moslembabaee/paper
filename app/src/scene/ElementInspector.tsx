@@ -1,3 +1,5 @@
+import { SharedStyleInspector, EffectStackEditor } from '../tokens/StyleLibraryPanel'
+import { resolveTokens } from '../tokens/library'
 import type { ReactNode } from 'react'
 import { TokenSelector } from '../tokens/TokenSelector'
 import type { TokenProperty } from '../tokens/types'
@@ -36,7 +38,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
   const managed = parent?.type === 'frame' && !!parent.layout
   const instanceChild = node?.component?.kind === 'instance' && node.component.instanceId !== node.id
   const component = node ? componentRoot(state.elements, node.id) : undefined
-  const binding = (property: TokenProperty, label: string, color = false) => node ? <TokenSelector key={`${node.id}-${property}`} store={store} node={node} property={property} label={label} tokens={state.tokens} color={color} /> : null
+  const binding = (property: TokenProperty, label: string, color = false) => node ? <TokenSelector key={`${node.id}-${property}`} store={store} node={node} property={property} label={label} tokens={resolveTokens(state.tokens, state.styleLibrary.activeThemeId)} color={color} /> : null
   const patch = (changes: ElementPatch<ElementType>) => { if (node) store.update(node.id, node.type, changes) }
   const style = (changes: Partial<SceneElement['style']>) => patch({ style: changes })
   const parentOptions = Object.values(state.elements).filter(candidate => {
@@ -62,6 +64,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
         {'cornerRadius' in node && <NumberField binding={binding('cornerRadius', 'Radius')} label="Radius" value={node.cornerRadius} min={0} onChange={cornerRadius => patch({ cornerRadius })} />}
         <button className="text-action" onClick={() => controller.fit(getWorldBounds(state, node.id))}>Focus element <ChevronRight size={12} /></button>
       </div>
+      <SharedStyleInspector key={`shared-${node.id}`} store={store} node={node} />
       <AutoLayoutInspector key={`layout-${node.id}`} node={node} parent={parent} store={store} />
       <div className="inspector-section">
         <span className="section-caption">APPEARANCE</span>
@@ -69,9 +72,10 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
         {node.style.fill !== null && <ColorField binding={binding('fill', 'Fill', true)} label="Fill" value={node.style.fill} onChange={fill => style({ fill })} />}
         <div className="property-heading"><span>Stroke</span><button className="quiet-button paint-toggle" aria-label="Toggle stroke" aria-pressed={node.style.stroke !== null} onClick={() => style({ stroke: node.style.stroke ? null : { color: '#080808', width: 1, dash: [] } })}>{node.style.stroke ? '−' : '+'}</button></div>
         {node.style.stroke && <><ColorField binding={binding('stroke', 'Stroke', true)} label="Stroke" value={node.style.stroke.color} onChange={color => style({ stroke: { ...node.style.stroke!, color } })} /><NumberField label="Stroke width" value={node.style.stroke.width} min={0} step={.5} onChange={width => style({ stroke: { ...node.style.stroke!, width } })} /></>}
-        <div className="property-heading"><span>Shadow</span><button className="quiet-button paint-toggle" aria-label="Toggle shadow" aria-pressed={node.style.shadow !== null} onClick={() => style({ shadow: node.style.shadow ? null : { color: '#08080833', x: 0, y: 4, blur: 16 } })}>{node.style.shadow ? '−' : '+'}</button></div>
+        <div className="property-heading"><span>Shadow</span><button className="quiet-button paint-toggle" aria-label="Toggle shadow" aria-pressed={node.style.shadow !== null} onClick={() => style({ shadow: node.style.shadow ? null : { color: '#08080833', x: 0, y: 4, blur: 16 }, effects: [] })}>{node.style.shadow ? '−' : '+'}</button></div>
         {node.style.shadow && <><ColorField label="Shadow" value={node.style.shadow.color} onChange={color => style({ shadow: { ...node.style.shadow!, color } })} /><div className="property-pair"><NumberField label="Shadow X" value={node.style.shadow.x} onChange={x => style({ shadow: { ...node.style.shadow!, x } })} /><NumberField label="Shadow Y" value={node.style.shadow.y} onChange={y => style({ shadow: { ...node.style.shadow!, y } })} /></div><NumberField label="Blur" value={node.style.shadow.blur} min={0} onChange={blur => style({ shadow: { ...node.style.shadow!, blur } })} /></>}
       </div>
+      <div className="inspector-section"><span className="section-caption">LAYER EFFECTS</span><EffectStackEditor effects={node.style.effects ?? []} tokens={resolveTokens(state.tokens, state.styleLibrary.activeThemeId)} onChange={effects => { try { style({ effects, shadow: null }) } catch { /* Keep the last valid effect while a color is being typed. */ } }} /></div>
       <ShaderInspector key={`shader-${node.id}`} paint={node.style.shader ?? null} onChange={shader => style({ shader })} target={node.type === 'image' ? 'Image effect' : 'Layer fill'} image={node.type === 'image' ? node.src : undefined} onBrowse={onOpenShaders} />
       {node.type === 'text' && <div className="inspector-section"><span className="section-caption">TYPOGRAPHY</span>
         <textarea className="property-textarea" key={node.id + node.text} aria-label="Text content" defaultValue={node.text} onBlur={event => store.update(node.id, 'text', { text: event.currentTarget.value })} />
