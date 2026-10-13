@@ -23,7 +23,9 @@ os.environ["PATH"] = f"{FULL_PATH}:{os.environ.get('PATH', '')}"
 
 PROJECT_ROOT = Path("/root/projects/paper").resolve()
 ROADMAP_FILE = PROJECT_ROOT / "ROADMAP.json"
-LOG_FILE = PROJECT_ROOT / "orchestrator.log"
+LOG_DIR = PROJECT_ROOT / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / "orchestrator.log"
 
 AGENT_CHAIN = ["claude", "codex", "antigravity"]
 

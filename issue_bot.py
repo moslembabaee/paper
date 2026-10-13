@@ -18,7 +18,9 @@ from pathlib import Path
 PROJECT_ROOT = Path("/root/projects/paper").resolve()
 ROADMAP_FILE = PROJECT_ROOT / "ROADMAP.json"
 MAINTAINERS_FILE = PROJECT_ROOT / "maintainers.json"
-LOG_FILE = PROJECT_ROOT / "issue_bot.log"
+LOG_DIR = PROJECT_ROOT / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / "issue_bot.log"
 REPO = "moslembabaee/paper"
 
 FULL_PATH = "/root/.local/bin:/root/.hermes/tools/node-26.7.0-linux-x64/bin:/root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"

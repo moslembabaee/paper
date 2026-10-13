@@ -5,7 +5,9 @@
 export PATH="/root/.local/bin:/root/.hermes/tools/node-26.7.0-linux-x64/bin:/root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 PROJECT_DIR="/root/projects/paper"
-LOG_FILE="$PROJECT_DIR/watchdog.log"
+LOG_DIR="$PROJECT_DIR/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/watchdog.log"
 NOW=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
 
 # 1. Check memory and drop cache if low
@@ -57,7 +59,7 @@ fi
 python3 "$PROJECT_DIR/issue_bot.py" >> "$LOG_FILE" 2>&1
 
 # 5. Continuous Deployment: Auto-deploy on new commits
-"$PROJECT_DIR/auto_deploy.sh" >> "$PROJECT_DIR/deploy.log" 2>&1
+"$PROJECT_DIR/auto_deploy.sh" >> "$LOG_DIR/deploy.log" 2>&1
 
 # 6. Log rotation if > 2MB
 if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE") -gt 2097152 ]; then

@@ -4,7 +4,9 @@ set -u
 PROJECT_DIR="/root/projects/paper"
 LOCK_FILE="/tmp/paper_deploy.lock"
 DEPLOYED_FILE="$PROJECT_DIR/.last_deployed_commit"
-LOG_FILE="$PROJECT_DIR/deploy.log"
+LOG_DIR="$PROJECT_DIR/logs"
+mkdir -p "$LOG_DIR"
+LOG_FILE="$LOG_DIR/deploy.log"
 
 # Prevent concurrent deploy runs
 exec 200>"$LOCK_FILE"
