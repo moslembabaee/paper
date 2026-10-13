@@ -38,8 +38,12 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
     const fills = rule === 'fill' && parentLayout && parent?.sizing?.[axis] !== 'hug'
     const wrappedCrossFill = fills && !main && parentLayout?.wrap && parentLayout.wrap !== 'nowrap'
     props.push({ property: axis, value: rule === 'hug' ? axis === 'width' ? 'max-content' : 'auto' : fills ? main ? '0px' : wrappedCrossFill ? 'auto' : '100%' : `${node[axis]}px` })
-    if (wrappedCrossFill) props.push({ property: 'align-self', value: 'stretch' }, { property: `min-${axis}`, value: '0.01px' })
-    if (fills && main) props.push({ property: 'flex', value: '1 1 0px' }, { property: `min-${axis}`, value: '0.01px' })
+    if (wrappedCrossFill) props.push({ property: 'align-self', value: 'stretch' })
+    if (fills && main) props.push({ property: 'flex', value: `${node.sizing?.flexGrow ?? 1} 1 0px` })
+    const min = axis === 'width' ? node.sizing?.minWidth : node.sizing?.minHeight
+    const max = axis === 'width' ? node.sizing?.maxWidth : node.sizing?.maxHeight
+    if (min !== undefined || (fills && (main || wrappedCrossFill))) props.push({ property: `min-${axis}`, value: `${Math.max(.01, min ?? .01)}px` })
+    if (max !== undefined) props.push({ property: `max-${axis}`, value: `${max}px` })
   }
   if (node.type === 'frame' && node.layout) {
     const { direction, gap, padding, justify, align } = node.layout
@@ -141,7 +145,13 @@ export function buildTailwindClasses(node: SceneElement, tokens: readonly Design
     const prefix = axis === 'width' ? 'w' : 'h', rule = node.sizing?.[axis]
     const main = parentLayout && (parentLayout.direction === 'horizontal' ? axis === 'width' : axis === 'height')
     if (rule === 'hug') classes.push(`${prefix}-${axis === 'width' ? 'max' : 'auto'}`)
-    if (rule === 'fill' && parentLayout && parent?.sizing?.[axis] !== 'hug') classes.push(...(main ? ['flex-1', `${prefix}-0`, `min-${prefix}-[0.01px]`] : parentLayout.wrap && parentLayout.wrap !== 'nowrap' ? [`${prefix}-auto`, 'self-stretch', `min-${prefix}-[0.01px]`] : [`${prefix}-full`]))
+    const fills = rule === 'fill' && parentLayout && parent?.sizing?.[axis] !== 'hug'
+    const wrappedCrossFill = fills && !main && parentLayout.wrap && parentLayout.wrap !== 'nowrap'
+    if (fills) classes.push(...(main ? [(node.sizing?.flexGrow ?? 1) === 1 ? 'flex-1' : `flex-[${node.sizing!.flexGrow}_1_0px]`, `${prefix}-0`] : wrappedCrossFill ? [`${prefix}-auto`, 'self-stretch'] : [`${prefix}-full`]))
+    const min = axis === 'width' ? node.sizing?.minWidth : node.sizing?.minHeight
+    const max = axis === 'width' ? node.sizing?.maxWidth : node.sizing?.maxHeight
+    if (min !== undefined || (fills && (main || wrappedCrossFill))) classes.push(`min-${prefix}-[${Math.max(.01, min ?? .01)}px]`)
+    if (max !== undefined) classes.push(`max-${prefix}-[${max}px]`)
   }
   if (node.type === 'frame' && node.layout) {
     const { direction, gap, padding, justify, align } = node.layout

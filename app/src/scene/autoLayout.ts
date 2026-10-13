@@ -1,4 +1,4 @@
-import { freezeElement } from './elements.ts'
+import { withElementGeometry } from './elements.ts'
 import type { AutoLayout, ElementSizing, SceneElement, TextElement } from './types.ts'
 
 export const FIXED_SIZING: ElementSizing = Object.freeze({ width: 'fixed', height: 'fixed' })
@@ -15,6 +15,36 @@ const size = (value: number) => {
 }
 interface LayoutBox { width: number; height: number; children: readonly PlacedBox[] }
 interface PlacedBox { id: string; x: number; y: number; box: LayoutBox }
+type Axis = 'width' | 'height'
+
+function bounded(node: SceneElement, axis: Axis, value: number): number {
+  const min = (axis === 'width' ? node.sizing?.minWidth : node.sizing?.minHeight) ?? MIN_SIZE
+  const max = (axis === 'width' ? node.sizing?.maxWidth : node.sizing?.maxHeight) ?? Infinity
+  return Math.min(max, Math.max(min, size(value)))
+}
+
+/** Resolve zero-basis flex shares, freezing only the bounds that cause the net
+ * violation. This lets capped siblings release space and preserves minima when
+ * the frame is too small. Normalize weights to keep large finite values safe. */
+function distributeFill(nodes: readonly SceneElement[], axis: Axis, available: number): Map<string, number> {
+  const result = new Map<string, number>()
+  let active = [...nodes]
+  let remaining = available
+  while (active.length) {
+    const maxWeight = active.reduce((max, node) => Math.max(max, node.sizing?.flexGrow ?? 1), 0)
+    const total = active.reduce((sum, node) => sum + (node.sizing?.flexGrow ?? 1) / maxWeight, 0)
+    const proposals = active.map(node => {
+      const share = Math.max(0, remaining) * ((node.sizing?.flexGrow ?? 1) / maxWeight / total)
+      const value = bounded(node, axis, share)
+      return { node, value, violation: value - share }
+    })
+    const violation = proposals.reduce((sum, proposal) => sum + proposal.violation, 0)
+    const frozen = proposals.filter(proposal => violation > 0 ? proposal.violation > 0 : violation < 0 ? proposal.violation < 0 : true)
+    for (const { node, value } of frozen) { result.set(node.id, value); remaining -= value }
+    active = active.filter(node => !result.has(node.id))
+  }
+  return result
+}
 
 let context: CanvasRenderingContext2D | null | undefined
 const textCache = new Map<string, number>()
@@ -55,13 +85,14 @@ function textHeight(node: TextElement, width: number): number {
 }
 
 /** Resolve intrinsic sizes before distributing available space. Fixed children never
- * shrink; fill siblings share the remainder equally. A fill child inside a hug axis
- * uses its intrinsic size, breaking the otherwise circular dependency. Hidden layers
+ * shrink; fill siblings share the remainder by flex weight within their bounds.
+ * A fill child inside a hug axis uses its intrinsic size, breaking the otherwise
+ * circular dependency. Hidden layers
  * retain geometry and do not occupy space. Rotation does not affect the layout box.
  * No DOM layout reads, iterative convergence, or extra history commands are needed.
  */
 export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, roots: readonly string[]): Readonly<Record<string, SceneElement>> {
-  if (!Object.values(input).some(node => node.sizing?.width === 'hug' || node.sizing?.height === 'hug' || (node.type === 'frame' && node.layout))) return input
+  if (!Object.values(input).some(node => node.sizing || (node.type === 'frame' && node.layout))) return input
   const memo = new Map<string, Map<string, LayoutBox>>()
   const measure = (id: string, assignedWidth?: number, assignedHeight?: number): LayoutBox => {
     const node = input[id], sizing = node.sizing ?? FIXED_SIZING
@@ -70,11 +101,11 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
     const cached = entries?.get(key)
     if (cached) return cached
     if (!entries) { entries = new Map(); memo.set(id, entries) }
-    let width = assignedWidth ?? node.width, height = assignedHeight ?? node.height
+    let width = bounded(node, 'width', assignedWidth ?? node.width), height = bounded(node, 'height', assignedHeight ?? node.height)
     let placed: PlacedBox[] = []
     if (node.type === 'text') {
-      if (assignedWidth === undefined && sizing.width === 'hug') width = size(Math.max(0, ...node.text.split('\n').map(line => textWidth(line, node))))
-      if (assignedHeight === undefined && sizing.height === 'hug') height = textHeight(node, width)
+      if (assignedWidth === undefined && sizing.width === 'hug') width = bounded(node, 'width', Math.max(0, ...node.text.split('\n').map(line => textWidth(line, node))))
+      if (assignedHeight === undefined && sizing.height === 'hug') height = bounded(node, 'height', textHeight(node, width))
     } else if (node.type === 'frame') {
       const children = node.children.filter(child => input[child].visible && !(node.layout && input[child].mask?.enabled))
       const natural = children.map(child => measure(child))
@@ -87,7 +118,7 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
         const horizontal = layout.direction === 'horizontal'
         if (layout.wrap && layout.wrap !== 'nowrap') {
           // Flex lines are formed from fixed/hug bases; fill has a zero basis and
-          // receives an equal share of the remaining space within its own line.
+          // receives a bounded, weighted share within its own line.
           const main = horizontal ? 'width' : 'height'
           const cross = horizontal ? 'height' : 'width'
           const p = layout.padding
@@ -98,14 +129,14 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
           const hugMain = sizing[main] === 'hug' && (horizontal ? assignedWidth : assignedHeight) === undefined
           const hugCross = sizing[cross] === 'hug' && (horizontal ? assignedHeight : assignedWidth) === undefined
           let mainSize = horizontal ? width : height
-          if (hugMain) mainSize = size(mainPadding + natural.reduce((sum, box) => sum + box[main], 0) + Math.max(0, children.length - 1) * layout.gap)
+          if (hugMain) mainSize = bounded(node, main, mainPadding + natural.reduce((sum, box) => sum + box[main], 0) + Math.max(0, children.length - 1) * layout.gap)
           const innerMain = Math.max(0, mainSize - mainPadding)
           const lines: { indices: number[]; boxes: LayoutBox[]; crossSize: number }[] = []
           let used = 0
           for (let i = 0; i < children.length; i++) {
-            const basis = !hugMain && input[children[i]].sizing?.[main] === 'fill' ? MIN_SIZE : natural[i][main]
+            const basis = !hugMain && input[children[i]].sizing?.[main] === 'fill' ? bounded(input[children[i]], main, 0) : natural[i][main]
             let line = lines[lines.length - 1]
-            if (!line || (!hugMain && used + layout.gap + basis > innerMain + 1e-6)) {
+            if (!line || (used + layout.gap + basis > innerMain + 1e-6)) {
               line = { indices: [], boxes: [], crossSize: 0 }
               lines.push(line)
               used = 0
@@ -116,17 +147,17 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
           for (const line of lines) {
             const fills = new Set(line.indices.filter(i => input[children[i]].sizing?.[main] === 'fill' && !hugMain))
             const fixed = line.indices.reduce((sum, i) => sum + (fills.has(i) ? 0 : natural[i][main]), 0)
-            const fillSize = size((innerMain - fixed - Math.max(0, line.indices.length - 1) * layout.gap) / Math.max(1, fills.size))
+            const fillSizes = distributeFill([...fills].map(i => input[children[i]]), main, innerMain - fixed - Math.max(0, line.indices.length - 1) * layout.gap)
             line.boxes = line.indices.map(i => {
-              const assigned = fills.has(i) ? fillSize : natural[i][main]
+              const assigned = fillSizes.get(children[i]) ?? natural[i][main]
               return horizontal ? measure(children[i], assigned) : measure(children[i], undefined, assigned)
             })
             // A cross-axis fill is stretched after line measurement. Reusing its
             // previous stretched size here would prevent responsive shrinking.
-            line.crossSize = Math.max(MIN_SIZE, ...line.boxes.map((box, j) => !hugCross && input[children[line.indices[j]]].sizing?.[cross] === 'fill' ? MIN_SIZE : box[cross]))
+            line.crossSize = Math.max(MIN_SIZE, ...line.boxes.map((box, j) => !hugCross && input[children[line.indices[j]]].sizing?.[cross] === 'fill' ? bounded(input[children[line.indices[j]]], cross, 0) : box[cross]))
           }
           const crossUsed = lines.reduce((sum, line) => sum + line.crossSize, 0) + Math.max(0, lines.length - 1) * layout.gap
-          const crossSize = hugCross ? size(crossUsed + crossPadding) : horizontal ? height : width
+          const crossSize = hugCross ? bounded(node, cross, crossUsed + crossPadding) : horizontal ? height : width
           const innerCross = Math.max(0, crossSize - crossPadding)
           const spareCross = Math.max(0, innerCross - crossUsed)
           const packing = layout.alignContent ?? 'start'
@@ -159,20 +190,20 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
           const p = layout.padding, gaps = Math.max(0, children.length - 1) * layout.gap
           const hugWidth = sizing.width === 'hug' && assignedWidth === undefined
           const hugHeight = sizing.height === 'hug' && assignedHeight === undefined
-          if (hugWidth) width = size(p.left + p.right + (horizontal ? natural.reduce((sum, box) => sum + box.width, 0) + gaps : Math.max(0, ...natural.map(box => box.width))))
+          if (hugWidth) width = bounded(node, 'width', p.left + p.right + (horizontal ? natural.reduce((sum, box) => sum + box.width, 0) + gaps : Math.max(0, ...natural.map(box => box.width))))
           const innerWidth = Math.max(0, width - p.left - p.right)
-          const fillWidths = children.filter(child => input[child].sizing?.width === 'fill').length
+          const fillWidths = children.filter(child => input[child].sizing?.width === 'fill').map(child => input[child])
           const fixedWidths = natural.reduce((sum, box, i) => sum + (input[children[i]].sizing?.width === 'fill' ? 0 : box.width), 0)
-          const fillWidth = size((innerWidth - fixedWidths - gaps) / Math.max(1, fillWidths))
+          const fillWidth = horizontal && !hugWidth ? distributeFill(fillWidths, 'width', innerWidth - fixedWidths - gaps) : new Map<string, number>()
           // Resolve width first so wrapped text contributes its actual height to a hug frame.
-          const widths = children.map((child, i) => input[child].sizing?.width === 'fill' && !hugWidth ? horizontal ? fillWidth : size(innerWidth) : natural[i].width)
+          const widths = children.map((child, i) => input[child].sizing?.width === 'fill' && !hugWidth ? horizontal ? fillWidth.get(child)! : bounded(input[child], 'width', innerWidth) : natural[i].width)
           const constrained = children.map((child, i) => measure(child, widths[i]))
-          if (hugHeight) height = size(p.top + p.bottom + (horizontal ? Math.max(0, ...constrained.map(box => box.height)) : constrained.reduce((sum, box) => sum + box.height, 0) + gaps))
+          if (hugHeight) height = bounded(node, 'height', p.top + p.bottom + (horizontal ? Math.max(0, ...constrained.map(box => box.height)) : constrained.reduce((sum, box) => sum + box.height, 0) + gaps))
           const innerHeight = Math.max(0, height - p.top - p.bottom)
-          const fillHeights = children.filter(child => input[child].sizing?.height === 'fill').length
+          const fillHeights = children.filter(child => input[child].sizing?.height === 'fill').map(child => input[child])
           const fixedHeights = constrained.reduce((sum, box, i) => sum + (input[children[i]].sizing?.height === 'fill' ? 0 : box.height), 0)
-          const fillHeight = size((innerHeight - fixedHeights - gaps) / Math.max(1, fillHeights))
-          const boxes = children.map((child, i) => input[child].sizing?.height === 'fill' && !hugHeight ? measure(child, widths[i], horizontal ? size(innerHeight) : fillHeight) : constrained[i])
+          const fillHeight = !horizontal && !hugHeight ? distributeFill(fillHeights, 'height', innerHeight - fixedHeights - gaps) : new Map<string, number>()
+          const boxes = children.map((child, i) => input[child].sizing?.height === 'fill' && !hugHeight ? measure(child, widths[i], horizontal ? bounded(input[child], 'height', innerHeight) : fillHeight.get(child)!) : constrained[i])
           const mainSpace = horizontal ? innerWidth : innerHeight
           const used = boxes.reduce((sum, box) => sum + (horizontal ? box.width : box.height), 0) + gaps
           const remaining = Math.max(0, mainSpace - used)
@@ -195,7 +226,7 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
         if (child.visible && child.mask?.enabled) placed.push({ id, x: child.x, y: child.y, box: measure(id) })
       }
     }
-    const result = { width: size(width), height: size(height), children: placed }
+    const result = { width: bounded(node, 'width', width), height: bounded(node, 'height', height), children: placed }
     entries.set(key, result)
     return result
   }
@@ -205,7 +236,7 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
     if (![x, y, box.width, box.height].every(Number.isFinite)) throw new Error('Invalid auto layout dimensions')
     if (node.x !== x || node.y !== y || node.width !== box.width || node.height !== box.height) {
       if (output === input) output = { ...input }
-      ;(output as Record<string, SceneElement>)[id] = freezeElement({ ...node, x, y, width: box.width, height: box.height })
+      ;(output as Record<string, SceneElement>)[id] = withElementGeometry(node, { x, y, width: box.width, height: box.height })
     }
     for (const child of box.children) apply(child.id, child.box, child.x, child.y)
   }

@@ -64,7 +64,7 @@ const styleProperties = { fill: nullable({ type: 'string' }), opacity: { type: '
 const style = object(styleProperties)
 const geometry = { x: num, y: num, width: positive, height: positive, rotation: num }
 const sizingRule: JsonSchema = { type: 'string', enum: ['fixed', 'hug', 'fill'] }
-const sizing = object({ width: sizingRule, height: sizingRule }, ['width', 'height'])
+const sizing = object({ width: sizingRule, height: sizingRule, flexGrow: positive, minWidth: nonnegative, maxWidth: { type: 'number', minimum: .01 }, minHeight: nonnegative, maxHeight: { type: 'number', minimum: .01 } }, ['width', 'height'])
 const layout = nullable(object({
   direction: { type: 'string', enum: ['horizontal', 'vertical'] }, gap: nonnegative,
   wrap: { type: 'string', enum: ['nowrap', 'wrap', 'wrap-reverse'] },

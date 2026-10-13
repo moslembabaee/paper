@@ -75,6 +75,13 @@ export type SizingRule = 'fixed' | 'hug' | 'fill'
 export interface ElementSizing {
   readonly width: SizingRule
   readonly height: SizingRule
+  /** Positive share of available space on the parent's main axis. Defaults to 1. */
+  readonly flexGrow?: number
+  /** Bounds apply to fixed, hug and fill alike; absent means unconstrained. */
+  readonly minWidth?: number
+  readonly maxWidth?: number
+  readonly minHeight?: number
+  readonly maxHeight?: number
 }
 export interface LayoutPadding {
   readonly top: number

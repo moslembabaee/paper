@@ -1,6 +1,6 @@
 import { validateEffects } from '../tokens/library.ts'
 import type { LayerEffect } from '../tokens/types.ts'
-import type { BooleanCompound, ElementInput, ElementOf, ElementType, SceneElement, VectorElement } from './types.ts'
+import type { BooleanCompound, ElementGeometry, ElementInput, ElementOf, ElementType, SceneElement, VectorElement } from './types.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
 import { serializePath } from './pathGeometry.ts'
 import { freezeComponent, validateComponent } from './components.ts'
@@ -53,6 +53,16 @@ export function freezeElement(element: SceneElement): SceneElement {
   return frozen
 }
 
+/** Layout changes only geometry. Reuse already-frozen paints, paths, and frame
+ * children instead of copying those records for every frame of a resize gesture. */
+export function withElementGeometry(element: SceneElement, geometry: Pick<ElementGeometry, 'x' | 'y' | 'width' | 'height'>): SceneElement {
+  const next = { ...element, ...geometry }
+  if (!frozenElements.has(element)) return freezeElement(next)
+  const frozen = Object.freeze(next)
+  frozenElements.add(frozen)
+  return frozen
+}
+
 export function validateElement(element: SceneElement, depth = 0): void {
   if (element.mask !== undefined && (!element.mask || !['frame', 'rectangle', 'ellipse', 'path'].includes(element.type) || typeof element.mask.enabled !== 'boolean' || typeof element.mask.showOutline !== 'boolean')) throw new Error('Invalid vector mask')
   if (element.component !== undefined) validateComponent(element.component)
@@ -63,6 +73,13 @@ export function validateElement(element: SceneElement, depth = 0): void {
   }
   if (element.width <= 0 || element.height <= 0 || !Number.isInteger(element.zIndex) || element.zIndex < 0) throw new Error('Invalid element dimensions or order')
   if (element.sizing !== undefined && (!element.sizing || !['fixed', 'hug', 'fill'].includes(element.sizing.width) || !['fixed', 'hug', 'fill'].includes(element.sizing.height))) throw new Error('Invalid sizing rules')
+  if (element.sizing) {
+    const { flexGrow, minWidth, maxWidth, minHeight, maxHeight } = element.sizing
+    if (flexGrow !== undefined && (!Number.isFinite(flexGrow) || flexGrow <= 0)) throw new Error('Invalid flex grow')
+    for (const [min, max] of [[minWidth, maxWidth], [minHeight, maxHeight]]) {
+      if ((min !== undefined && (!Number.isFinite(min) || min < 0)) || (max !== undefined && (!Number.isFinite(max) || max < .01)) || (min !== undefined && max !== undefined && min > max)) throw new Error('Invalid sizing constraints')
+    }
+  }
   if ('layout' in element && element.layout !== undefined && element.layout !== null) {
     if (element.type !== 'frame') throw new Error('Only frames support auto layout')
     const layout = element.layout

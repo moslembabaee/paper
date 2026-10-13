@@ -1,6 +1,52 @@
 import { test, expect } from '@playwright/test'
 import { expectZoom, waitForCanvasReady } from './helpers'
 
+test('weighted fill and size constraints reflow siblings, undo and persist', async ({ page }) => {
+  await waitForCanvasReady(page)
+  await page.getByTestId('tool-frame').click()
+  const inspector = page.getByTestId('inspector-panel')
+  const editNumber = async (name: string, value: string) => {
+    const field = inspector.getByRole('spinbutton', { name, exact: true })
+    await field.fill(value)
+    await field.press('Enter')
+  }
+  await inspector.getByRole('button', { name: 'Add auto layout' }).click()
+  await editNumber('Width', '400')
+  await page.getByTestId('tool-rectangle').click()
+  const firstId = await page.locator('.scene-node.is-selected').getAttribute('data-element-id')
+  await inspector.getByRole('combobox', { name: 'Width sizing', exact: true }).selectOption('fill')
+  await page.getByTestId('tool-rectangle').click()
+  const secondId = await page.locator('.scene-node.is-selected').getAttribute('data-element-id')
+  await inspector.getByRole('combobox', { name: 'Width sizing', exact: true }).selectOption('fill')
+  await editNumber('Flex grow', '2')
+  const first = page.locator(`[data-element-id="${firstId}"]`)
+  const second = page.locator(`[data-element-id="${secondId}"]`)
+  await expect(first).toHaveCSS('width', '112px')
+  await expect(second).toHaveCSS('width', '224px')
+  await inspector.getByText('Size constraints', { exact: true }).click()
+  await editNumber('Maximum width', '150')
+  await expect(first).toHaveCSS('width', '186px')
+  await expect(second).toHaveCSS('width', '150px')
+  // Contradictory limits are rejected in the field without changing the scene.
+  await editNumber('Minimum width', '200')
+  await expect(inspector.getByRole('spinbutton', { name: 'Minimum width', exact: true })).toHaveValue('')
+  await expect(second).toHaveCSS('width', '150px')
+  await page.getByTestId('history-undo').click()
+  await expect(second).toHaveCSS('width', '224px')
+  await editNumber('Maximum width', '150')
+  await expect(page.locator('.local-status')).toHaveText('Saved locally')
+  await page.reload()
+  await expect(first).toHaveCSS('width', '186px')
+  await expect(second).toHaveCSS('width', '150px')
+  await second.click({ force: true })
+  await expect(inspector.getByRole('spinbutton', { name: 'Flex grow', exact: true })).toHaveValue('2')
+  await inspector.getByText('Size constraints', { exact: true }).click()
+  await expect(inspector.getByRole('spinbutton', { name: 'Maximum width', exact: true })).toHaveValue('150')
+  await editNumber('Maximum width', '')
+  await expect(first).toHaveCSS('width', '112px')
+  await expect(second).toHaveCSS('width', '224px')
+})
+
 test('frame controls reflow children, resize fill, undo spacing and retain layout after reload', async ({ page }) => {
   await waitForCanvasReady(page)
   await page.getByTestId('tool-frame').click()
