@@ -1,7 +1,11 @@
 import type { Point } from '../canvas/types.ts'
 
-export interface PathAnchor extends Point { in?: Point; out?: Point }
+export type HandleType = 'mirrored' | 'asymmetric' | 'disconnected'
+export interface PathAnchor extends Point { in?: Point; out?: Point; handleType?: HandleType; cornerRadius?: number }
 export interface PathContour { anchors: PathAnchor[]; closed: boolean }
+export interface PathNodes { readonly anchors: readonly PathAnchor[]; readonly closed: boolean }
+export interface AnchorSelection { contour: number; anchor: number }
+export const copyContours = (contours: readonly PathNodes[]): PathContour[] => contours.map(c => ({ ...c, anchors: c.anchors.map(a => ({ ...a, in: a.in && { ...a.in }, out: a.out && { ...a.out } })) }))
 const point = (x: number, y: number): Point => ({ x, y })
 const reflect = (handle: Point, anchor: Point): Point => point(2 * anchor.x - handle.x, 2 * anchor.y - handle.y)
 const format = (n: number) => Number(n.toFixed(4))
@@ -32,8 +36,25 @@ function arcCubics(start: Point, end: Point, radiusX: number, radiusY: number, r
   })
 }
 
-export function serializePath(contours: readonly PathContour[]): string {
-  return contours.map(({ anchors, closed }) => {
+/** Keep the design anchors intact; round only straight corners in the rendered outline. */
+export function roundPathContours(contours: readonly PathNodes[]): PathContour[] {
+  return contours.map(({ anchors, closed }) => ({ closed, anchors: anchors.flatMap((a, i): PathAnchor[] => {
+    const prev = anchors[(i + anchors.length - 1) % anchors.length], next = anchors[(i + 1) % anchors.length]
+    if (!a.cornerRadius || a.in || a.out || prev?.out || next?.in || (!closed && (i === 0 || i === anchors.length - 1))) return [{ ...a }]
+    const l1 = Math.hypot(prev.x - a.x, prev.y - a.y), l2 = Math.hypot(next.x - a.x, next.y - a.y)
+    if (l1 < 1e-8 || l2 < 1e-8) return [{ ...a }]
+    const u = point((prev.x - a.x) / l1, (prev.y - a.y) / l1), v = point((next.x - a.x) / l2, (next.y - a.y) / l2)
+    const angle = Math.acos(Math.max(-1, Math.min(1, u.x * v.x + u.y * v.y)))
+    if (angle < 1e-5 || Math.PI - angle < 1e-5) return [{ ...a }]
+    const tangent = Math.tan(angle / 2), trim = Math.min(a.cornerRadius / tangent, l1 / 2, l2 / 2)
+    const handle = 4 / 3 * Math.tan((Math.PI - angle) / 4) * trim * tangent
+    const entry = point(a.x + u.x * trim, a.y + u.y * trim), exit = point(a.x + v.x * trim, a.y + v.y * trim)
+    return [{ ...entry, out: point(entry.x - u.x * handle, entry.y - u.y * handle) }, { ...exit, in: point(exit.x - v.x * handle, exit.y - v.y * handle) }]
+  }) }))
+}
+
+export function serializePath(contours: readonly PathNodes[]): string {
+  return roundPathContours(contours).map(({ anchors, closed }) => {
     if (!anchors.length) return ''
     let d = `M ${pair(anchors[0])}`
     const segment = (a: PathAnchor, b: PathAnchor) => a.out || b.in ? ` C ${pair(a.out ?? a)} ${pair(b.in ?? b)} ${pair(b)}` : ` L ${pair(b)}`
@@ -120,6 +141,99 @@ export function pathBounds(contours: readonly PathContour[], padding = 1) {
 export function moveAnchor(anchor: PathAnchor, next: Point): PathAnchor {
   const delta = point(next.x - anchor.x, next.y - anchor.y)
   const shift = (handle: Point) => point(handle.x + delta.x, handle.y + delta.y)
-  return { ...next, ...(anchor.in ? { in: shift(anchor.in) } : {}), ...(anchor.out ? { out: shift(anchor.out) } : {}) }
+  return { ...anchor, ...next, ...(anchor.in ? { in: shift(anchor.in) } : {}), ...(anchor.out ? { out: shift(anchor.out) } : {}) }
 }
 export function snapPathPoint(p: Point, enabled: boolean): Point { return enabled ? point(Math.round(p.x * 2) / 2, Math.round(p.y * 2) / 2) : p }
+
+export function getHandleType(anchor: PathAnchor): HandleType {
+  if (anchor.handleType) return anchor.handleType
+  if (!anchor.in || !anchor.out) return 'disconnected'
+  const a = point(anchor.in.x - anchor.x, anchor.in.y - anchor.y), b = point(anchor.out.x - anchor.x, anchor.out.y - anchor.y)
+  const length = Math.hypot(a.x, a.y) * Math.hypot(b.x, b.y)
+  if (!length || Math.abs(a.x * b.y - a.y * b.x) > length * 1e-5 || a.x * b.x + a.y * b.y >= 0) return 'disconnected'
+  return Math.hypot(a.x + b.x, a.y + b.y) < 1e-4 ? 'mirrored' : 'asymmetric'
+}
+
+export function setHandleType(contour: PathNodes, index: number, type: HandleType): PathAnchor {
+  const a = contour.anchors[index], prev = contour.anchors[(index + contour.anchors.length - 1) % contour.anchors.length], next = contour.anchors[(index + 1) % contour.anchors.length]
+  let direction = a.out ? point(a.out.x - a.x, a.out.y - a.y) : a.in ? point(a.x - a.in.x, a.y - a.in.y) : point(next.x - prev.x, next.y - prev.y)
+  if (!Math.hypot(direction.x, direction.y)) direction = point(1, 0)
+  const magnitude = Math.hypot(direction.x, direction.y), unit = point(direction.x / magnitude, direction.y / magnitude)
+  const fallback = Math.max(8, Math.min(Math.hypot(prev.x - a.x, prev.y - a.y), Math.hypot(next.x - a.x, next.y - a.y)) / 3)
+  const outLength = a.out ? Math.hypot(a.out.x - a.x, a.out.y - a.y) || fallback : a.in ? magnitude : fallback
+  const inLength = type === 'mirrored' ? outLength : a.in ? Math.hypot(a.in.x - a.x, a.in.y - a.y) || fallback : fallback
+  return { ...a, handleType: type, cornerRadius: 0,
+    out: type === 'disconnected' && a.out ? { ...a.out } : point(a.x + unit.x * outLength, a.y + unit.y * outLength),
+    in: type === 'disconnected' && a.in ? { ...a.in } : point(a.x - unit.x * inLength, a.y - unit.y * inLength),
+  }
+}
+
+export function moveHandle(anchor: PathAnchor, handle: 'in' | 'out', target: Point, breakHandle = false): PathAnchor {
+  const type = breakHandle ? 'disconnected' : getHandleType(anchor), other = handle === 'in' ? 'out' : 'in'
+  const result = { ...anchor, [handle]: target, handleType: type, cornerRadius: 0 }
+  const distance = Math.hypot(target.x - anchor.x, target.y - anchor.y)
+  if (type !== 'disconnected' && distance > 1e-8) {
+    const length = type === 'mirrored' ? distance : anchor[other] ? Math.hypot(anchor[other]!.x - anchor.x, anchor[other]!.y - anchor.y) : distance
+    result[other] = point(anchor.x - (target.x - anchor.x) * length / distance, anchor.y - (target.y - anchor.y) * length / distance)
+  } else if (type === 'mirrored') result[other] = { x: anchor.x, y: anchor.y }
+  return result
+}
+
+const lerp = (a: Point, b: Point, t: number): Point => point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+export function segmentPoint(a: PathAnchor, b: PathAnchor, t: number): Point {
+  if (!a.out && !b.in) return lerp(a, b, t)
+  return lerp(lerp(lerp(a, a.out ?? a, t), lerp(a.out ?? a, b.in ?? b, t), t), lerp(lerp(a.out ?? a, b.in ?? b, t), lerp(b.in ?? b, b, t), t), t)
+}
+
+/** De Casteljau subdivision preserves the entire cubic, including closing segments. */
+export function insertPathAnchor(contour: PathContour, segment: number, t: number): number {
+  const next = (segment + 1) % contour.anchors.length, a = contour.anchors[segment], b = contour.anchors[next]
+  t = Math.max(.001, Math.min(.999, t))
+  let anchor: PathAnchor
+  if (!a.out && !b.in) anchor = { ...lerp(a, b, t), cornerRadius: 0 }
+  else {
+    const p = lerp(a, a.out ?? a, t), q = lerp(a.out ?? a, b.in ?? b, t), r = lerp(b.in ?? b, b, t)
+    const s = lerp(p, q, t), u = lerp(q, r, t)
+    anchor = { ...lerp(s, u, t), in: s, out: u, handleType: 'asymmetric', cornerRadius: 0 }
+    a.out = p; b.in = r
+    // Subdivision changes handle lengths; retain tangent direction, not symmetry.
+    if (getHandleType(a) === 'mirrored') a.handleType = 'asymmetric'
+    if (getHandleType(b) === 'mirrored') b.handleType = 'asymmetric'
+  }
+  contour.anchors.splice(segment + 1, 0, anchor)
+  return segment + 1
+}
+
+/** Search in screen coordinates so insertion has a constant target size at every zoom. */
+export function nearestPathSegment(contours: readonly PathNodes[], target: Point, map: (p: Point) => Point, tolerance = 10): { contour: number; segment: number; t: number } | null {
+  let best = tolerance * tolerance, hit: { contour: number; segment: number; t: number } | null = null
+  contours.forEach((c, ci) => {
+    const count = c.closed ? c.anchors.length : c.anchors.length - 1
+    for (let i = 0; i < count; i++) {
+      const sourceA = c.anchors[i], sourceB = c.anchors[(i + 1) % c.anchors.length]
+      if (sourceA.cornerRadius || sourceB.cornerRadius) continue
+      const a: PathAnchor = { ...map(sourceA), ...(sourceA.out ? { out: map(sourceA.out) } : {}) }, b: PathAnchor = { ...map(sourceB), ...(sourceB.in ? { in: map(sourceB.in) } : {}) }
+      const hull = [a, b, a.out ?? a, b.in ?? b]
+      if (target.x < Math.min(...hull.map(p => p.x)) - tolerance || target.x > Math.max(...hull.map(p => p.x)) + tolerance || target.y < Math.min(...hull.map(p => p.y)) - tolerance || target.y > Math.max(...hull.map(p => p.y)) + tolerance) continue
+      const sample = (t: number) => { const p = segmentPoint(a, b, t); return (p.x - target.x) ** 2 + (p.y - target.y) ** 2 }
+      const steps = a.out || b.in ? 48 : 1
+      let previous: Point = a, coarseDistance = Infinity, approx = .5
+      for (let j = 1; j <= steps; j++) {
+        const end = segmentPoint(a, b, j / steps), dx = end.x - previous.x, dy = end.y - previous.y
+        const fraction = Math.max(0, Math.min(1, ((target.x - previous.x) * dx + (target.y - previous.y) * dy) / (dx * dx + dy * dy || 1)))
+        const distance = (previous.x + dx * fraction - target.x) ** 2 + (previous.y + dy * fraction - target.y) ** 2
+        if (distance < coarseDistance) { coarseDistance = distance; approx = (j - 1 + fraction) / steps }
+        previous = end
+      }
+      let t = approx
+      if (steps > 1) {
+        let low = Math.max(0, approx - 1 / steps), high = Math.min(1, approx + 1 / steps)
+        for (let k = 0; k < 14; k++) { const l = low + (high - low) / 3, r = high - (high - low) / 3; if (sample(l) < sample(r)) high = r; else low = l }
+        t = (low + high) / 2
+      }
+      const distance = sample(t)
+      if (distance < best) { best = distance; hit = { contour: ci, segment: i, t } }
+    }
+  })
+  return hit
+}

@@ -1,5 +1,6 @@
 import type { DesignToken, TokenBindings } from '../tokens/types.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
+import type { PathNodes } from './pathGeometry.ts'
 
 /** Coordinates are relative to the parent frame. Rotation is in degrees. */
 export interface ElementGeometry {
@@ -65,6 +66,8 @@ export interface PathElement extends BaseElement {
   readonly d: string
   readonly viewBox: readonly [number, number, number, number]
   readonly fillRule: 'nonzero' | 'evenodd'
+  /** Editable subpaths, with handle constraints and unbaked corner radii. d is their rendered outline. */
+  readonly nodes?: readonly PathNodes[]
   /** Editable sources; d is the cached, merged outline used by all renderers. */
   readonly boolean?: BooleanCompound
 }

@@ -20,11 +20,12 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   useLayoutEffect(() => {
     const viewport = hostRef.current!.querySelector<HTMLElement>('.canvas-viewport')!
     const enter = (id: string | undefined) => {
+      if (store.getHistorySnapshot().active) return
       const node = id ? store.getSnapshot().elements[id] : undefined
       if (node?.type === 'path' && !node.boolean && !store.isLocked(node.id) && store.isVisible(node.id)) { store.select([node.id]); setEditingId(node.id) }
     }
     const doubleClick = (event: MouseEvent) => {
-      if (panMode || penMode || editingId || (event.target as Element).closest('.viewport-ui')) return
+      if (panMode || penMode || editingId || viewport.dataset.space === 'true' || viewport.dataset.panning === 'true' || (event.target as Element).closest('.viewport-ui')) return
       const hit = document.elementsFromPoint(event.clientX, event.clientY).map(e => e.closest<HTMLElement>('[data-element-id]')).find(Boolean)
       enter(hit?.dataset.elementId)
     }
@@ -33,7 +34,12 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
       if (event.key === 'Enter' && !penMode && !panMode && !editingId) { event.preventDefault(); enter(store.getSnapshot().selection[0]) }
     }
     viewport.addEventListener('dblclick', doubleClick); document.addEventListener('keydown', keydown)
-    return () => { viewport.removeEventListener('dblclick', doubleClick); document.removeEventListener('keydown', keydown) }
+    const unsubscribe = store.subscribe(() => {
+      if (!editingId) return
+      const state = store.getSnapshot(), node = state.elements[editingId]
+      if (node?.type !== 'path' || node.boolean || store.isLocked(editingId) || !store.isVisible(editingId) || state.selection.length !== 1 || state.selection[0] !== editingId) setEditingId(null)
+    })
+    return () => { unsubscribe(); viewport.removeEventListener('dblclick', doubleClick); document.removeEventListener('keydown', keydown) }
   }, [store, panMode, penMode, editingId])
   const elements = useScene(store, state => state.elements)
   const rootIds = useScene(store, state => state.rootIds)

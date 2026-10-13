@@ -1,5 +1,6 @@
 import type { BooleanCompound, ElementInput, ElementOf, ElementType, SceneElement, VectorElement } from './types.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
+import { serializePath } from './pathGeometry.ts'
 
 const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectangle', ellipse: 'Ellipse', path: 'Vector path', text: 'Text', image: 'Image' }
 const frozenElements = new WeakSet<SceneElement>()
@@ -27,6 +28,7 @@ export function freezeElement(element: SceneElement): SceneElement {
     ? Object.freeze({ ...element, style, children: Object.freeze([...element.children]) })
     : element.type === 'path'
       ? Object.freeze({ ...element, style, viewBox: Object.freeze([...element.viewBox]) as typeof element.viewBox,
+        ...(element.nodes ? { nodes: Object.freeze(element.nodes.map(c => Object.freeze({ closed: c.closed, anchors: Object.freeze(c.anchors.map(a => Object.freeze({ ...a, ...(a.in ? { in: Object.freeze({ ...a.in }) } : {}), ...(a.out ? { out: Object.freeze({ ...a.out }) } : {}) }))) }))) } : {}),
         ...(element.boolean ? { boolean: freezeCompound(element.boolean) } : {}),
       })
       : Object.freeze({ ...element, style })
@@ -50,6 +52,17 @@ export function validateElement(element: SceneElement, depth = 0): void {
   if ('cornerRadius' in element && (!Number.isFinite(element.cornerRadius) || element.cornerRadius < 0)) throw new Error('Invalid corner radius')
   if (element.type === 'frame' && (!Array.isArray(element.children) || typeof element.clipContent !== 'boolean')) throw new Error('Invalid frame')
   if (element.type === 'path' && (typeof element.d !== 'string' || !Array.isArray(element.viewBox) || element.viewBox.length !== 4 || !element.viewBox.every(Number.isFinite) || element.viewBox[2] <= 0 || element.viewBox[3] <= 0 || !['nonzero', 'evenodd'].includes(element.fillRule))) throw new Error('Invalid path')
+  if (element.type === 'path' && element.nodes !== undefined) {
+    if (!Array.isArray(element.nodes) || element.boolean) throw new Error('Invalid editable path')
+    for (const c of element.nodes) {
+      if (!c || typeof c.closed !== 'boolean' || !Array.isArray(c.anchors) || !c.anchors.length) throw new Error('Invalid path contour')
+      for (const a of c.anchors) {
+        if (!a || ![a.x, a.y].every(Number.isFinite) || (a.cornerRadius !== undefined && (!Number.isFinite(a.cornerRadius) || a.cornerRadius < 0)) || (a.handleType !== undefined && !['mirrored', 'asymmetric', 'disconnected'].includes(a.handleType))) throw new Error('Invalid path anchor')
+        for (const h of [a.in, a.out]) if (h !== undefined && (!h || ![h.x, h.y].every(Number.isFinite))) throw new Error('Invalid path handle')
+      }
+    }
+    if (serializePath(element.nodes) !== element.d) throw new Error('Path outline does not match its anchors')
+  }
   if (element.type === 'path' && element.boolean !== undefined) {
     const compound = element.boolean
     if (!compound || !['union', 'subtract', 'intersect', 'exclude'].includes(compound.operation) || !Array.isArray(compound.operands) || compound.operands.length < 2 || compound.operands.length > 2000) throw new Error('Invalid boolean compound')
@@ -82,6 +95,7 @@ export function createElement<T extends ElementType>(type: T, input: ElementInpu
     ...defaults[type], ...input, type,
     style: { fill: type === 'text' ? '#080808' : type === 'frame' ? '#f5f4ee' : type === 'image' ? null : '#81adec', stroke: null, opacity: 1, shadow: null, ...input.style },
   } as SceneElement
-  validateElement(element)
-  return freezeElement(element) as ElementOf<T>
+  const normalized = element.type === 'path' && element.nodes ? { ...element, d: serializePath(element.nodes) } : element
+  validateElement(normalized)
+  return freezeElement(normalized) as ElementOf<T>
 }

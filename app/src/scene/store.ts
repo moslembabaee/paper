@@ -6,6 +6,7 @@ import { CommandHistory, equalValue } from './history.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { BooleanCompound, BooleanOperation, ElementInput, ElementOf, ElementPatch, ElementType, PathElement, SceneDocument, SceneElement, SceneSnapshot, VectorElement } from './types.ts'
 import { computeBoolean, isVector, refreshBooleanElement, transformedSource } from './booleanGeometry.ts'
+import { serializePath } from './pathGeometry.ts'
 
 type Listener = () => void
 const EMPTY = Object.freeze([]) as readonly string[]
@@ -170,9 +171,13 @@ export class SceneStore {
     for (const key of ['id', 'type', 'children', 'parentId', 'zIndex', 'tokenBindings', 'boolean']) {
       if (Object.hasOwn(patch, key)) throw new Error(`Use structural actions to change ${key}`)
     }
-    if (node.type === 'path' && node.boolean && ['d', 'viewBox', 'fillRule'].some(key => Object.hasOwn(patch, key))) throw new Error('Flatten the compound before editing its merged outline')
+    if (node.type === 'path' && node.boolean && ['d', 'viewBox', 'fillRule', 'nodes'].some(key => Object.hasOwn(patch, key))) throw new Error('Flatten the compound before editing its merged outline')
     const tokenBindings = detachEditedBindings(node.tokenBindings, patch as Record<string, unknown>, node)
     const updated = { ...node, ...patch, ...(tokenBindings ? { tokenBindings } : {}), style: { ...node.style, ...patch.style } } as SceneElement
+    if (updated.type === 'path') {
+      if (Object.hasOwn(patch, 'nodes') && updated.nodes) Object.assign(updated, { d: serializePath(updated.nodes) })
+      else if (Object.hasOwn(patch, 'd')) delete (updated as { nodes?: unknown }).nodes
+    }
     validateElement(updated)
     if (equalValue(node, updated)) return
     const label = patch.style ? 'Style' : ['x', 'y', 'width', 'height', 'rotation'].some(key => Object.hasOwn(patch, key)) ? 'Transform' : 'Edit'
@@ -316,8 +321,12 @@ export class SceneStore {
     const node = this.requireCompound(id), operand = node.boolean.operands.find(source => source.id === operandId)
     if (!operand) throw new Error('Unknown boolean source')
     for (const key of ['id', 'type', 'children', 'parentId', 'zIndex', 'boolean', 'tokenBindings', 'visible', 'locked']) if (Object.hasOwn(patch, key)) throw new Error(`Cannot change source ${key}`)
-    if (operand.type === 'path' && operand.boolean && ['d', 'viewBox', 'fillRule'].some(key => Object.hasOwn(patch, key))) throw new Error('Release the compound to edit a nested operation')
+    if (operand.type === 'path' && operand.boolean && ['d', 'viewBox', 'fillRule', 'nodes'].some(key => Object.hasOwn(patch, key))) throw new Error('Release the compound to edit a nested operation')
     const updated = { ...operand, ...patch, ...(operand.tokenBindings ? { tokenBindings: detachEditedBindings(operand.tokenBindings, patch as Record<string, unknown>, operand) } : {}), style: { ...operand.style, ...patch.style } } as VectorElement
+    if (updated.type === 'path') {
+      if (Object.hasOwn(patch, 'nodes') && updated.nodes) Object.assign(updated, { d: serializePath(updated.nodes) })
+      else if (Object.hasOwn(patch, 'd')) delete (updated as { nodes?: unknown }).nodes
+    }
     validateElement(updated)
     if (equalValue(operand, updated)) return
     this.refreshCompound(node, { ...node.boolean, operands: node.boolean.operands.map(source => source.id === operandId ? updated : source) }, `Edit ${operand.name} source`)

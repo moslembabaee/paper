@@ -14,6 +14,16 @@ Source token bindings remain live, including inside nested compounds. Deleting t
 
 Run `npm test` for geometry and store regressions, and `npx playwright test e2e/boolean.spec.ts` for toolbar workflows and comparisons with native browser path filling.
 
+## Vector node editing
+
+Double-click an unlocked vector path, or select it and press **Enter**, to edit its subpaths. Click an anchor to select it, **Shift-click** to select more, and drag to move anchors with their handles. Use arrows to nudge by one path unit, or Shift + arrows for ten. Cmd/Ctrl + A selects every anchor; Backspace/Delete removes selected anchors. **Done**, Enter, or Escape leaves editing; Escape during a drag restores its starting geometry.
+
+The node panel edits coordinates, corner radius, and handle types: **Mirrored** shares direction and length, **Asymmetric** shares direction with independent lengths, and **Disconnected** moves handles independently. **Corner** removes handles. Alt-drag disconnects a handle, while Shift constrains dragging. Double-click a node to toggle between corner and mirrored handles.
+
+Double-click an outline edge to insert an anchor without changing its curve, or use **Insert node** for the next segment's midpoint. Corner radii apply to nodes with straight adjacent edges, clamp to available space, and stay editable when reopening a project. Inserting on a rounded subpath converts that subpath's visible outline to cubic anchors; undo restores its radius properties. Boolean compounds must be flattened before node editing. Rendering, shaders, exports, and handoff share the same cached SVG outline.
+
+Run `npm test` for node geometry, persistence, and undo regressions, and `npx playwright test e2e/path-edit.spec.ts` for canvas interaction coverage.
+
 ## Community roadmap
 
 Open **Roadmap** in the editor footer for live development tasks, completed features, progress, and search. Development reads the repository roadmap; production builds ship a public snapshot. See [feed format and self-hosted update instructions](docs/roadmap.md).
