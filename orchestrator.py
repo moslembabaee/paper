@@ -80,9 +80,9 @@ def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple
     log(f"Dispatching task to agent [{agent.upper()}] (retry={is_retry})...")
     
     if agent == "claude":
-        # Run Claude Code in non-interactive print mode
-        cmd = f'claude -p {shlex.quote(prompt)} --max-turns 20'
-        return run_cmd(cmd, timeout=900)
+        # Run Claude Code in non-interactive print mode with generous turns and model window override
+        cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 50'
+        return run_cmd(cmd, timeout=1200)
         
     elif agent == "codex":
         # Run OpenAI Codex non-interactively in workspace-write sandbox
