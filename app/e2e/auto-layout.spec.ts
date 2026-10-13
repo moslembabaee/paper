@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { waitForCanvasReady } from './helpers'
+import { expectZoom, waitForCanvasReady } from './helpers'
 
 test('frame controls reflow children, resize fill, undo spacing and retain layout after reload', async ({ page }) => {
   await waitForCanvasReady(page)
@@ -54,4 +54,75 @@ test('frame controls reflow children, resize fill, undo spacing and retain layou
   await expect(page.locator(`[data-element-id="${frameId}"]`)).toHaveCSS('width', '500px')
   await expect(firstNode).toHaveCSS('width', '440px')
   await expect(secondNode).toHaveCSS('top', '90px')
+})
+
+test('wrap modes and canvas padding/gap handles respond to zoom, undo and cancellation', async ({ page }) => {
+  await waitForCanvasReady(page)
+  await page.getByTestId('tool-frame').click()
+  const inspector = page.getByTestId('inspector-panel')
+  const editNumber = async (name: string, value: string) => {
+    const field = inspector.getByRole('spinbutton', { name, exact: true })
+    await field.fill(value)
+    await field.press('Enter')
+  }
+  await inspector.getByRole('button', { name: 'Add auto layout' }).click()
+  await editNumber('Width', '220')
+  await editNumber('Height', '240')
+  await editNumber('Gap', '12')
+  await inspector.getByRole('combobox', { name: 'Wrap mode' }).selectOption('wrap')
+  const ids: string[] = []
+  for (const height of ['40', '60', '30']) {
+    await page.getByTestId('tool-rectangle').click()
+    ids.push((await page.locator('.scene-node.is-selected').getAttribute('data-element-id'))!)
+    await editNumber('Width', '80')
+    await editNumber('Height', height)
+  }
+  const children = ids.map(id => page.locator(`[data-element-id="${id}"]`))
+  await expect(children[0]).toHaveCSS('left', '24px')
+  await expect(children[1]).toHaveCSS('left', '116px')
+  await expect(children[2]).toHaveCSS('top', '96px')
+  await page.getByTestId('layer-tree').getByRole('button', { name: 'Frame', exact: true }).click()
+  await expect(page.getByTestId('auto-layout-handles')).toBeVisible()
+  await inspector.getByRole('combobox', { name: 'Wrap mode' }).selectOption('wrap-reverse')
+  await expect(children[0]).toHaveCSS('top', '176px')
+  await expect(children[2]).toHaveCSS('top', '114px')
+  await inspector.getByRole('combobox', { name: 'Wrap mode' }).selectOption('wrap')
+  // Zoom to 100% for predictable pointer distances, then exercise keyboard parity.
+  await page.getByTestId('zoom-value').click()
+  await page.getByRole('button', { name: '100%', exact: true }).click()
+  await expectZoom(page, 1)
+  const handle = page.getByTestId('layout-handle-top')
+  await handle.focus()
+  await handle.press('ArrowUp')
+  await expect(inspector.getByRole('spinbutton', { name: 'Padding top', exact: true })).toHaveValue('25')
+  await page.getByTestId('history-undo').click()
+  await expect(inspector.getByRole('spinbutton', { name: 'Padding top', exact: true })).toHaveValue('24')
+  const zoom = await page.getByTestId('canvas-viewport').getAttribute('data-zoom')
+  const dragHandle = async (testId: string, dx: number, dy: number, cancel = false) => {
+    const box = await page.getByTestId(testId).boundingBox()
+    expect(box).not.toBeNull()
+    const x = box!.x + box!.width / 2, y = box!.y + box!.height / 2
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x + dx * Number(zoom), y + dy * Number(zoom), { steps: 6 })
+    if (cancel) await page.keyboard.press('Escape')
+    await page.mouse.up()
+  }
+  await dragHandle('layout-handle-top', 0, 16)
+  await expect(inspector.getByRole('spinbutton', { name: 'Padding top', exact: true })).toHaveValue('40')
+  await expect(children[0]).toHaveCSS('top', '40px')
+  await page.getByTestId('history-undo').click()
+  await expect(inspector.getByRole('spinbutton', { name: 'Padding top', exact: true })).toHaveValue('24')
+  await dragHandle('layout-handle-left', 8, 0, true)
+  await expect(inspector.getByRole('spinbutton', { name: 'Padding left', exact: true })).toHaveValue('24')
+  await dragHandle(`layout-handle-gap-${ids[1]}`, -4, 0)
+  await expect(inspector.getByRole('spinbutton', { name: 'Gap', exact: true })).toHaveValue('8')
+  await expect(children[1]).toHaveCSS('left', '112px')
+  await page.getByTestId('history-undo').click()
+  await expect(inspector.getByRole('spinbutton', { name: 'Gap', exact: true })).toHaveValue('12')
+  await expect(page.locator('.local-status')).toHaveText('Saved locally')
+  await page.reload()
+  await page.getByTestId('layer-tree').getByRole('button', { name: 'Frame', exact: true }).click()
+  await expect(inspector.getByRole('combobox', { name: 'Wrap mode' })).toHaveValue('wrap')
+  await expect(children[2]).toHaveCSS('top', '96px')
 })

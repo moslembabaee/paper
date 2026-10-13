@@ -8,7 +8,10 @@ import { computeSnap } from './snapEngine'
 import type { SnapGuide } from './snapEngine'
 import { SnapGuides } from './SnapGuides'
 import type { SceneStore } from './store'
-import type { ElementGeometry } from './types'
+import type { AutoLayout, ElementGeometry } from './types'
+import { AutoLayoutHandles } from './AutoLayoutHandles'
+import { dragSpacing, layoutHandleCursor, spacingValue } from './layoutHandles'
+import type { SpacingProperty } from './layoutHandles'
 import { useScene } from './useScene'
 import './selection.css'
 import { MeasurementHUD } from './MeasurementHUD'
@@ -37,6 +40,7 @@ type Drag = Gesture & (
   | { type: 'move'; bounds: Bounds }
   | { type: 'resize'; box: SelectionBox; handle: ResizeHandle }
   | { type: 'rotate'; box: SelectionBox; startAngle: number }
+  | { type: 'spacing'; id: string; layout: AutoLayout; property: SpacingProperty; axis: 'x' | 'y'; sign: number; rotation: number }
 )
 interface Props { store: SceneStore; controller: ViewportController; panMode: boolean }
 
@@ -47,8 +51,10 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
   const [guides, setGuides] = useState<SnapGuide[]>([])
   const [marquee, setMarquee] = useState<Bounds | null>(null)
   const [activeCursor, setActiveCursor] = useState<string | null>(null)
+  const [activeSpacing, setActiveSpacing] = useState<SpacingProperty | null>(null)
   const overlayRef = useRef<HTMLDivElement>(null)
   const box = selectionBox(state, state.selection)
+  const selectedNode = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
 
   useLayoutEffect(() => controller.subscribe(snapshot => setCamera(snapshot.camera)), [controller])
 
@@ -85,6 +91,7 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       setGuides([])
       setMarquee(null)
       setActiveCursor(null)
+      setActiveSpacing(null)
     }
     const applyPointer = (event: PointerEvent) => {
       if (!drag) return
@@ -94,7 +101,11 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       const point = worldPoint(event)
       const delta = { x: point.x - drag.start.x, y: point.y - drag.start.y }
       const zoom = controller.getSnapshot().camera.zoom
-      if (drag.type === 'marquee') {
+      if (drag.type === 'spacing') {
+        const current = store.getSnapshot().elements[drag.id]
+        const layout = dragSpacing(drag.layout, drag.property, drag.axis, drag.sign, drag.rotation, delta, event.shiftKey)
+        if (current?.type === 'frame' && current.layout && !store.isLocked(drag.id) && spacingValue(current.layout, drag.property) !== spacingValue(layout, drag.property)) store.update(drag.id, 'frame', { layout })
+      } else if (drag.type === 'marquee') {
         const bounds = { x: Math.min(drag.start.x, point.x), y: Math.min(drag.start.y, point.y), width: Math.abs(delta.x), height: Math.abs(delta.y) }
         setMarquee(bounds)
         const hits = drag.candidates.filter(({ bounds: b }) => b.x < bounds.x + bounds.width && b.x + b.width > bounds.x && b.y < bounds.y + bounds.height && b.y + b.height > bounds.y).map(candidate => candidate.id)
@@ -145,10 +156,19 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       const initial = store.getSnapshot()
       const initialSelection = initial.selection
       const handle = target.closest<HTMLElement>('[data-handle]')?.dataset.handle as HandleId | undefined
+      const spacingHandle = target.closest<HTMLElement>('[data-layout-handle]')
       const point = worldPoint(event)
-      const nodeId = handle ? null : measurementHit(initial, point, true)
+      const nodeId = handle || spacingHandle ? null : measurementHit(initial, point, true)
       const gesture: Gesture = { pointerId: event.pointerId, start: point, screenStart: { x: event.clientX, y: event.clientY }, initialSelection, targets: [], origins: [], moved: false, cursor: 'move' }
-      if (handle) {
+      if (spacingHandle) {
+        const node = initial.selection.length === 1 ? initial.elements[initial.selection[0]] : undefined
+        const bounds = selectionBox(initial, initial.selection)
+        if (node?.type !== 'frame' || !node.layout || !bounds || store.isLocked(node.id)) return
+        const axis = spacingHandle.dataset.axis as 'x' | 'y'
+        const property = spacingHandle.dataset.property as SpacingProperty
+        drag = { ...gesture, type: 'spacing', id: node.id, layout: node.layout, property, axis, sign: Number(spacingHandle.dataset.sign), rotation: bounds.rotation, cursor: layoutHandleCursor(axis, bounds.rotation) }
+        setActiveSpacing(property)
+      } else if (handle) {
         const bounds = selectionBox(initial, initial.selection)
         if (!bounds) return
         if (handle === 'rotate') drag = { ...gesture, type: 'rotate', box: bounds, cursor: 'crosshair', startAngle: Math.atan2(point.y - bounds.y - bounds.height / 2, point.x - bounds.x - bounds.width / 2) }
@@ -172,21 +192,24 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       }
       if (drag.type !== 'marquee') {
         const snapshot = store.getSnapshot()
-        store.beginTransaction(drag.type === 'move' ? 'Move elements' : drag.type === 'resize' ? 'Resize elements' : 'Rotate elements')
-        drag.origins = captureOrigins(snapshot, snapshot.selection)
-        const selected = new Set(drag.origins.map(origin => origin.id))
-        drag.targets = Object.values(snapshot.elements).filter(node => {
-          if (!store.isVisible(node.id)) return false
-          let current: typeof node | undefined = node
-          while (current) {
-            if (selected.has(current.id)) return false
-            current = current.parentId === null ? undefined : snapshot.elements[current.parentId]
-          }
-          return true
-        }).map(node => getWorldBounds(snapshot, node.id))
+        store.beginTransaction(drag.type === 'spacing' ? 'Adjust layout spacing' : drag.type === 'move' ? 'Move elements' : drag.type === 'resize' ? 'Resize elements' : 'Rotate elements')
+        if (drag.type !== 'spacing') {
+          drag.origins = captureOrigins(snapshot, snapshot.selection)
+          const selected = new Set(drag.origins.map(origin => origin.id))
+          drag.targets = Object.values(snapshot.elements).filter(node => {
+            if (!store.isVisible(node.id)) return false
+            let current: typeof node | undefined = node
+            while (current) {
+              if (selected.has(current.id)) return false
+              current = current.parentId === null ? undefined : snapshot.elements[current.parentId]
+            }
+            return true
+          }).map(node => getWorldBounds(snapshot, node.id))
+        }
       }
       controller.stop()
-      viewport.focus({ preventScroll: true })
+      const focusTarget = spacingHandle ?? viewport
+      focusTarget.focus({ preventScroll: true })
       event.preventDefault()
       overlay.setPointerCapture(event.pointerId)
       setActiveCursor(drag.cursor)
@@ -241,6 +264,7 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
     {!panMode && box && <div className="sel-box" data-testid="selection-box" aria-label="Selection bounds" style={{ left: box.x * camera.zoom + camera.x, top: box.y * camera.zoom + camera.y, width: box.width * camera.zoom, height: box.height * camera.zoom, transform: `rotate(${box.rotation}deg)` }}>
       {HANDLES.map(handle => <div key={handle.id} data-handle={handle.id} className="sel-handle" title={`Resize ${handle.id.toUpperCase()} · Shift for proportions`} style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%`, cursor: resizeCursor(box.rotation + handle.angle) }} />)}
       <div data-handle="rotate" className="sel-rotate-handle" title="Rotate · Shift for 15° increments" />
+      {selectedNode?.type === 'frame' && <AutoLayoutHandles frame={selectedNode} state={state} store={store} zoom={camera.zoom} rotation={box.rotation} active={activeSpacing} />}
     </div>}
     <MeasurementHUD store={store} controller={controller} suppressed={panMode || activeCursor !== null} />
   </div>

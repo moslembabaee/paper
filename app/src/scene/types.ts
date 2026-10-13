@@ -83,6 +83,10 @@ export interface LayoutPadding {
 }
 export interface AutoLayout {
   readonly direction: 'horizontal' | 'vertical'
+  /** Absent on older documents means a single line. */
+  readonly wrap?: 'nowrap' | 'wrap' | 'wrap-reverse'
+  /** Packs wrapped lines on the cross axis; absent means start. */
+  readonly alignContent?: 'start' | 'center' | 'end' | 'space-between' | 'stretch'
   readonly gap: number
   readonly padding: LayoutPadding
   readonly justify: 'start' | 'center' | 'end' | 'space-between'

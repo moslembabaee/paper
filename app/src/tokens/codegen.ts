@@ -36,12 +36,15 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
     const rule = node.sizing?.[axis] ?? 'fixed'
     const main = parentLayout && (parentLayout.direction === 'horizontal' ? axis === 'width' : axis === 'height')
     const fills = rule === 'fill' && parentLayout && parent?.sizing?.[axis] !== 'hug'
-    props.push({ property: axis, value: rule === 'hug' ? axis === 'width' ? 'max-content' : 'auto' : fills ? main ? '0px' : '100%' : `${node[axis]}px` })
+    const wrappedCrossFill = fills && !main && parentLayout?.wrap && parentLayout.wrap !== 'nowrap'
+    props.push({ property: axis, value: rule === 'hug' ? axis === 'width' ? 'max-content' : 'auto' : fills ? main ? '0px' : wrappedCrossFill ? 'auto' : '100%' : `${node[axis]}px` })
+    if (wrappedCrossFill) props.push({ property: 'align-self', value: 'stretch' }, { property: `min-${axis}`, value: '0.01px' })
     if (fills && main) props.push({ property: 'flex', value: '1 1 0px' }, { property: `min-${axis}`, value: '0.01px' })
   }
   if (node.type === 'frame' && node.layout) {
     const { direction, gap, padding, justify, align } = node.layout
     props.push({ property: 'display', value: 'flex' }, { property: 'box-sizing', value: 'border-box' }, { property: 'flex-direction', value: direction === 'horizontal' ? 'row' : 'column' }, { property: 'gap', value: `${gap}px` }, { property: 'padding', value: `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px` }, { property: 'justify-content', value: justify === 'start' || justify === 'end' ? `flex-${justify}` : justify }, { property: 'align-items', value: align === 'start' || align === 'end' ? `flex-${align}` : align })
+    props.push({ property: 'flex-wrap', value: node.layout.wrap ?? 'nowrap' }, { property: 'align-content', value: node.layout.alignContent === 'start' || node.layout.alignContent === 'end' || !node.layout.alignContent ? `flex-${node.layout.alignContent ?? 'start'}` : node.layout.alignContent })
   }
 
   if (node.rotation !== 0) {
@@ -142,11 +145,12 @@ export function buildTailwindClasses(node: SceneElement, tokens: readonly Design
     const prefix = axis === 'width' ? 'w' : 'h', rule = node.sizing?.[axis]
     const main = parentLayout && (parentLayout.direction === 'horizontal' ? axis === 'width' : axis === 'height')
     if (rule === 'hug') classes.push(`${prefix}-${axis === 'width' ? 'max' : 'auto'}`)
-    if (rule === 'fill' && parentLayout && parent?.sizing?.[axis] !== 'hug') classes.push(...(main ? ['flex-1', `${prefix}-0`, `min-${prefix}-[0.01px]`] : [`${prefix}-full`]))
+    if (rule === 'fill' && parentLayout && parent?.sizing?.[axis] !== 'hug') classes.push(...(main ? ['flex-1', `${prefix}-0`, `min-${prefix}-[0.01px]`] : parentLayout.wrap && parentLayout.wrap !== 'nowrap' ? [`${prefix}-auto`, 'self-stretch', `min-${prefix}-[0.01px]`] : [`${prefix}-full`]))
   }
   if (node.type === 'frame' && node.layout) {
     const { direction, gap, padding, justify, align } = node.layout
     classes.push('flex', 'box-border', direction === 'horizontal' ? 'flex-row' : 'flex-col', `gap-[${gap}px]`, `pt-[${padding.top}px]`, `pr-[${padding.right}px]`, `pb-[${padding.bottom}px]`, `pl-[${padding.left}px]`, `justify-${justify === 'space-between' ? 'between' : justify}`, `items-${align}`)
+    classes.push(node.layout.wrap === 'wrap' ? 'flex-wrap' : node.layout.wrap === 'wrap-reverse' ? 'flex-wrap-reverse' : 'flex-nowrap', `content-${node.layout.alignContent === 'space-between' ? 'between' : node.layout.alignContent ?? 'start'}`)
   }
 
   if (node.style.opacity !== 1) {
@@ -265,7 +269,7 @@ export function buildReactComponent(node: SceneElement, tokens: readonly DesignT
     const mask = elements ? frameMask(elements, node) : undefined
     if (mask) {
       const layout = node.layout
-      const clipLayoutStyle = layout ? `, display: 'flex', flexDirection: '${layout.direction === 'horizontal' ? 'row' : 'column'}', gap: ${layout.gap}, padding: '${layout.padding.top}px ${layout.padding.right}px ${layout.padding.bottom}px ${layout.padding.left}px', boxSizing: 'border-box', justifyContent: '${{ start: 'flex-start', center: 'center', end: 'flex-end', 'space-between': 'space-between' }[layout.justify]}', alignItems: '${{ start: 'flex-start', center: 'center', end: 'flex-end' }[layout.align]}'` : ''
+      const clipLayoutStyle = layout ? `, display: 'flex', flexDirection: '${layout.direction === 'horizontal' ? 'row' : 'column'}', flexWrap: '${layout.wrap ?? 'nowrap'}', alignContent: '${layout.alignContent === 'start' || layout.alignContent === 'end' || !layout.alignContent ? `flex-${layout.alignContent ?? 'start'}` : layout.alignContent}', gap: ${layout.gap}, padding: '${layout.padding.top}px ${layout.padding.right}px ${layout.padding.bottom}px ${layout.padding.left}px', boxSizing: 'border-box', justifyContent: '${{ start: 'flex-start', center: 'center', end: 'flex-end', 'space-between': 'space-between' }[layout.justify]}', alignItems: '${{ start: 'flex-start', center: 'center', end: 'flex-end' }[layout.align]}'` : ''
       return `import { useId } from 'react'\n\nexport function ${name}({ children }: { children?: React.ReactNode }) {\n  const clipId = useId()\n  return (\n    <div\n      className="${tw}"${styleAttribute}\n    >\n      <svg width="0" height="0" aria-hidden="true" style={{ position: 'absolute' }}>\n        <defs><clipPath id={clipId} clipPathUnits="userSpaceOnUse">\n          <path d={${JSON.stringify(maskPathData(mask))}} clipRule="${maskFillRule(mask)}" />\n        </clipPath></defs>\n      </svg>\n      <div style={{ position: 'absolute', inset: 0, clipPath: \`url(#\${clipId})\`${clipLayoutStyle} }}>\n        {children}\n      </div>\n    </div>\n  )\n}`
     }
     return `export function ${name}({ children }: { children?: React.ReactNode }) {\n  return (\n    <div\n      className="${tw}"${styleAttribute}\n    >\n      {children}\n    </div>\n  )\n}`

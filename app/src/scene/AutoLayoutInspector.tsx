@@ -28,6 +28,8 @@ export function AutoLayoutInspector({ node, parent, store }: { node: SceneElemen
           <button aria-pressed={layout.direction === 'horizontal'} onClick={() => setLayout({ direction: 'horizontal' })}><ArrowRight size={13} />Horizontal</button>
           <button aria-pressed={layout.direction === 'vertical'} onClick={() => setLayout({ direction: 'vertical' })}><ArrowDown size={13} />Vertical</button>
         </div>
+        <label className="property-select layout-wrap"><span>Wrap</span><select aria-label="Wrap mode" value={layout.wrap ?? 'nowrap'} onChange={event => setLayout({ wrap: event.currentTarget.value as AutoLayout['wrap'] })}><option value="nowrap">No wrap</option><option value="wrap">Wrap</option><option value="wrap-reverse">Wrap reverse</option></select></label>
+        {layout.wrap && layout.wrap !== 'nowrap' && <label className="property-select layout-wrap"><span>Lines</span><select aria-label="Line alignment" value={layout.alignContent ?? 'start'} onChange={event => setLayout({ alignContent: event.currentTarget.value as AutoLayout['alignContent'] })}><option value="start">Start</option><option value="center">Center</option><option value="end">End</option><option value="space-between">Space between</option><option value="stretch">Stretch</option></select></label>}
         <SpacingField label="Gap" value={layout.gap} onChange={gap => setLayout({ gap })} />
         <div className="layout-alignment-grid">
           <label className="property-label">Main axis<select className="property-input" aria-label="Main axis alignment" value={layout.justify} onChange={event => setLayout({ justify: event.currentTarget.value as AutoLayout['justify'] })}><option value="start">Start</option><option value="center">Center</option><option value="end">End</option><option value="space-between">Space between</option></select></label>
@@ -35,6 +37,7 @@ export function AutoLayoutInspector({ node, parent, store }: { node: SceneElemen
         </div>
         <div className="layout-padding-caption"><span>Padding</span><span>T · R · B · L</span></div>
         <div className="layout-padding-grid">{(['top', 'right', 'bottom', 'left'] as const).map(side => <SpacingField key={side} label={`Padding ${side}`} value={layout.padding[side]} onChange={value => setPadding(side, value)} />)}</div>
+        <p className="layout-hint">Drag the blue spacing handles on the canvas. Shift adjusts in 8 px steps; Escape cancels.</p>
       </> : <p className="layout-hint">Give this frame a flow. Children follow as you edit.</p>}
     </>}
     <div className="layout-sizing-heading">{node.type === 'frame' ? 'Frame sizing' : 'RESIZING'}</div>

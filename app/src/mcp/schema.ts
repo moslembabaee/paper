@@ -66,6 +66,8 @@ const sizingRule: JsonSchema = { type: 'string', enum: ['fixed', 'hug', 'fill'] 
 const sizing = object({ width: sizingRule, height: sizingRule }, ['width', 'height'])
 const layout = nullable(object({
   direction: { type: 'string', enum: ['horizontal', 'vertical'] }, gap: nonnegative,
+  wrap: { type: 'string', enum: ['nowrap', 'wrap', 'wrap-reverse'] },
+  alignContent: { type: 'string', enum: ['start', 'center', 'end', 'space-between', 'stretch'] },
   padding: object({ top: nonnegative, right: nonnegative, bottom: nonnegative, left: nonnegative }, ['top', 'right', 'bottom', 'left']),
   justify: { type: 'string', enum: ['start', 'center', 'end', 'space-between'] }, align: { type: 'string', enum: ['start', 'center', 'end'] },
 }, ['direction', 'gap', 'padding', 'justify', 'align']))

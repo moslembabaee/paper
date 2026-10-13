@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-EVOLVE-1791896553-3",
+  "current_task_id": "T-EVOLVE-1791908179-1",
   "tasks": [
     {
       "id": "T-ISSUE-1",
@@ -322,6 +322,37 @@
       "retry_count": 4,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "completed_at": "2026-10-13T16:15:51.254275"
+    },
+    {
+      "id": "T-EVOLVE-1791908179-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Auto Layout and Responsive Frame Constraints Engine",
+      "description": "Implement a flexbox-based Auto Layout engine for frames supporting horizontal and vertical directions, wrap modes, custom gap, padding per side, child resizing rules (Fixed, Hug Contents, Fill Container), alignment options, and visual on-canvas drag handles for interactive padding and gap adjustment.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-13T16:31:35.297175"
+    },
+    {
+      "id": "T-EVOLVE-1791908179-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Developer Handoff Inspection and Multi-Format Asset Export Engine",
+      "description": "Build an asset export pipeline and developer inspection panel supporting batch export of selected nodes to SVG, PNG (1x, 2x, 3x), WebP, and PDF, alongside an Inspect mode displaying computed CSS, Tailwind classes, and React/JSX code with color token references and one-click copy.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T-EVOLVE-1791908179-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Spatial Canvas Commenting and Collaborative Annotation Threads",
+      "description": "Implement a canvas-anchored commenting system with pin markers tied to specific canvas coordinates or node frames, supporting threaded replies, user mentions (@username), resolve/reopen statuses, unread indicators, and a floating comments sidebar with filter and navigation controls.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
     }
   ]
 }

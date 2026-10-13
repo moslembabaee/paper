@@ -3,7 +3,7 @@ import type { AutoLayout, ElementSizing, SceneElement, TextElement } from './typ
 
 export const FIXED_SIZING: ElementSizing = Object.freeze({ width: 'fixed', height: 'fixed' })
 export const DEFAULT_AUTO_LAYOUT: AutoLayout = Object.freeze({
-  direction: 'horizontal', gap: 16,
+  direction: 'horizontal', wrap: 'nowrap', alignContent: 'start', gap: 16,
   padding: Object.freeze({ top: 24, right: 24, bottom: 24, left: 24 }),
   justify: 'start', align: 'start',
 })
@@ -85,36 +85,108 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
         placed = children.map((child, i) => ({ id: child, x: input[child].x, y: input[child].y, box: natural[i] }))
       } else {
         const horizontal = layout.direction === 'horizontal'
-        const p = layout.padding, gaps = Math.max(0, children.length - 1) * layout.gap
-        const hugWidth = sizing.width === 'hug' && assignedWidth === undefined
-        const hugHeight = sizing.height === 'hug' && assignedHeight === undefined
-        if (hugWidth) width = size(p.left + p.right + (horizontal ? natural.reduce((sum, box) => sum + box.width, 0) + gaps : Math.max(0, ...natural.map(box => box.width))))
-        const innerWidth = Math.max(0, width - p.left - p.right)
-        const fillWidths = children.filter(child => input[child].sizing?.width === 'fill').length
-        const fixedWidths = natural.reduce((sum, box, i) => sum + (input[children[i]].sizing?.width === 'fill' ? 0 : box.width), 0)
-        const fillWidth = size((innerWidth - fixedWidths - gaps) / Math.max(1, fillWidths))
-        // Resolve width first so wrapped text contributes its actual height to a hug frame.
-        const widths = children.map((child, i) => input[child].sizing?.width === 'fill' && !hugWidth ? horizontal ? fillWidth : size(innerWidth) : natural[i].width)
-        const constrained = children.map((child, i) => measure(child, widths[i]))
-        if (hugHeight) height = size(p.top + p.bottom + (horizontal ? Math.max(0, ...constrained.map(box => box.height)) : constrained.reduce((sum, box) => sum + box.height, 0) + gaps))
-        const innerHeight = Math.max(0, height - p.top - p.bottom)
-        const fillHeights = children.filter(child => input[child].sizing?.height === 'fill').length
-        const fixedHeights = constrained.reduce((sum, box, i) => sum + (input[children[i]].sizing?.height === 'fill' ? 0 : box.height), 0)
-        const fillHeight = size((innerHeight - fixedHeights - gaps) / Math.max(1, fillHeights))
-        const boxes = children.map((child, i) => input[child].sizing?.height === 'fill' && !hugHeight ? measure(child, widths[i], horizontal ? size(innerHeight) : fillHeight) : constrained[i])
-        const mainSpace = horizontal ? innerWidth : innerHeight
-        const used = boxes.reduce((sum, box) => sum + (horizontal ? box.width : box.height), 0) + gaps
-        const remaining = Math.max(0, mainSpace - used)
-        let cursor = (horizontal ? p.left : p.top) + (layout.justify === 'center' ? remaining / 2 : layout.justify === 'end' ? remaining : 0)
-        const gap = layout.gap + (layout.justify === 'space-between' && children.length > 1 ? remaining / (children.length - 1) : 0)
-        placed = children.map((child, i) => {
-          const box = boxes[i]
-          const crossSpace = Math.max(0, (horizontal ? innerHeight - box.height : innerWidth - box.width))
-          const cross = (horizontal ? p.top : p.left) + (layout.align === 'center' ? crossSpace / 2 : layout.align === 'end' ? crossSpace : 0)
-          const result = { id: child, x: horizontal ? cursor : cross, y: horizontal ? cross : cursor, box }
-          cursor += (horizontal ? box.width : box.height) + gap
-          return result
-        })
+        if (layout.wrap && layout.wrap !== 'nowrap') {
+          // Flex lines are formed from fixed/hug bases; fill has a zero basis and
+          // receives an equal share of the remaining space within its own line.
+          const main = horizontal ? 'width' : 'height'
+          const cross = horizontal ? 'height' : 'width'
+          const p = layout.padding
+          const mainStart = horizontal ? p.left : p.top
+          const mainPadding = horizontal ? p.left + p.right : p.top + p.bottom
+          const crossStart = horizontal ? p.top : p.left
+          const crossPadding = horizontal ? p.top + p.bottom : p.left + p.right
+          const hugMain = sizing[main] === 'hug' && (horizontal ? assignedWidth : assignedHeight) === undefined
+          const hugCross = sizing[cross] === 'hug' && (horizontal ? assignedHeight : assignedWidth) === undefined
+          let mainSize = horizontal ? width : height
+          if (hugMain) mainSize = size(mainPadding + natural.reduce((sum, box) => sum + box[main], 0) + Math.max(0, children.length - 1) * layout.gap)
+          const innerMain = Math.max(0, mainSize - mainPadding)
+          const lines: { indices: number[]; boxes: LayoutBox[]; crossSize: number }[] = []
+          let used = 0
+          for (let i = 0; i < children.length; i++) {
+            const basis = !hugMain && input[children[i]].sizing?.[main] === 'fill' ? MIN_SIZE : natural[i][main]
+            let line = lines[lines.length - 1]
+            if (!line || (!hugMain && used + layout.gap + basis > innerMain + 1e-6)) {
+              line = { indices: [], boxes: [], crossSize: 0 }
+              lines.push(line)
+              used = 0
+            }
+            used += (line.indices.length ? layout.gap : 0) + basis
+            line.indices.push(i)
+          }
+          for (const line of lines) {
+            const fills = new Set(line.indices.filter(i => input[children[i]].sizing?.[main] === 'fill' && !hugMain))
+            const fixed = line.indices.reduce((sum, i) => sum + (fills.has(i) ? 0 : natural[i][main]), 0)
+            const fillSize = size((innerMain - fixed - Math.max(0, line.indices.length - 1) * layout.gap) / Math.max(1, fills.size))
+            line.boxes = line.indices.map(i => {
+              const assigned = fills.has(i) ? fillSize : natural[i][main]
+              return horizontal ? measure(children[i], assigned) : measure(children[i], undefined, assigned)
+            })
+            // A cross-axis fill is stretched after line measurement. Reusing its
+            // previous stretched size here would prevent responsive shrinking.
+            line.crossSize = Math.max(MIN_SIZE, ...line.boxes.map((box, j) => !hugCross && input[children[line.indices[j]]].sizing?.[cross] === 'fill' ? MIN_SIZE : box[cross]))
+          }
+          const crossUsed = lines.reduce((sum, line) => sum + line.crossSize, 0) + Math.max(0, lines.length - 1) * layout.gap
+          const crossSize = hugCross ? size(crossUsed + crossPadding) : horizontal ? height : width
+          const innerCross = Math.max(0, crossSize - crossPadding)
+          const spareCross = Math.max(0, innerCross - crossUsed)
+          const packing = layout.alignContent ?? 'start'
+          const lineGap = layout.gap + (packing === 'space-between' && lines.length > 1 ? spareCross / (lines.length - 1) : 0)
+          let crossCursor = packing === 'center' ? spareCross / 2 : packing === 'end' ? spareCross : 0
+          for (const line of lines) {
+            if (packing === 'stretch' && lines.length) line.crossSize += spareCross / lines.length
+            const reverse = layout.wrap === 'wrap-reverse'
+            const lineStart = crossStart + (reverse ? innerCross - crossCursor - line.crossSize : crossCursor)
+            const boxes = line.boxes.map((box, j) => {
+              const child = children[line.indices[j]]
+              if (input[child].sizing?.[cross] !== 'fill' || hugCross) return box
+              return horizontal ? measure(child, box.width, size(line.crossSize)) : measure(child, size(line.crossSize), box.height)
+            })
+            const remaining = Math.max(0, innerMain - boxes.reduce((sum, box) => sum + box[main], 0) - Math.max(0, boxes.length - 1) * layout.gap)
+            let cursor = mainStart + (layout.justify === 'center' ? remaining / 2 : layout.justify === 'end' ? remaining : 0)
+            const gap = layout.gap + (layout.justify === 'space-between' && boxes.length > 1 ? remaining / (boxes.length - 1) : 0)
+            boxes.forEach((box, j) => {
+              const spare = Math.max(0, line.crossSize - box[cross])
+              const offset = layout.align === 'center' ? spare / 2 : layout.align === 'end' ? spare : 0
+              const crossPosition = lineStart + (reverse ? spare - offset : offset)
+              placed.push({ id: children[line.indices[j]], x: horizontal ? cursor : crossPosition, y: horizontal ? crossPosition : cursor, box })
+              cursor += box[main] + gap
+            })
+            crossCursor += line.crossSize + lineGap
+          }
+          width = horizontal ? mainSize : crossSize
+          height = horizontal ? crossSize : mainSize
+        } else {
+          const p = layout.padding, gaps = Math.max(0, children.length - 1) * layout.gap
+          const hugWidth = sizing.width === 'hug' && assignedWidth === undefined
+          const hugHeight = sizing.height === 'hug' && assignedHeight === undefined
+          if (hugWidth) width = size(p.left + p.right + (horizontal ? natural.reduce((sum, box) => sum + box.width, 0) + gaps : Math.max(0, ...natural.map(box => box.width))))
+          const innerWidth = Math.max(0, width - p.left - p.right)
+          const fillWidths = children.filter(child => input[child].sizing?.width === 'fill').length
+          const fixedWidths = natural.reduce((sum, box, i) => sum + (input[children[i]].sizing?.width === 'fill' ? 0 : box.width), 0)
+          const fillWidth = size((innerWidth - fixedWidths - gaps) / Math.max(1, fillWidths))
+          // Resolve width first so wrapped text contributes its actual height to a hug frame.
+          const widths = children.map((child, i) => input[child].sizing?.width === 'fill' && !hugWidth ? horizontal ? fillWidth : size(innerWidth) : natural[i].width)
+          const constrained = children.map((child, i) => measure(child, widths[i]))
+          if (hugHeight) height = size(p.top + p.bottom + (horizontal ? Math.max(0, ...constrained.map(box => box.height)) : constrained.reduce((sum, box) => sum + box.height, 0) + gaps))
+          const innerHeight = Math.max(0, height - p.top - p.bottom)
+          const fillHeights = children.filter(child => input[child].sizing?.height === 'fill').length
+          const fixedHeights = constrained.reduce((sum, box, i) => sum + (input[children[i]].sizing?.height === 'fill' ? 0 : box.height), 0)
+          const fillHeight = size((innerHeight - fixedHeights - gaps) / Math.max(1, fillHeights))
+          const boxes = children.map((child, i) => input[child].sizing?.height === 'fill' && !hugHeight ? measure(child, widths[i], horizontal ? size(innerHeight) : fillHeight) : constrained[i])
+          const mainSpace = horizontal ? innerWidth : innerHeight
+          const used = boxes.reduce((sum, box) => sum + (horizontal ? box.width : box.height), 0) + gaps
+          const remaining = Math.max(0, mainSpace - used)
+          let cursor = (horizontal ? p.left : p.top) + (layout.justify === 'center' ? remaining / 2 : layout.justify === 'end' ? remaining : 0)
+          const gap = layout.gap + (layout.justify === 'space-between' && children.length > 1 ? remaining / (children.length - 1) : 0)
+          placed = children.map((child, i) => {
+            const box = boxes[i]
+            const crossSpace = Math.max(0, (horizontal ? innerHeight - box.height : innerWidth - box.width))
+            const cross = (horizontal ? p.top : p.left) + (layout.align === 'center' ? crossSpace / 2 : layout.align === 'end' ? crossSpace : 0)
+            const result = { id: child, x: horizontal ? cursor : cross, y: horizontal ? cross : cursor, box }
+            cursor += (horizontal ? box.width : box.height) + gap
+            return result
+          })
+        }
       }
     }
     if (node.type === 'frame' && node.layout) {

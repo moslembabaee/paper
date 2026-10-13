@@ -66,6 +66,7 @@ export function validateElement(element: SceneElement, depth = 0): void {
   if ('layout' in element && element.layout !== undefined && element.layout !== null) {
     if (element.type !== 'frame') throw new Error('Only frames support auto layout')
     const layout = element.layout
+    if ((layout.wrap !== undefined && !['nowrap', 'wrap', 'wrap-reverse'].includes(layout.wrap)) || (layout.alignContent !== undefined && !['start', 'center', 'end', 'space-between', 'stretch'].includes(layout.alignContent))) throw new Error('Invalid auto layout wrap or line alignment')
     if (!['horizontal', 'vertical'].includes(layout.direction) || !['start', 'center', 'end', 'space-between'].includes(layout.justify) || !['start', 'center', 'end'].includes(layout.align) || !Number.isFinite(layout.gap) || layout.gap < 0 || !layout.padding || !['top', 'right', 'bottom', 'left'].every(key => Number.isFinite(layout.padding[key as keyof typeof layout.padding]) && layout.padding[key as keyof typeof layout.padding] >= 0)) throw new Error('Invalid auto layout')
   }
   if (typeof element.visible !== 'boolean' || typeof element.locked !== 'boolean') throw new Error('Invalid element flags')
