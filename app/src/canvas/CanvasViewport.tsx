@@ -11,7 +11,7 @@ import './viewport.css'
 import { subscribeTheme } from '../design-system/theme'
 
 const EMPTY_ITEMS: readonly MinimapItem[] = []
-const isControl = (target: EventTarget | null) => target instanceof Element && !!target.closest('input, textarea, select, button, a, [contenteditable]:not([contenteditable="false"]), .viewport-ui')
+const isControl = (target: EventTarget | null) => target instanceof Element && !!target.closest('input, textarea, select, button, a, [contenteditable]:not([contenteditable="false"]), [role="dialog"], [role="menu"], .viewport-ui')
 const midpoint = (a: Point, b: Point): Point => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })
 const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 

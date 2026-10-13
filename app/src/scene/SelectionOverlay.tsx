@@ -210,7 +210,7 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
     }
     const lostCapture = () => reset(true)
     const keydown = (event: KeyboardEvent) => {
-      if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
+      if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return
       if (event.key === 'Escape' && (drag || viewport.contains(document.activeElement))) {
         event.preventDefault()
         if (drag) reset(true)

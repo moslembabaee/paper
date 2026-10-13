@@ -1,15 +1,21 @@
-import { useState } from 'react'
-import { ChevronDown, Circle, Code2, Frame, Grid2X2, Hand, Image, Layers, MousePointer2, PenTool, Square, Type, X } from 'lucide-react'
+import { useCallback, useRef, useState } from 'react'
+import { Circle, Code2, Frame, Grid2X2, Hand, Image, Layers, MousePointer2, PenTool, Square, Type, X } from 'lucide-react'
 import type { ElementType } from './scene/types'
 import { SceneCanvas } from './scene/SceneCanvas'
 import { LayerTree } from './scene/LayerTree'
 import { ElementInspector } from './scene/ElementInspector'
 import { DevModeInspector } from './scene/DevModeInspector'
 import { HistoryControls } from './scene/HistoryControls'
-import { createWorkspace, useProjectIO } from './io/useProjectIO'
+import { useProjectIO } from './io/useProjectIO'
 import { DocumentActions } from './io/DocumentActions'
 import { ThemeSwitcher } from './design-system/ThemeSwitcher'
+import { ProfileMenu } from './workspace/ProfileMenu'
+import { ProjectSwitcher } from './workspace/ProjectSwitcher'
+import { readProfile } from './workspace/profile'
+import type { UserProfile } from './workspace/types'
+import { useWorkspace } from './workspace/useWorkspace'
 import './App.css'
+import './workspace/workspace.css'
 
 const creationTools = [
   { type: 'frame', label: 'Add frame', Icon: Frame },
@@ -25,14 +31,46 @@ function PaperMark() {
 }
 
 export default function App() {
-  const [workspace] = useState(createWorkspace)
+  const manager = useWorkspace()
+  const [profile, setProfile] = useState(readProfile)
+  if (!manager.active) return <div className="workspace-loading" role="status"><PaperMark /><span>Opening your workspace…</span></div>
+  return <Editor key={manager.active.record.id} workspace={manager.active} manager={manager} profile={profile} onProfileSave={setProfile} />
+}
+
+function Editor({ workspace, manager, profile, onProfileSave }: {
+  workspace: NonNullable<ReturnType<typeof useWorkspace>['active']>
+  manager: ReturnType<typeof useWorkspace>
+  profile: UserProfile
+  onProfileSave: (profile: UserProfile) => void
+}) {
   const { controller, store } = workspace
   const [name, setName] = useState(workspace.project?.name ?? 'Space to think')
   const [tool, setTool] = useState<'select' | 'hand'>('select')
   const [grid, setGrid] = useState(workspace.project?.grid ?? true)
   const [layersVisible, setLayersVisible] = useState(true)
   const [devMode, setDevMode] = useState(false)
-  const io = useProjectIO({ store, controller, name, grid, initialMessage: workspace.restoreError, onOpen: project => { setName(project.name); setGrid(project.grid) }, onImport: () => setTool('select') })
+  const [projectsOpen, setProjectsOpen] = useState(false)
+  const [changing, setChanging] = useState(false)
+  const transition = useRef(false)
+  const saveLocalProject = manager.save
+  const onPersist = useCallback((project: Parameters<typeof saveLocalProject>[1]) => saveLocalProject(workspace.record.id, project), [saveLocalProject, workspace.record.id])
+  const io = useProjectIO({ store, controller, name, grid, onPersist, initialMessage: manager.error, onOpen: project => { setName(project.name); setGrid(project.grid) }, onImport: () => setTool('select') })
+
+  async function changeProject(action: () => Promise<void>) {
+    if (transition.current || io.importing) return
+    transition.current = true
+    setChanging(true)
+    controller.stop()
+    try { await io.persistProject(); await action() }
+    finally { transition.current = false; setChanging(false) }
+  }
+
+  async function renameProject(id: string, next: string) {
+    if (id === workspace.record.id) {
+      await io.persistProject({ ...io.getProject(), name: next })
+      setName(next)
+    } else await manager.rename(id, next)
+  }
 
   function addElement(type: ElementType) {
     const { elements, selection } = store.getSnapshot()
@@ -57,10 +95,10 @@ export default function App() {
   return <div className="paper-app">
     <header className="app-header">
       <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
-      <div className="document-name"><span className="document-divider" /><input className="document-title" aria-label="Project name" value={name} maxLength={200} onChange={event => setName(event.target.value)} onBlur={() => { if (!name.trim()) setName('Untitled') }} /><ChevronDown size={12} /><span className="document-state">Local document</span></div>
-      <div className="header-end"><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><span className="project-avatar" title="Your self-hosted workspace">P</span></div>
+      <ProjectSwitcher name={name} activeId={workspace.record.id} projects={manager.projects.map(project => project.id === workspace.record.id ? { ...project, name: name.trim() || 'Untitled' } : project)} workspaceName={profile.workspaceName} persistent={manager.persistent} disabled={changing || io.importing} open={projectsOpen} onToggle={setProjectsOpen} onNameChange={setName} onSwitch={id => changeProject(() => manager.open(id))} onCreate={next => changeProject(() => manager.create(next, profile.defaultGrid))} onRename={renameProject} />
+      <div className="header-end"><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><ProfileMenu profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
     </header>
-    <div className="editor-layout">
+    <div className="editor-layout" inert={changing}>
       {layersVisible && <LayerTree store={store} onHide={() => setLayersVisible(false)} />}
       <main className="canvas-stage">
         <div className="canvas-toolbar viewport-ui" role="toolbar" aria-label="Canvas tools">
@@ -74,7 +112,7 @@ export default function App() {
           <span className="toolbar-divider" />
           <HistoryControls store={store} />
         </div>
-        <SceneCanvas store={store} controller={controller} initialCamera={workspace.project?.viewport} grid={grid} panMode={tool === 'hand'} />
+        <SceneCanvas store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} />
       </main>
       <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} />
       {devMode && <DevModeInspector store={store} onExit={() => setDevMode(false)} />}

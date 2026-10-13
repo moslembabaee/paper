@@ -6,7 +6,11 @@ SVG uses native geometry and text, with nested frame transforms, clipping, opaci
 
 **Save project JSON**, the JSON export tab, or **⌘/Ctrl S** downloads a versioned `.paper.json` file with every layer, frame hierarchy, shader parameters, project name, camera, and grid preference. **Open or import file** opens Paper project JSON (including legacy scene JSON). SVG and HTML files are inserted into the current document. Project JSON preserves image source URLs; external images must remain accessible when reopening it.
 
-Changes are saved locally after a short idle period, and restored on reload. The browser's local storage is a convenience copy; download JSON for a portable backup. If storage fills up or is unavailable, the header asks you to save JSON.
+Changes are saved in IndexedDB after a short idle period, and restored on reload. Open the project switcher beside the document name to create, search, switch, or rename local projects. Each project retains its own artwork, camera, and grid setting. Paper saves the outgoing document before switching and resets editing history for the newly opened project. Existing single-document local-storage saves are migrated on first launch; the original copy is retained for recovery. Download JSON for a portable backup. If storage fills up or is unavailable, the header asks you to save JSON.
+
+The avatar in the header opens **Profile & account**. Set a display name, upload a local avatar, name your workspace, choose studio appearance, and set the engineering grid default for new projects. Account changes apply when saved; cancel discards the draft. The profile is stored separately from canvas projects in this browser's local storage and is never included in project JSON or artwork exports.
+
+The **Local MCP auth token** field can store an existing token or generate a cryptographically random token for your own self-hosted MCP gateway. Reveal, copy, regenerate, or remove it in account settings, then save the changes. Paper does not send this value anywhere or configure gateway authentication. Its bundled file-backed stdio MCP server does not require a token; use exported `.paper.json` files to exchange artwork with that server.
 
 Paste with **⌘/Ctrl V** while working on the canvas:
 

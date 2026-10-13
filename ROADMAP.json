@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-THEME-STUDIO-DARK",
+  "current_task_id": "T-USER-PROFILE-WORKSPACE",
   "tasks": [
     {
       "id": "T01-project-init",
@@ -164,9 +164,10 @@
       "title": "Implement User Profile Menu, Account Settings, and Local Projects Manager",
       "description": "Build User Profile & Workspace subsystem in App header: user avatar with status indicator, Profile modal (name, avatar, self-host preferences, local MCP auth token), and Project Switcher allowing users to create, switch, rename, and persist multiple canvas projects in IndexedDB.",
       "assigned_agent": "codex",
-      "status": "pending",
-      "retry_count": 0,
-      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+      "status": "completed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-13T04:22:40.441526"
     },
     {
       "id": "T-OFFICIAL-DOCS-FEATURE-PARITY",

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ViewportController } from '../canvas/ViewportController'
 import { createDemoScene } from '../scene/seed'
 import { SceneStore } from '../scene/store'
@@ -28,53 +28,61 @@ export interface ProjectIOProps {
   onOpen: (project: PaperProject) => void
   onImport: () => void
   initialMessage?: string
+  onPersist: (project: PaperProject) => Promise<void>
 }
 
-export function useProjectIO({ store, controller, name, grid, onOpen, onImport, initialMessage = '' }: ProjectIOProps) {
+export function useProjectIO({ store, controller, name, grid, onOpen, onImport, onPersist, initialMessage = '' }: ProjectIOProps) {
   const [message, setMessage] = useState(initialMessage)
   const [status, setStatus] = useState('All changes local')
   const [importing, setImporting] = useState(false)
   const values = useRef({ name, grid, onOpen, onImport })
   const busy = useRef(false)
   const revision = useRef(0)
-  const preserveFailedRestore = useRef(!!initialMessage)
-  useEffect(() => { values.current = { name, grid, onOpen, onImport } })
+  const autosaveTimer = useRef(0)
+  const dirty = useRef(false)
+  useLayoutEffect(() => { values.current = { name, grid, onOpen, onImport } })
 
   const getProject = useCallback(() => createProject(store, values.current.name, controller.getSnapshot().camera, values.current.grid), [store, controller])
 
+  const persistProject = useCallback(async (project = getProject()) => {
+    window.clearTimeout(autosaveTimer.current)
+    dirty.current = false
+    try {
+      await onPersist(project)
+      if (!dirty.current) setStatus('Saved locally')
+    } catch (error) {
+      dirty.current = true
+      setStatus('Save unavailable · save JSON')
+      throw error
+    }
+  }, [getProject, onPersist])
+
   useEffect(() => {
-    let timer = 0
-    let dirty = false
     const persist = () => {
-      if (!dirty || preserveFailedRestore.current) return
-      try {
-        localStorage.setItem(PROJECT_STORAGE_KEY, JSON.stringify(getProject()))
-        dirty = false
-        setStatus('Saved locally')
-      } catch { setStatus('Local storage full · save JSON') }
+      if (!dirty.current) return
+      void persistProject().catch(() => { dirty.current = true })
     }
     const schedule = () => {
-      if (preserveFailedRestore.current) { setStatus('Restore unavailable · save JSON'); return }
-      dirty = true
+      dirty.current = true
       setStatus('Saving locally…')
-      window.clearTimeout(timer)
-      timer = window.setTimeout(persist, 650)
+      window.clearTimeout(autosaveTimer.current)
+      autosaveTimer.current = window.setTimeout(persist, 650)
     }
-    const unsubscribeScene = store.subscribe(() => { preserveFailedRestore.current = false; revision.current++; schedule() })
+    const unsubscribeScene = store.subscribe(() => { revision.current++; schedule() })
     const unsubscribeCamera = controller.subscribe(schedule)
     const hide = () => { if (document.hidden) persist() }
     window.addEventListener('pagehide', persist)
     document.addEventListener('visibilitychange', hide)
-    if (!preserveFailedRestore.current) schedule()
+    schedule()
     return () => {
-      window.clearTimeout(timer)
+      window.clearTimeout(autosaveTimer.current)
       unsubscribeScene()
       unsubscribeCamera()
       window.removeEventListener('pagehide', persist)
       document.removeEventListener('visibilitychange', hide)
       persist()
     }
-  }, [store, controller, getProject, name, grid])
+  }, [store, controller, persistProject, name, grid])
 
   const saveProject = useCallback(() => {
     downloadFile(new Blob([serializeProject(getProject())], { type: 'application/json' }), fileName(values.current.name, 'paper.json'))
@@ -152,6 +160,6 @@ export function useProjectIO({ store, controller, name, grid, onOpen, onImport, 
     return () => window.clearTimeout(timer)
   }, [message])
 
-  return { status, message, setMessage, saveProject, importFile, importing }
+  return { status, message, setMessage, saveProject, importFile, importing, getProject, persistProject }
 }
 
