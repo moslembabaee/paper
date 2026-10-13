@@ -10,7 +10,7 @@ Changes are saved in IndexedDB after a short idle period, and restored on reload
 
 The avatar in the header opens **Profile & account**. Set a display name, upload a local avatar, name your workspace, choose studio appearance, and set the engineering grid default for new projects. Account changes apply when saved; cancel discards the draft. The profile is stored separately from canvas projects in this browser's local storage and is never included in project JSON or artwork exports.
 
-The **Local MCP auth token** field can store an existing token or generate a cryptographically random token for your own self-hosted MCP gateway. Reveal, copy, regenerate, or remove it in account settings, then save the changes. Paper does not send this value anywhere or configure gateway authentication. Its bundled file-backed stdio MCP server does not require a token; use exported `.paper.json` files to exchange artwork with that server.
+The **Local MCP auth token** field can store an existing token or generate a cryptographically random token for your own self-hosted MCP gateway. Reveal, copy, regenerate, or remove it in account settings, then save the changes. Paper does not send this value anywhere or configure gateway authentication. The bundled localhost bridge and stdio server do not require this token. Agents edit the active canvas directly by default; explicit `--file` mode edits exported `.paper.json` files. See [live MCP setup](live-mcp.md). MCP design tokens are separate from gateway authentication.
 
 Paste with **⌘/Ctrl V** while working on the canvas:
 

@@ -12,7 +12,8 @@
     "mcp": "node ../mcp-server/bin/paper-mcp.mjs",
     "test:mcp": "npm --prefix ../mcp-server test",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "bridge": "node ../mcp-server/dist/mcp/bridge-cli.js"
   },
   "dependencies": {
     "@paper-design/shaders-react": "^0.0.81",

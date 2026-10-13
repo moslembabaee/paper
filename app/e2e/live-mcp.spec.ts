@@ -1,0 +1,90 @@
+import { test, expect, type APIRequestContext } from '@playwright/test'
+import { waitForCanvasReady } from './helpers'
+
+async function mcp(request: APIRequestContext) {
+  const initialized = await request.post('/mcp', { data: { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'paper-live-test', version: '1' } } } })
+  expect(initialized.ok()).toBeTruthy()
+  const headers = { 'MCP-Session-Id': initialized.headers()['mcp-session-id'] }
+  await request.post('/mcp', { headers, data: { jsonrpc: '2.0', method: 'notifications/initialized' } })
+  let id = 1
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const response = await request.post('/mcp', { headers, data: { jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } } })
+    expect(response.ok()).toBeTruthy()
+    return (await response.json()).result
+  }
+  return { call, success: async (name: string, args: Record<string, unknown> = {}) => {
+    const result = await call(name, args)
+    expect(result.isError, JSON.stringify(result)).toBe(false)
+    return result.structuredContent
+  } }
+}
+
+test('HTTP agent edits push to canvas, glow, preserve selection, undo and survive reload', async ({ page, request }) => {
+  await waitForCanvasReady(page)
+  await expect(page.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
+  const { call, success } = await mcp(request)
+  const info = await success('get_basic_info')
+  expect(info.fileName).toBe('Space to think')
+  expect(info.gridSize).toBe(120)
+  expect(info.artboards.length).toBeGreaterThan(0)
+  const frame = await success('create_frame', { id: 'live-frame', name: 'Agent study', x: 120, y: 240, expected_revision: info.revision })
+  await expect(page.locator('[data-element-id="live-frame"]')).toBeAttached()
+  await expect(page.locator('[data-agent-element-id="live-frame"]')).toBeAttached()
+  const frameBounds = await page.locator('[data-element-id="live-frame"]').boundingBox()
+  const indicatorBounds = await page.locator('[data-agent-element-id="live-frame"]').boundingBox()
+  expect(frameBounds).toBeTruthy()
+  expect(indicatorBounds).toBeTruthy()
+  expect(Math.abs(frameBounds!.x - indicatorBounds!.x)).toBeLessThan(1)
+  expect(Math.abs(frameBounds!.y - indicatorBounds!.y)).toBeLessThan(1)
+  await expect(page.getByTestId('bridge-status')).toHaveText('Agent editing')
+  const stale = await call('update_element', { element_id: 'live-frame', expected_revision: info.revision, patch: { width: 900 } })
+  expect(stale.isError).toBe(true)
+  await success('add_shader_shape', { id: 'live-shader', parentId: 'live-frame', shader_kind: 'mesh-gradient', width: 240, height: 240 })
+  await expect(page.locator('[data-element-id="live-shader"] .shader-surface')).toBeAttached()
+  await success('update_element', { element_id: 'live-frame', patch: { name: 'Live from MCP', rotation: 15 } })
+  await expect(page.locator('[data-agent-element-id="live-frame"]')).toHaveAttribute('style', /matrix/)
+  await page.getByTestId('history-undo').click()
+  let canvas = await success('get_canvas_elements')
+  expect(canvas.elements.find((node: { id: string }) => node.id === 'live-frame').name).toBe(frame.element.name)
+  await page.getByTestId('history-redo').click()
+  await success('create_token', { id: 'blue-token', name: 'agent-blue', type: 'color', value: '#81adec' })
+  expect((await success('list_tokens', { type: 'color' })).tokens.some((token: { id: string }) => token.id === 'blue-token')).toBe(true)
+  await expect(page.getByTestId('bridge-status')).toHaveText('MCP live', { timeout: 5000 })
+  await expect(page.getByTestId('agent-overlay')).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
+  canvas = await success('get_canvas_elements')
+  expect(canvas.elements.find((node: { id: string }) => node.id === 'live-frame').name).toBe('Live from MCP')
+})
+
+test('BroadcastChannel mirrors agent and human edits across tabs, with active-project isolation', async ({ page, context, request }) => {
+  await waitForCanvasReady(page)
+  await expect(page.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
+  const { success } = await mcp(request)
+  const original = await success('get_basic_info')
+  const peer = await context.newPage()
+  await peer.goto('/')
+  await expect(peer.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
+  await success('create_frame', { id: 'shared-frame', name: 'Shared frame' })
+  await expect(page.locator('[data-element-id="shared-frame"]')).toBeAttached()
+  await expect(peer.locator('[data-element-id="shared-frame"]')).toBeAttached()
+  await page.bringToFront()
+  await page.getByTestId('tool-rectangle').click()
+  const humanId = await page.locator('.scene-node.is-selected').getAttribute('data-element-id')
+  await expect(peer.locator(`[data-element-id="${humanId}"]`)).toBeAttached()
+  await peer.bringToFront()
+  await peer.getByRole('button', { name: 'Switch project', exact: true }).click()
+  const projects = peer.getByRole('dialog', { name: 'Local projects', exact: true })
+  await projects.getByRole('button', { name: 'New project', exact: false }).click()
+  await projects.getByRole('textbox', { name: 'New project name' }).fill('Separate MCP canvas')
+  await projects.getByRole('button', { name: 'Create project', exact: true }).click()
+  await expect(peer.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
+  await expect.poll(async () => (await success('get_basic_info')).fileName).toBe('Separate MCP canvas')
+  const active = await success('get_basic_info')
+  expect(active.projectId).not.toBe(original.projectId)
+  await success('create_frame', { id: 'isolated-frame' })
+  await expect(peer.locator('[data-element-id="isolated-frame"]')).toBeAttached()
+  await expect(page.locator('[data-element-id="isolated-frame"]')).toHaveCount(0)
+  await page.bringToFront()
+  await expect.poll(async () => (await success('get_basic_info')).projectId).toBe(original.projectId)
+})

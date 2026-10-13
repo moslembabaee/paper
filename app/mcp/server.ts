@@ -4,7 +4,9 @@ import { StringDecoder } from 'node:string_decoder'
 import { MAX_IMPORT_BYTES } from '../src/io/project.ts'
 import { paperTools, projectSchema, validateSchema } from '../src/mcp/schema.ts'
 import { motionControls, shaderCatalog } from '../src/shaders/catalog.ts'
-import type { PaperFiles } from './files.ts'
+import type { ToolArguments } from '../src/mcp/operations.ts'
+
+export interface PaperToolBackend { call(name: string, args: ToolArguments): Promise<Record<string, unknown>> }
 
 export const SERVER_VERSION = '0.1.0'
 export const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const
@@ -20,11 +22,11 @@ const resources = [
   { uri: 'paper://shaders', name: 'Paper shader catalog', description: 'Native shader kinds, default parameters, numeric bounds, and animation controls.', mimeType: 'application/json' },
 ]
 
-/** Minimal MCP compatibility transport. No sockets, telemetry or runtime packages. */
+/** MCP protocol shared by the stdio and local HTTP transports. */
 export class PaperMcpServer {
   private state: 'new' | 'initializing' | 'ready' = 'new'
-  private readonly files: PaperFiles
-  constructor(files: PaperFiles) { this.files = files }
+  private readonly files: PaperToolBackend
+  constructor(files: PaperToolBackend) { this.files = files }
 
   async handle(message: unknown): Promise<RpcResponse | undefined> {
     if (!record(message) || message.jsonrpc !== '2.0' || typeof message.method !== 'string' || (Object.hasOwn(message, 'id') && typeof message.id !== 'string' && (typeof message.id !== 'number' || !Number.isFinite(message.id)))) {
@@ -55,7 +57,7 @@ export class PaperMcpServer {
         protocolVersion: PROTOCOL_VERSIONS.find(version => version === params.protocolVersion) ?? PROTOCOL_VERSIONS[0],
         capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false } },
         serverInfo: { name: 'paper', version: SERVER_VERSION },
-        instructions: 'Paper edits portable .paper.json files inside the configured workspace. Read get_canvas_elements before editing and pass expected_revision to avoid stale writes. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Save in the browser before using an agent; reopen the JSON file to see its changes. SVG shaders need browser snapshots; JSON preserves the native shader paint.',
+        instructions: 'Paper edits the focused live browser canvas, or portable .paper.json files in offline mode. Read get_canvas_elements before editing and pass expected_revision to avoid stale writes. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Without --file, tools operate on the focused browser editor and changes appear immediately. Call get_basic_info to verify the active project. With --file, tools edit an offline JSON file. SVG shaders need browser snapshots; JSON preserves the native shader paint.',
       }
     }
     if (this.state !== 'ready') throw new RpcError(-32002, 'Initialize and send notifications/initialized before using Paper')

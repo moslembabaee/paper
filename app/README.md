@@ -6,7 +6,7 @@ Open **Roadmap** in the editor footer for live development tasks, completed feat
 
 ## Paper native MCP server
 
-`npm run build` also compiles the standalone [Paper MCP server](../mcp-server/README.md). It exposes `get_canvas_elements`, `create_frame`, `add_shader_shape`, `update_element`, and `export_selection` over stdio, using the editor's project schema and shader catalog. Run `npm run test:mcp` to verify the protocol and file workflows. The server edits saved `.paper.json` files; reopen a file in Paper to see agent changes.
+`npm run build` also compiles the Paper MCP server. By default, stdio tools connect to the focused live browser editor through the localhost HTTP bridge; agent changes appear immediately, glow on the canvas, and support undo. Same-project tabs synchronize through BroadcastChannel. Tools include `get_basic_info`, `list_tokens`, `create_token`, `get_canvas_elements`, `create_frame`, `add_shader_shape`, `update_element`, and `export_selection`. Explicit `--file` mode supports offline `.paper.json` edits. See [live connection instructions and synchronization behavior](docs/live-mcp.md). Run `npm run test:mcp` to verify the protocol and file workflows.
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

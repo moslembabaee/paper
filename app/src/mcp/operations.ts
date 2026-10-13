@@ -8,6 +8,7 @@ import { SceneStore } from '../scene/store.ts'
 import type { ElementInput, ElementPatch, SceneElement, SceneSnapshot } from '../scene/types.ts'
 import { createShader, validateShader } from '../shaders/catalog.ts'
 import type { ShaderKind, ShaderPaint } from '../shaders/types.ts'
+import type { TokenInput } from '../tokens/types.ts'
 import { patchSchema, validateSchema } from './schema.ts'
 
 export type ToolArguments = Record<string, unknown>
@@ -51,8 +52,19 @@ export function readCanvas(project: PaperProject, ids?: readonly string[]) {
   return { name: project.name, version: project.version, viewport: project.viewport, grid: project.grid, gridSize: GRID_SIZE, rootIds: project.scene.rootIds, tokens: store.getSnapshot().tokens, backgroundShader: project.scene.backgroundShader ?? null, elements: collectElements(store.getSnapshot(), ids) }
 }
 
-export function mutateCanvas(project: PaperProject, name: string, args: ToolArguments): { project: PaperProject; element: SceneElement } {
+export function basicInfo(project: PaperProject, selection: readonly string[] = []) {
+  const elements = Object.values(project.scene.elements)
+  return { name: project.name, fileName: project.name, version: project.version, nodeCount: elements.length, gridSize: GRID_SIZE, selection,
+    artboards: elements.filter(node => node.type === 'frame' && node.parentId === null).map(({ id, name, width, height }) => ({ id, name, width, height })) }
+}
+
+export function mutateCanvas(project: PaperProject, name: string, args: ToolArguments): { project: PaperProject; element?: SceneElement; token?: ReturnType<SceneStore['addToken']> } {
   const store = projectStore(project)
+  if (name === 'create_token') {
+    const { id, name: tokenName, type, value } = args
+    const token = store.addToken({ ...(id ? { id } : {}), name: tokenName, type, value } as TokenInput)
+    return { project: { ...project, scene: store.toJSON() }, token }
+  }
   let element: SceneElement
   if (name === 'create_frame' || name === 'add_shader_shape') {
     const input = Object.fromEntries(Object.entries(args).filter(([key]) => ['id', 'name', 'parentId', 'x', 'y', 'width', 'height', 'rotation', 'visible', 'locked', 'style', 'cornerRadius', 'clipContent'].includes(key)))

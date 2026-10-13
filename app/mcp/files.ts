@@ -5,7 +5,7 @@ import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node
 import { createProject, MAX_IMPORT_BYTES, parseProject, serializeProject } from '../src/io/project.ts'
 import type { PaperProject } from '../src/io/project.ts'
 import { SceneStore } from '../src/scene/store.ts'
-import { exportCanvas, mutateCanvas, readCanvas } from '../src/mcp/operations.ts'
+import { basicInfo, exportCanvas, mutateCanvas, readCanvas } from '../src/mcp/operations.ts'
 import type { ToolArguments } from '../src/mcp/operations.ts'
 
 export interface WorkspaceOptions { workspace: string; file?: string }
@@ -113,6 +113,10 @@ export class PaperFiles {
   async call(name: string, args: ToolArguments): Promise<Record<string, unknown>> {
     const path = await this.path(args.file, true)
     const displayPath = relative(this.workspace, path)
+    if (name === 'get_basic_info' || name === 'list_tokens') {
+      const loaded = await this.load(path)
+      return { file: displayPath, revision: loaded.revision, ...(name === 'get_basic_info' ? basicInfo(loaded.project) : { tokens: (loaded.project.scene.tokens ?? []).filter(token => !args.type || token.type === args.type) }) }
+    }
     if (name === 'get_canvas_elements') {
       const loaded = await this.load(path)
       return { file: displayPath, revision: loaded.revision, ...readCanvas(loaded.project, args.element_ids as string[] | undefined) }
@@ -144,7 +148,7 @@ export class PaperFiles {
       // Round-trip through the very same importer the browser uses before commit.
       parseProject(source)
       const revision = await this.save(path, source, loaded)
-      return { file: displayPath, revision, element: result.element }
+      return { file: displayPath, revision, ...(result.element ? { element: result.element } : { token: result.token }) }
     })
   }
 }

@@ -17,6 +17,8 @@ import { readProfile } from './workspace/profile'
 import type { UserProfile } from './workspace/types'
 import { useWorkspace } from './workspace/useWorkspace'
 import { RoadmapDialog } from './roadmap/RoadmapDialog'
+import { useLiveBridge } from './mcp/useLiveBridge'
+import './mcp/bridge.css'
 import './App.css'
 import './workspace/workspace.css'
 
@@ -60,6 +62,8 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
   const saveLocalProject = manager.save
   const onPersist = useCallback((project: Parameters<typeof saveLocalProject>[1]) => saveLocalProject(workspace.record.id, project), [saveLocalProject, workspace.record.id])
   const io = useProjectIO({ store, controller, name, grid, onPersist, initialMessage: manager.error, onOpen: project => { setName(project.name); setGrid(project.grid) }, onImport: () => setTool('select') })
+
+  const bridge = useLiveBridge({ projectId: workspace.record.id, store, getProject: io.getProject, onSettings: project => { setName(project.name); setGrid(project.grid) } })
 
   async function changeProject(action: () => Promise<void>) {
     if (transition.current || io.importing) return
@@ -124,7 +128,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
     <header className="app-header">
       <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
       <ProjectSwitcher name={name} activeId={workspace.record.id} projects={manager.projects.map(project => project.id === workspace.record.id ? { ...project, name: name.trim() || 'Untitled' } : project)} workspaceName={profile.workspaceName} persistent={manager.persistent} disabled={changing || io.importing} open={projectsOpen} onToggle={setProjectsOpen} onNameChange={setName} onSwitch={id => changeProject(() => manager.open(id))} onCreate={next => changeProject(() => manager.create(next, profile.defaultGrid))} onRename={renameProject} />
-      <div className="header-end"><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><ProfileMenu profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
+      <div className="header-end"><span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!bridge.activity} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : 'MCP offline'}</span><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><ProfileMenu profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
     </header>
     <div className="editor-layout" inert={changing}>
       {layersVisible && <DocumentSidebar store={store} onHide={() => setLayersVisible(false)} />}
@@ -141,7 +145,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
           <button className="tool-button" data-testid="tool-shaders" aria-label="Browse shaders" title="Shaders (S)" onClick={() => { setTool('select'); setShadersOpen(true) }}><Sparkles size={16} /></button>
           <HistoryControls store={store} />
         </div>
-        <SceneCanvas store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
+        <SceneCanvas agentActivity={bridge.activity} store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
       </main>
       <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} onOpenShaders={() => { setTool('select'); setShadersOpen(true) }} />
       {devMode && <DevModeInspector store={store} onExit={() => setDevMode(false)} />}

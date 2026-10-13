@@ -8,9 +8,11 @@ import { SelectionOverlay } from './SelectionOverlay'
 import type { SceneStore } from './store'
 import { useScene } from './useScene'
 import { PenOverlay } from './PenOverlay'
+import { AgentOverlay } from '../mcp/AgentOverlay'
+import type { AgentActivity } from '../mcp/protocol'
 import { ShaderSurface } from '../shaders/ShaderSurface'
 
-export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera }) {
+export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   useLayoutEffect(() => {
@@ -40,7 +42,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   }, [store, rootIds, elements])
   const bounds = useMemo(() => unionBounds(items), [items])
   return (
-    <div ref={hostRef} style={{ display: 'contents' }}><CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={!panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <SelectionOverlay store={store} controller={controller} panMode={panMode} />}>
+    <div ref={hostRef} style={{ display: 'contents' }}><CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<><AgentOverlay store={store} controller={controller} activity={agentActivity} />{!panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <SelectionOverlay store={store} controller={controller} panMode={panMode} />}</>}>
       <SceneRenderer store={store} interactive={!panMode} />
     </CanvasViewport></div>
   )

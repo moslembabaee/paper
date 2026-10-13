@@ -95,8 +95,8 @@ export interface PaperTool {
   readonly inputSchema: JsonSchema
   readonly annotations: { readonly readOnlyHint: boolean; readonly destructiveHint: boolean; readonly idempotentHint: boolean; readonly openWorldHint: boolean }
 }
-const file = str('Paper JSON file path within the configured workspace. Omit to use --file.')
-const revision = str('Optional SHA-256 revision from get_canvas_elements. Rejects stale edits.')
+const file = str('Paper JSON file path within the configured workspace. Omit to use the active live editor, or --file in offline mode.')
+const revision = str('Optional opaque revision from get_basic_info or get_canvas_elements. Rejects stale edits; pass it unchanged.')
 const base = { file }
 const creation = { id: str('Optional stable ID; otherwise a UUID is generated.'), name: str(), parentId: nullable(str()), ...geometry, visible: flag, locked: flag, style }
 const mutable = { name: str(), ...geometry, visible: flag, locked: flag, style }
@@ -109,6 +109,9 @@ const allPatchFields = Object.assign({}, ...Object.values(specific)) as Record<s
 delete allPatchFields.children
 const tool = (name: string, description: string, inputSchema: JsonSchema, readOnly = false): PaperTool => ({ name, description, inputSchema, annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly && name === 'update_element', idempotentHint: readOnly || name === 'update_element', openWorldHint: false } })
 export const paperTools: readonly PaperTool[] = [
+  tool('get_basic_info', 'Identify the currently open file, artboards, selection, node count and revision before editing.', object(base), true),
+  tool('list_tokens', 'List design tokens in the active file. Optional type filters the result.', object({ ...base, type: { type: 'string', enum: Object.keys(TOKEN_META) } }), true),
+  tool('create_token', 'Create a named design token. Names use lowercase kebab-case; values follow the token type. Creation is atomic and undoable.', object({ ...base, expected_revision: revision, id: str(), name: { ...str(), pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 100 }, type: { type: 'string', enum: Object.keys(TOKEN_META) }, value: { anyOf: [str(), num] } }, ['name', 'type', 'value'])),
   tool('get_canvas_elements', 'Read the latest canvas, hierarchy, project settings and file revision. Coordinates are relative to the parent frame, in pixels; the engineering grid is 120px. Optional element_ids includes those elements and their descendants.', object({ ...base, element_ids: { ...list(str()), minItems: 1 } }), true),
   tool('create_frame', 'Create a frame in a Paper file. Creates a new project if the file does not exist. Defaults: 720×480px, cream fill, clipped content, 120px grid. Parent must be an unlocked frame.', object({ ...base, expected_revision: revision, project_name: { ...str(), maxLength: 200 }, ...creation, clipContent: flag, cornerRadius: nonnegative })),
   tool('add_shader_shape', 'Add a rectangle or ellipse with a native @paper-design/shaders-react paint. Supply shader_kind; optional params and motion override catalog defaults. Inspect paper://shaders for supported controls.', object({ ...base, expected_revision: revision, ...creation, shape: { type: 'string', enum: ['rectangle', 'ellipse'] }, cornerRadius: nonnegative, shader_kind: { type: 'string', enum: shaderKinds }, params: { type: 'object', additionalProperties: true }, motion: object(motionProperties) }, ['shader_kind'])),
