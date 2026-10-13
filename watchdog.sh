@@ -1,45 +1,57 @@
 #!/bin/bash
-# Autonomous Watchdog for Paper Tri-Agent Orchestrator
-# Ensures orchestrator and agents never stay down or hung.
+# Autonomous Self-Reflecting Watchdog for Paper Tri-Agent Orchestrator
+# Checks progress staleness, model health, memory, and revives execution.
 
 PROJECT_DIR="/root/projects/paper"
 LOG_FILE="$PROJECT_DIR/watchdog.log"
-ORCH_LOG="$PROJECT_DIR/orchestrator.log"
 NOW=$(date -u "+%Y-%m-%d %H:%M:%S UTC")
 
-echo "[$NOW] [WATCHDOG] Checking health..." >> "$LOG_FILE"
-
-# 1. Check free memory
+# 1. Check memory and drop cache if low
 FREE_MEM=$(free -m | awk '/^Mem:/{print $7}')
 if [ "$FREE_MEM" -lt 350 ]; then
-    echo "[$NOW] [WATCHDOG] Low memory ($FREE_MEM MB). Dropping caches." >> "$LOG_FILE"
+    echo "[$NOW] [WATCHDOG] Low memory ($FREE_MEM MB). Dropping page cache..." >> "$LOG_FILE"
     sync && echo 3 > /proc/sys/vm/drop_caches
 fi
 
-# 2. Check if orchestrator process is alive
+# 2. Check if orchestrator is alive; if not, restart it
 if ! pgrep -f "python3 orchestrator.py" > /dev/null; then
-    echo "[$NOW] [WATCHDOG] ⚠️ Orchestrator process NOT FOUND! Reviving..." >> "$LOG_FILE"
+    echo "[$NOW] [WATCHDOG] ⚠️ Orchestrator process NOT FOUND! Reviving in tmux..." >> "$LOG_FILE"
     tmux kill-session -t paper-orchestrator 2>/dev/null || true
     tmux new-session -d -s paper-orchestrator "cd $PROJECT_DIR && python3 orchestrator.py"
-    echo "[$NOW] [WATCHDOG] ✅ Orchestrator revived in tmux session 'paper-orchestrator'." >> "$LOG_FILE"
-else
-    echo "[$NOW] [WATCHDOG] Orchestrator is running normally." >> "$LOG_FILE"
+    echo "[$NOW] [WATCHDOG] ✅ Orchestrator revived." >> "$LOG_FILE"
 fi
 
-# 3. Check for hung child processes (>25 mins run time)
-HUNG_PIDS=$(ps -eo pid,etime,cmd | grep -E "claude -p|codex exec|agy -p" | grep -v grep | while read -r pid etime cmd; do
-    # Check if time has hours or > 25 minutes
-    if [[ "$etime" =~ [0-9]+:[2-5][0-9]:[0-9]{2} ]] || [[ "$etime" =~ [2-9][5-9]:[0-9]{2} ]]; then
-        echo "$pid"
+# 3. SELF-REFLECTION & PROGRESS STALENESS CHECK
+# Check timestamp of latest commit
+LAST_COMMIT_TS=$(git -C "$PROJECT_DIR" log -1 --format=%ct 2>/dev/null || echo 0)
+CURRENT_TS=$(date +%s)
+COMMIT_AGE=$((CURRENT_TS - LAST_COMMIT_TS))
+
+# If no new commit for > 1800 seconds (30 mins), investigate and unblock
+if [ "$COMMIT_AGE" -gt 1800 ]; then
+    echo "[$NOW] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was $((COMMIT_AGE / 60)) minutes ago." >> "$LOG_FILE"
+    
+    # Check if any agent process is hung > 20 mins
+    HUNG_PIDS=$(ps -eo pid,etime,cmd | grep -E "claude -p|codex exec|agy -p" | grep -v grep | while read -r pid etime cmd; do
+        if [[ "$etime" =~ [0-9]+:[2-5][0-9]:[0-9]{2} ]] || [[ "$etime" =~ [2-9][0-9]:[0-9]{2} ]]; then
+            echo "$pid"
+        fi
+    done)
+    
+    if [ -n "$HUNG_PIDS" ]; then
+        echo "[$NOW] [WATCHDOG] Terminating hung agent processes: $HUNG_PIDS" >> "$LOG_FILE"
+        kill -9 $HUNG_PIDS 2>/dev/null || true
     fi
-done)
-
-if [ -n "$HUNG_PIDS" ]; then
-    echo "[$NOW] [WATCHDOG] Found hung agent process(es): $HUNG_PIDS. Terminating to trigger failover..." >> "$LOG_FILE"
-    kill -9 $HUNG_PIDS 2>/dev/null || true
+    
+    # Check Claude gateway model health
+    CLAUDE_TEST=$(claude -p "ping" --max-turns 1 2>&1)
+    if echo "$CLAUDE_TEST" | grep -qE "503|Unavailable"; then
+        echo "[$NOW] [WATCHDOG] Detected Claude gateway 503 limit. Auto-switching to backup model ag/gemini-3.8-flash-high..." >> "$LOG_FILE"
+        sed -i 's/"model": ".*"/"model": "ag\/gemini-3.8-flash-high"/' /root/.claude/settings.json
+    fi
 fi
 
-# Rotate watchdog log if larger than 2MB
+# 4. Log rotation if > 2MB
 if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE") -gt 2097152 ]; then
     tail -n 1000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
 fi
