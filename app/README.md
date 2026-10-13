@@ -1,5 +1,9 @@
 # React + TypeScript + Vite
 
+## Paper native MCP server
+
+`npm run build` also compiles the standalone [Paper MCP server](../mcp-server/README.md). It exposes `get_canvas_elements`, `create_frame`, `add_shader_shape`, `update_element`, and `export_selection` over stdio, using the editor's project schema and shader catalog. Run `npm run test:mcp` to verify the protocol and file workflows. The server edits saved `.paper.json` files; reopen a file in Paper to see agent changes.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

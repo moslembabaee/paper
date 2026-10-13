@@ -1,5 +1,5 @@
-import type { Bounds } from '../canvas/types'
-import type { SceneSnapshot } from './types'
+import type { Bounds } from '../canvas/types.ts'
+import type { SceneSnapshot } from './types.ts'
 
 type Matrix = readonly [number, number, number, number, number, number]
 const identity: Matrix = [1, 0, 0, 1, 0, 0]

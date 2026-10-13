@@ -7,7 +7,10 @@
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:e2e": "playwright test",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run build:mcp",
+    "build:mcp": "tsc -p tsconfig.mcp.json",
+    "mcp": "node ../mcp-server/bin/paper-mcp.mjs",
+    "test:mcp": "npm --prefix ../mcp-server test",
     "lint": "oxlint",
     "preview": "vite preview"
   },
