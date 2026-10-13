@@ -2,54 +2,42 @@ import { designSystemToCSS } from '../tokens/libraryCodegen'
 import { buildCSSProps, buildTailwindClasses, buildReactComponent, elementToComponentName } from '../tokens/codegen'
 import type { CSSProp } from '../tokens/codegen'
 import type { DesignToken } from '../tokens/types'
-import { useState } from 'react'
-import { Check, ChevronRight, Copy, X } from 'lucide-react'
+import { lazy, Suspense, useMemo, useState } from 'react'
+import { ChevronRight, Download, X } from 'lucide-react'
+import { HandoffCopyButton as CopyButton } from './HandoffCopyButton'
+import { resolveTokens } from '../tokens/library'
+
 import type { SceneStore } from './store'
 import type { SceneElement } from './types'
 import { useScene } from './useScene'
 import { getWorldBounds } from './geometry'
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+const ExportPanel = lazy(async () => ({ default: (await import('../io/ExportPanel')).ExportPanel }))
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <button
-      className="dev-copy-btn"
-      aria-label="Copy to clipboard"
-      onClick={() => {
-        navigator.clipboard.writeText(text).then(() => {
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1800)
-        })
-      }}
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-      {copied ? 'Copied' : 'Copy'}
-    </button>
-  )
-}
+// ─── Sub-components ──────────────────────────────────────────────────────────
 
 function TokenBadge({ token }: { token: string }) {
   return <span className="dev-token-badge">{token}</span>
 }
 
-function CSSBlock({ props }: { props: CSSProp[] }) {
-  const text = props.map(p => `${p.property}: ${p.value};`).join('\n')
+function CSSBlock({ props, references, onReferencesChange }: { props: CSSProp[]; references: boolean; onReferencesChange: () => void }) {
+  const displayed = props.map(prop => ({ ...prop, value: references ? prop.value : prop.resolvedValue ?? prop.value }))
+  const text = displayed.map(p => `${p.property}: ${p.value};`).join('\n')
   return (
     <div className="dev-code-block">
       <div className="dev-code-header">
-        <span>CSS</span>
-        <CopyButton text={text} />
+        <span>Computed CSS</span>
+        <button className="dev-reference-toggle" aria-label="Use token references" aria-pressed={references} onClick={onReferencesChange}>Tokens {references ? 'on' : 'off'}</button>
+        <CopyButton text={text} label="CSS" />
       </div>
       <pre className="dev-code-pre">
-        {props.map((p, i) => (
+        {displayed.map((p, i) => (
           <div key={i} className="dev-code-line">
             <span className="dev-css-prop">{p.property}</span>
             <span className="dev-css-colon">: </span>
             <span className="dev-css-val">{p.value}</span>
             <span className="dev-css-semi">;</span>
-            {p.token && <TokenBadge token={p.token} />}
+            {p.token && <span title={`Computed: ${p.resolvedValue}`}><TokenBadge token={p.token} /></span>}
           </div>
         ))}
       </pre>
@@ -63,7 +51,7 @@ function TailwindBlock({ node, tokens, parent }: { node: SceneElement; tokens: r
     <div className="dev-code-block">
       <div className="dev-code-header">
         <span>Tailwind CSS</span>
-        <CopyButton text={classes} />
+        <CopyButton text={classes} label="Tailwind classes" />
       </div>
       <pre className="dev-code-pre dev-tailwind-classes">
         {classes.split(' ').map((cls, i) => (
@@ -75,12 +63,12 @@ function TailwindBlock({ node, tokens, parent }: { node: SceneElement; tokens: r
 }
 
 function ReactBlock({ node, tokens, parent, elements }: { node: SceneElement; tokens: readonly DesignToken[]; parent?: SceneElement; elements: Readonly<Record<string, SceneElement>> }) {
-  const code = buildReactComponent(node, tokens, parent, elements)
+  const code = useMemo(() => buildReactComponent(node, tokens, parent, elements), [node, tokens, parent, elements])
   return (
     <div className="dev-code-block">
       <div className="dev-code-header">
-        <span>React</span>
-        <CopyButton text={code} />
+        <span>React / JSX</span>
+        <CopyButton text={code} label="React component" />
       </div>
       <pre className="dev-code-pre dev-code-jsx">{code}</pre>
     </div>
@@ -115,16 +103,22 @@ function BoxModel({ node }: { node: SceneElement }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit: () => void }) {
+export function DevModeInspector({ store, name, onSave, onMessage, onExit }: { store: SceneStore; name: string; onSave: () => void; onMessage: (message: string) => void; onExit: () => void }) {
   const state = useScene(store, s => s)
-  const node = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
+  const [activeId, setActiveId] = useState('')
+  const [references, setReferences] = useState(true)
+  const [exportOpen, setExportOpen] = useState(false)
+  const selectedNodes = state.selection.map(id => state.elements[id]).filter(Boolean)
+  const node = selectedNodes.find(node => node.id === activeId) ?? selectedNodes[0]
+  const tokens = useMemo(() => resolveTokens(state.tokens, state.styleLibrary.activeThemeId), [state.tokens, state.styleLibrary.activeThemeId])
   const [tab, setTab] = useState<'inspect' | 'code'>('inspect')
 
   const parent = node?.parentId ? state.elements[node.parentId] : undefined
-  const cssProps = node ? buildCSSProps(node, state.tokens, parent) : []
-  const worldBounds = node ? (() => {
-    try { return getWorldBounds(state, node.id) } catch { return null }
-  })() : null
+  const cssProps = node ? buildCSSProps(node, tokens, parent) : []
+  const themeCSS = designSystemToCSS(state.tokens, state.styleLibrary, tab === 'code')
+  const worldBounds = (() => {
+    try { return node ? getWorldBounds(state, node.id) : null } catch { return null }
+  })()
 
   return (
     <aside className="inspector-panel dev-mode-panel" data-testid="dev-mode-panel" aria-label="Dev mode properties">
@@ -135,11 +129,11 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
         </div>
         <div className="dev-mode-tabs">
           <button
-            className={`dev-tab ${tab === 'inspect' ? 'active' : ''}`}
+            className={`dev-tab ${tab === 'inspect' ? 'active' : ''}`} aria-pressed={tab === 'inspect'}
             onClick={() => setTab('inspect')}
           >Inspect</button>
           <button
-            className={`dev-tab ${tab === 'code' ? 'active' : ''}`}
+            className={`dev-tab ${tab === 'code' ? 'active' : ''}`} aria-pressed={tab === 'code'}
             onClick={() => setTab('code')}
           >Code</button>
         </div>
@@ -148,11 +142,15 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
         </button>
       </div>
 
+      {selectedNodes.length > 1 && <div className="inspector-section dev-selection-section">
+        <span className="section-caption">{selectedNodes.length} SELECTED LAYERS</span>
+        <div className="dev-selection-list" aria-label="Inspect selected layers">{selectedNodes.map(selected => <button key={selected.id} aria-label={`Inspect ${selected.name}`} aria-pressed={node?.id === selected.id} onClick={() => setActiveId(selected.id)}><span>{selected.name}</span><small>{selected.type}</small></button>)}</div>
+      </div>}
       {!node ? (
         <div className="inspector-section">
           <span className="section-caption">DEV MODE</span>
           <h3>Select a layer</h3>
-          <p>Click any element on the canvas to inspect its CSS properties and generate production-ready React + Tailwind code.</p>
+          <p>Click any element on the canvas to inspect its CSS properties and generate React and Tailwind snippets. Export your selection in the formats your team needs.</p>
           <div className="dev-hint-list">
             <div className="dev-hint-row"><span className="dev-hint-icon">⌘</span><span>Click to select</span></div>
             <div className="dev-hint-row"><span className="dev-hint-icon">⇧</span><span>Multi-select layers</span></div>
@@ -216,7 +214,7 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
               <div className="dev-color-row">
                 <span className="dev-color-swatch" style={{ background: node.style.fill }} />
                 <span className="dev-color-hex">{node.style.fill}</span>
-                <CopyButton text={node.style.fill} />
+                <CopyButton text={node.style.fill} label="fill color" />
               </div>
               {cssProps.find(p => p.token && (p.property === 'background-color' || p.property === 'color')) && (
                 <TokenBadge token={cssProps.find(p => p.token && (p.property === 'background-color' || p.property === 'color'))!.token!} />
@@ -231,8 +229,9 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
                 <span className="dev-color-swatch" style={{ background: node.style.stroke.color }} />
                 <span className="dev-color-hex">{node.style.stroke.color}</span>
                 <span className="dev-color-meta">{node.style.stroke.width}px</span>
-                <CopyButton text={node.style.stroke.color} />
+                <CopyButton text={node.style.stroke.color} label="stroke color" />
               </div>
+              {cssProps.find(prop => prop.token && ['border', 'stroke', '-webkit-text-stroke'].includes(prop.property))?.token && <TokenBadge token={cssProps.find(prop => prop.token && ['border', 'stroke', '-webkit-text-stroke'].includes(prop.property))!.token!} />}
             </div>
           )}
 
@@ -276,7 +275,7 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
           )}
 
           <div className="inspector-section">
-            <CSSBlock props={cssProps} />
+            <CSSBlock props={cssProps} references={references} onReferencesChange={() => setReferences(value => !value)} />
           </div>
 
           <button className="text-action dev-go-code" onClick={() => setTab('code')}>
@@ -290,15 +289,21 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
             <div className="dev-element-name">{elementToComponentName(node)}</div>
           </div>
           <div className="inspector-section">
-            <TailwindBlock node={node} tokens={state.tokens} parent={parent} />
+            <TailwindBlock node={node} tokens={tokens} parent={parent} />
           </div>
           <div className="inspector-section">
-            <ReactBlock node={node} tokens={state.tokens} parent={parent} elements={state.elements} />
+            <ReactBlock node={node} tokens={tokens} parent={parent} elements={state.elements} />
           </div>
         </>
       )}
 
-      {(state.tokens.length > 0 || state.styleLibrary.styles.length > 0) && <div className="inspector-section"><span className="section-caption">THEME / TOKENS</span><div className="dev-code-block"><div className="dev-code-header"><span>{tab === 'code' ? 'Tailwind theme' : 'CSS variables'}</span><CopyButton text={designSystemToCSS(state.tokens, state.styleLibrary, tab === 'code')} /></div><pre className="dev-code-pre">{designSystemToCSS(state.tokens, state.styleLibrary, tab === 'code')}</pre></div></div>}
+      {(state.tokens.length > 0 || state.styleLibrary.styles.length > 0) && <div className="inspector-section"><span className="section-caption">THEME / TOKENS</span><div className="dev-code-block"><div className="dev-code-header"><span>{tab === 'code' ? 'Tailwind theme' : 'CSS variables'}</span><CopyButton text={themeCSS} label="theme CSS" /></div><pre className="dev-code-pre">{themeCSS}</pre></div></div>}
+      {selectedNodes.length > 0 && <div className="inspector-section dev-export-section">
+        <span className="section-caption">ASSET HANDOFF</span>
+        <p>SVG · PNG · WebP · PDF<br />1×, 2×, 3× · separate files in one ZIP</p>
+        <button className="dev-export-button" aria-haspopup="dialog" aria-expanded={exportOpen} onClick={() => setExportOpen(true)}><Download size={13} />Export {selectedNodes.length > 1 ? `${selectedNodes.length} layers` : 'selected layer'}</button>
+      </div>}
+      {exportOpen && <Suspense fallback={<p role="status" className="inspector-section">Opening export…</p>}><ExportPanel store={store} name={name} initialScope="layers" onSave={onSave} onMessage={onMessage} onClose={() => setExportOpen(false)} /></Suspense>}
       <div className="inspector-bottom">
         <p>Copy any snippet.<br />Paste into your codebase.</p>
         <span>DEV MODE · PAPER HANDOFF</span>

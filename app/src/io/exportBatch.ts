@@ -4,6 +4,7 @@ import { assetFileNames } from './exportTypes.ts'
 import type { AssetFormat, ExportScale, ExportTarget } from './exportTypes.ts'
 import { fileName } from './project.ts'
 import { createZIP, MAX_ARCHIVE_BYTES } from './zip.ts'
+import { awaitExportTask } from './exportTask.ts'
 import type { ArchiveFile } from './zip.ts'
 
 export interface BatchSettings {
@@ -44,6 +45,8 @@ export async function exportBatch(settings: BatchSettings, signal: AbortSignal, 
     files.push({ name, blob })
     manifest.push({ file: name, layer: target.name, scale, width: Math.ceil(target.bounds.width * scale), height: Math.ceil(target.bounds.height * scale), colorSpace: settings.format === 'svg' ? 'native CSS colors' : settings.colorSpace, background: settings.background, ...(settings.format === 'pdf' ? { rendering: 'lossless raster', pageWidth: target.bounds.width * .75, pageHeight: target.bounds.height * .75, pageUnits: 'pt' } : {}) })
     onProgress({ completed: files.length, total: names.length, name })
+    // Let the browser paint progress and handle cancellation between assets.
+    await awaitExportTask(new Promise<void>(resolve => setTimeout(resolve, 0)), signal)
   }
   if (files.length === 1) return files[0]
   onProgress({ completed: files.length, total: names.length, name: 'Packaging ZIP…' })

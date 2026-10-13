@@ -12,7 +12,7 @@ button:focus-visible { outline: 2px solid var(--paper-accent-text); outline-offs
 .local-status { display: flex; align-items: center; gap: 7px; font-size: 10px; color: var(--paper-text-secondary); }
 .local-status i, .footer-dot { width: 4px; height: 4px; background: var(--paper-success); border-radius: 50%; }
 .project-avatar { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--paper-accent); color: var(--paper-on-accent); font-size: 11px; }
-.editor-layout { display: flex; flex: 1; min-height: 0; }
+.editor-layout { position: relative; display: flex; flex: 1; min-height: 0; }
 .layers-panel { background: var(--paper-surface); flex: 0 0 210px; border-right: 1px solid var(--paper-border); display: flex; flex-direction: column; }
 .inspector-panel { background: var(--paper-surface); flex: 0 0 230px; border-left: 1px solid var(--paper-border); display: flex; flex-direction: column; overflow-y: auto; }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 0 16px; font-size: 11px; font-weight: 550; border-bottom: 1px solid var(--paper-border); }
@@ -185,6 +185,24 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 1px
 .dev-tailwind-classes { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px; }
 .dev-tw-class { display: inline-block; font: 9px var(--font-mono); color: var(--paper-accent-text); background: var(--paper-accent-soft); border: 1px solid var(--paper-accent-border); border-radius: 3px; padding: 1px 5px; }
 .dev-code-jsx { white-space: pre; color: var(--paper-text); }
+.dev-code-pre { user-select: text; }
+.dev-copy-control { display: inline-flex; align-items: center; gap: 4px; }
+.dev-copy-error { max-width: 100px; font: 8px/1.4 var(--font-sans); color: var(--paper-danger); white-space: normal; }
+.dev-reference-toggle { margin-left: auto; padding: 3px 5px; border: 0; border-radius: 3px; background: transparent; color: var(--paper-text-secondary); font: 8px var(--font-mono); cursor: pointer; }
+.dev-reference-toggle[aria-pressed='true'] { color: var(--paper-accent-text); background: var(--paper-accent-soft); }
+.dev-code-header { gap: 5px; }
+.dev-mode-panel { min-width: 0; }
+.dev-mode-heading { position: sticky; top: 0; z-index: 1; background: var(--paper-surface); }
+.dev-selection-list { display: flex; flex-direction: column; gap: 3px; max-height: 150px; overflow-y: auto; }
+.dev-selection-list button { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid transparent; border-radius: 4px; background: var(--paper-input); color: var(--paper-text-secondary); font: 10px var(--font-sans); text-align: left; cursor: pointer; }
+.dev-selection-list button[aria-pressed='true'] { border-color: #81adec; background: var(--paper-accent-soft); color: var(--paper-text); }
+.dev-selection-list button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dev-selection-list small { margin-left: auto; font: 8px var(--font-mono); color: var(--paper-text-muted); }
+.dev-export-button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 10px; border: 0; border-radius: 4px; background: #81adec; color: #080808; font: 10px var(--font-sans); cursor: pointer; }
+.dev-export-button:hover { background: #a1c2f0; }
+.dev-mode-panel button:focus-visible { outline: 2px solid #81adec; outline-offset: 2px; }
+@media (max-width: 1100px) { .dev-mode-panel { display: flex; } }
+@media (max-width: 640px) { .dev-mode-panel { position: absolute; top: 0; right: 0; bottom: 0; width: min(280px, calc(100vw - 48px)); z-index: 10; box-shadow: var(--paper-shadow-panel); } }
 
 /* Box model diagram */
 .dev-box-model { }

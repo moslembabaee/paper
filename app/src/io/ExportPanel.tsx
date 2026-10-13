@@ -14,16 +14,17 @@ import type { ExportOptions } from './svg'
 
 const formatLabels: Record<AssetFormat, string> = { svg: 'Editable vector', png: 'Lossless image', webp: 'Compact image', pdf: 'Portable document' }
 
-export function ExportPanel({ store, name, onSave, onMessage, onClose }: {
+export function ExportPanel({ store, name, onSave, onMessage, onClose, initialScope }: {
   store: SceneStore
   name: string
   onSave: () => void
   onMessage: (message: string) => void
   onClose: () => void
+  initialScope?: ExportScope
 }) {
   const state = useScene(store, snapshot => snapshot)
   const [format, setFormat] = useState<AssetFormat>('png')
-  const [scope, setScope] = useState<ExportScope>(state.selection.length ? 'selection' : 'artboards')
+  const [scope, setScope] = useState<ExportScope>(initialScope ?? (state.selection.length > 1 ? 'layers' : state.selection.length ? 'selection' : 'artboards'))
   const [scales, setScales] = useState<ExportScale[]>([2])
   const [background, setBackground] = useState<ExportOptions['background']>('transparent')
   const [colorSpace, setColorSpace] = useState<'srgb' | 'display-p3'>('srgb')

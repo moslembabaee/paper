@@ -6,6 +6,7 @@ import { roadmapPlugin } from './src/roadmap/plugin.ts'
 import { collaborationPlugin } from './collaboration/plugin.ts'
 
 export default defineConfig({
+  base: process.env.BASE_URL || './',
   plugins: [
     collaborationPlugin(),
     roadmapPlugin(),
