@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Circle, Code2, Frame, Grid2X2, Hand, Image, Layers, MousePointer2, PenTool, Sparkles, Square, Type, X } from 'lucide-react'
+import { Circle, Code2, Frame, Grid2X2, Hand, Image, Layers, ListChecks, MousePointer2, PenTool, Sparkles, Square, Type, X } from 'lucide-react'
 import type { ElementType } from './scene/types'
 import { SceneCanvas } from './scene/SceneCanvas'
 import { LayerTree } from './scene/LayerTree'
@@ -16,6 +16,7 @@ import { ProjectSwitcher } from './workspace/ProjectSwitcher'
 import { readProfile } from './workspace/profile'
 import type { UserProfile } from './workspace/types'
 import { useWorkspace } from './workspace/useWorkspace'
+import { RoadmapDialog } from './roadmap/RoadmapDialog'
 import './App.css'
 import './workspace/workspace.css'
 
@@ -53,6 +54,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
   const [layersVisible, setLayersVisible] = useState(true)
   const [devMode, setDevMode] = useState(false)
   const [projectsOpen, setProjectsOpen] = useState(false)
+  const [roadmapOpen, setRoadmapOpen] = useState(false)
   const [changing, setChanging] = useState(false)
   const transition = useRef(false)
   const saveLocalProject = manager.save
@@ -144,7 +146,8 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
       <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} onOpenShaders={() => { setTool('select'); setShadersOpen(true) }} />
       {devMode && <DevModeInspector store={store} onExit={() => setDevMode(false)} />}
     </div>
-    <footer className="app-footer"><span><span className="footer-dot" />Paper / Infinite canvas</span><span>120 px grid<span className="footer-separator">/</span>Made to be yours.</span></footer>
+    <footer className="app-footer"><span><span className="footer-dot" />Paper / Infinite canvas<button className="roadmap-trigger" aria-label="Open development roadmap" aria-haspopup="dialog" onClick={() => setRoadmapOpen(true)}><ListChecks size={11} />Roadmap</button></span><span>120 px grid<span className="footer-separator">/</span>Made to be yours.</span></footer>
+    {roadmapOpen && <RoadmapDialog onClose={() => setRoadmapOpen(false)} />}
     {shadersOpen && <ShaderBrowser store={store} onClose={() => setShadersOpen(false)} />}
     {io.message && <div className="io-notice" role="status"><span>{io.message}</span><button className="quiet-button" aria-label="Dismiss notification" onClick={() => io.setMessage('')}><X size={14} /></button></div>}
   </div>

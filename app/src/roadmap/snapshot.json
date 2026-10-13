@@ -1,0 +1,134 @@
+{
+  "project": "Paper",
+  "updated_at": "2026-10-13T05:15:57Z",
+  "tasks": [
+    {
+      "id": "T01-project-init",
+      "title": "Initialize project with Vite + React + TypeScript + Tailwind CSS and Paper Design System Tokens",
+      "phase": "1. Foundation & Design System",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "completed_at": "2026-10-12T20:26:03.910685"
+    },
+    {
+      "id": "T02-infinite-canvas-core",
+      "title": "Build high-performance 60fps Infinite Canvas Engine with pan/zoom and viewport matrix transforms",
+      "phase": "2. Infinite Canvas Engine",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-12T20:41:15.584375"
+    },
+    {
+      "id": "T03-grid-rulers",
+      "title": "Implement Paper Engineering Grid, Top/Side Rulers, and Vertex Markers",
+      "phase": "2. Infinite Canvas Engine",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "completed_at": "2026-10-12T20:45:14.784784"
+    },
+    {
+      "id": "T04-scene-graph-elements",
+      "title": "Implement Scene Graph Data Model and Core Elements (Frames, Rects, Ellipses, Text, Paths)",
+      "phase": "3. Vector Elements & Scene Graph",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-12T21:00:21.927903"
+    },
+    {
+      "id": "T05-selection-transforms",
+      "title": "Build Selection, Dragging, Resize Handles, Rotation, and Smart Snapping",
+      "phase": "3. Vector Elements & Scene Graph",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "completed_at": "2026-10-12T21:16:26.296916"
+    },
+    {
+      "id": "T06-paper-shaders-integration",
+      "title": "Integrate Paper Shaders Engine (MeshGradient, Halftone, Gooey, Dithering, Noise)",
+      "phase": "4. Paper Shaders & Visual Craft",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-12T21:31:30.426648"
+    },
+    {
+      "id": "T07-dev-handoff-code-export",
+      "title": "Build Dev Mode Inspector and Production Code Generator (React + Tailwind)",
+      "phase": "5. Code-Bridged Dev Handoff",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "completed_at": "2026-10-12T21:36:01.737146"
+    },
+    {
+      "id": "T08-svg-export-import",
+      "title": "Implement Export (PNG, SVG, JSON) and Import (Figma / SVG paste support)",
+      "phase": "6. Export, Import & Persistence",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-12T21:48:29.955357"
+    },
+    {
+      "id": "T09-self-hosted-docker",
+      "title": "Create Production Dockerfile and docker-compose.yml for Single-Command Self-Hosting",
+      "phase": "7. Self-Hosted Docker Packaging",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "completed_at": "2026-10-12T21:50:08.671984"
+    },
+    {
+      "id": "T10-e2e-visual-tests",
+      "title": "Implement Playwright E2E Visual Verification Tests",
+      "phase": "8. Quality Gate & Visual Testing",
+      "assigned_agent": "antigravity",
+      "status": "completed",
+      "completed_at": "2026-10-12T22:21:41.149885"
+    },
+    {
+      "id": "T-EVOLVE-1791860271-1",
+      "title": "Implement Pen / Vector Path Editor with Bezier curve handles and point editing",
+      "phase": "Phase 9: Deep Vector & Boolean Operations",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-13T02:59:23.064388"
+    },
+    {
+      "id": "T-EVOLVE-1791860271-2",
+      "title": "Implement Command-Pattern History Stack (Undo/Redo with Ctrl+Z / Ctrl+Shift+Z)",
+      "phase": "Phase 10: Undo/Redo & State History Stack",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "completed_at": "2026-10-13T03:11:53.585970"
+    },
+    {
+      "id": "T-EVOLVE-1791860271-3",
+      "title": "Build Standalone Paper MCP Server exposing design schema to AI agents",
+      "phase": "Phase 11: Paper Native MCP Server Integration",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-13T03:30:54.769357"
+    },
+    {
+      "id": "T-THEME-STUDIO-DARK",
+      "title": "Overhaul Color System from Straw Paper to Ultra-Crisp Dark Studio Pro and Clean Slate Light",
+      "phase": "Phase 9: UI Craft & Color System Overhaul",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-13T03:58:29.504581"
+    },
+    {
+      "id": "T-USER-PROFILE-WORKSPACE",
+      "title": "Implement User Profile Menu, Account Settings, and Local Projects Manager",
+      "phase": "Phase 10: User Profile & Multi-Project Workspaces",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-13T04:22:40.441526"
+    },
+    {
+      "id": "T-OFFICIAL-DOCS-FEATURE-PARITY",
+      "title": "Implement Paper Specs for Native Vector Pen, Paste Figma/HTML, and Shaders Catalog",
+      "phase": "Phase 11: Official Paper Spec Alignment",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "completed_at": "2026-10-13T04:49:12.245572"
+    }
+  ]
+}
