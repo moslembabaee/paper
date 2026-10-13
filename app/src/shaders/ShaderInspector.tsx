@@ -1,13 +1,15 @@
 import { Pause, Play, Sparkles } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { createShader, motionControls, shaderCatalog, shaderKinds, updateShaderParameter } from './catalog'
 import type { ShaderControl, ShaderDefinition, ShaderKind, ShaderMotion, ShaderPaint, ShaderValue } from './types'
+import { shaderBlendModes } from './types'
 import './shaders.css'
 
 function Slider({ control, value, onChange }: { control: Extract<ShaderControl, { type: 'number' }>; value: number; onChange: (value: number) => void }) {
-  const change = (next: number) => { if (Number.isFinite(next)) onChange(Math.max(control.min, Math.min(control.max, next))) }
-  return <div className="shader-slider"><label htmlFor={`shader-${control.key}`}>{control.label}</label>
-    <input id={`shader-${control.key}`} type="number" aria-label={`Shader ${control.label}`} value={Number(value.toFixed(3))} min={control.min} max={control.max} step={control.step} onChange={event => change(event.currentTarget.valueAsNumber)} />
+  const inputId = useId()
+  const change = (next: number) => { if (Number.isFinite(next)) onChange(Math.max(control.min, Math.min(control.max, control.integer ? Math.round(next) : next))) }
+  return <div className="shader-slider"><label htmlFor={inputId}>{control.label}</label>
+    <input id={inputId} type="number" aria-label={`Shader ${control.label}`} value={Number(value.toFixed(3))} min={control.min} max={control.max} step={control.step} onChange={event => change(event.currentTarget.valueAsNumber)} />
     <input type="range" aria-label={`Shader ${control.label} slider`} value={value} min={control.min} max={control.max} step={control.step} onChange={event => change(event.currentTarget.valueAsNumber)} />
   </div>
 }
@@ -25,12 +27,13 @@ export function ShaderInspector({ paint, onChange, target, image, showPicker = t
   const parameter = (key: string, value: ShaderValue) => { if (paint) onChange(updateShaderParameter(paint, key, value)) }
   const motion = (changes: Partial<ShaderMotion>) => { if (paint) onChange({ ...paint, ...changes }) }
   return <div className="inspector-section shader-section">
-    <div className="shader-heading"><span className="section-caption">PAPER SHADERS</span>{onBrowse ? <button type="button" className="quiet-button" aria-label="Browse shader library" title="Browse shader library (S)" onClick={onBrowse} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--paper-accent-text)', padding: 0 }}><Sparkles size={11} />Catalog</button> : <span className="shader-engine-mark">FX / 07</span>}</div>
+    <div className="shader-heading"><span className="section-caption">PAPER SHADERS</span>{onBrowse ? <button type="button" className="quiet-button shader-catalog-link" aria-label="Browse shader library" title="Browse shader library (S)" onClick={onBrowse}><Sparkles size={11} />FX studio</button> : <span className="shader-engine-mark">FX / {String(shaderKinds.length).padStart(2, '0')}</span>}</div>
     {showPicker && <label className="property-select">Effect<select aria-label="Paper shader effect" value={paint?.kind ?? ''} onChange={event => onChange(event.currentTarget.value ? createShader(event.currentTarget.value as ShaderKind, image) : null)}>
       <option value="">None</option>{shaderKinds.map(kind => <option key={kind} value={kind}>{shaderCatalog[kind].label}</option>)}
     </select></label>}
     {paint && definition && params ? <>
       <div className="shader-target"><i />{target}</div><p className="shader-description">{definition.description}</p>
+      {paint.kind === 'glass-refraction' && <p className="shader-image-note">Glass refracts the source image. Animated mode gently shifts the texture.</p>}
       {definition.controls.map(control => {
         const value = params[control.key]
         if (control.type === 'number') return <Slider key={control.key} control={control} value={value as number} onChange={next => parameter(control.key, next)} />
@@ -43,6 +46,12 @@ export function ShaderInspector({ paint, onChange, target, image, showPicker = t
           {colors.length > 2 && <button aria-label={`Remove shader color ${index + 1}`} onClick={() => parameter(control.key, colors.filter((_, i) => i !== index))}>×</button>}
         </div>)}{colors.length < control.max && <button className="shader-add-color" aria-label="Add shader palette color" onClick={() => parameter(control.key, [...colors, '#81adec'])}>+</button>}</div></div>
       })}
+      <div className="shader-divider" /><span className="section-caption">COMPOSITING</span>
+      <label className="property-select">Blend mode<select aria-label="Shader blend mode" value={paint.composite?.blendMode ?? 'normal'} onChange={event => onChange({ ...paint, composite: { opacity: paint.composite?.opacity ?? 1, blendMode: event.currentTarget.value as typeof shaderBlendModes[number] } })}>
+        {shaderBlendModes.map(mode => <option key={mode} value={mode}>{mode.replace(/-/g, ' ').replace(/^./, char => char.toUpperCase())}</option>)}
+      </select></label>
+      <Slider control={{ key: 'materialOpacity', label: 'Material opacity %', type: 'number', min: 0, max: 100, step: 1 }} value={(paint.composite?.opacity ?? 1) * 100} onChange={opacity => onChange({ ...paint, composite: { blendMode: paint.composite?.blendMode ?? 'normal', opacity: opacity / 100 } })} />
+      <p className="shader-image-note">Mix with the layer’s fill or image. Layer opacity applies to the result.</p>
       <div className="shader-divider" /><span className="section-caption">MOTION & POSITION</span>
       <div className="shader-mode" role="group" aria-label="Shader playback"><button aria-pressed={paint.animated} onClick={() => motion({ animated: true })}><Play size={10} />Animated</button><button aria-pressed={!paint.animated} onClick={() => motion({ animated: false })}><Pause size={10} />Static</button></div>
       {motionControls.filter(control => control.key !== 'speed' || paint.animated).map(control => <Slider key={control.key} control={control as Extract<ShaderControl, { type: 'number' }>} value={paint[control.key as keyof Omit<ShaderMotion, 'animated'>]} onChange={value => motion({ [control.key]: value })} />)}

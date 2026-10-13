@@ -1,4 +1,4 @@
-import type { DitheringParams, DotOrbitParams, GrainGradientParams, HalftoneCmykParams, MeshGradientParams, MetaballsParams, NeuroNoiseParams } from '@paper-design/shaders-react'
+import type { DitheringParams, DotOrbitParams, FlutedGlassParams, GrainGradientParams, HalftoneCmykParams, MeshGradientParams, MetaballsParams, NeuroNoiseParams, PerlinNoiseParams, WarpParams } from '@paper-design/shaders-react'
 
 type Controls<T> = Readonly<Required<Omit<T, 'speed' | 'frame' | 'scale' | 'rotation' | 'offsetX' | 'offsetY' | 'fit' | 'originX' | 'originY' | 'worldWidth' | 'worldHeight'>>>
 type Palette<T> = Omit<Controls<T>, 'colors'> & { readonly colors: readonly string[] }
@@ -11,6 +11,9 @@ export interface ShaderParams {
   'neuro-noise': Controls<NeuroNoiseParams>
   gooey: Palette<MetaballsParams>
   dithering: Controls<DitheringParams>
+  'perlin-noise': Controls<PerlinNoiseParams>
+  'liquid-distortion': Palette<WarpParams>
+  'glass-refraction': Omit<Controls<FlutedGlassParams>, 'image' | 'margin'> & { readonly image: string }
 }
 export type ShaderKind = keyof ShaderParams
 export interface ShaderMotion {
@@ -23,10 +26,17 @@ export interface ShaderMotion {
   readonly offsetX: number
   readonly offsetY: number
 }
-export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K] } }[ShaderKind]
+export const shaderBlendModes = ['normal', 'multiply', 'screen', 'overlay', 'soft-light', 'hard-light', 'darken', 'lighten', 'color-dodge', 'color-burn', 'difference', 'exclusion', 'hue', 'saturation', 'color', 'luminosity'] as const
+export type ShaderBlendMode = typeof shaderBlendModes[number]
+export interface ShaderComposite {
+  readonly blendMode: ShaderBlendMode
+  /** Material opacity is independent of the layer's opacity. */
+  readonly opacity: number
+}
+export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K]; readonly composite?: ShaderComposite } }[ShaderKind]
 export type ShaderValue = number | string | readonly string[]
 export type ShaderControl =
-  | { readonly key: string; readonly label: string; readonly type: 'number'; readonly min: number; readonly max: number; readonly step: number }
+  | { readonly key: string; readonly label: string; readonly type: 'number'; readonly min: number; readonly max: number; readonly step: number; readonly integer?: boolean }
   | { readonly key: string; readonly label: string; readonly type: 'select'; readonly options: readonly string[] }
   | { readonly key: string; readonly label: string; readonly type: 'color' }
   | { readonly key: string; readonly label: string; readonly type: 'image' }

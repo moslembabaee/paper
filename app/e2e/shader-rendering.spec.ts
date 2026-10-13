@@ -28,7 +28,7 @@ test.describe('Paper Shaders Rendering & Inspector', () => {
 
     const inspector = page.getByTestId('inspector-panel')
     await expect(inspector).toContainText('PAPER SHADERS')
-    await expect(inspector).toContainText('FX / 07')
+    await expect(inspector.getByRole('button', { name: 'Browse shader library' })).toBeVisible()
 
     const effectSelect = page.getByLabel('Paper shader effect')
     await expect(effectSelect).toHaveValue('mesh-gradient')

@@ -120,7 +120,9 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
     let content = ''
     if (shaderSrc) {
       const maskContent = node.type === 'text' ? textMarkup(node, '#ffffff', assets.measureText, assets.textBaseline) : shape(node)
-      content += `<g ${clip(maskContent)}><image href="${xml(shaderSrc)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="none"/></g>`
+      const base = `<rect width="${num(node.width)}" height="${num(node.height)}" fill="${xml(fill ?? 'none')}"/>`
+      const imageBase = node.type === 'image' ? `<image href="${xml(assets.images.get(id) ?? node.src)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="${node.fit === 'fill' ? 'none' : node.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}"/>` : ''
+      content += `<g ${clip(maskContent)} style="isolation:isolate">${base}${imageBase}<image href="${xml(shaderSrc)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="none" opacity="${num(shader?.composite?.opacity ?? 1)}" style="mix-blend-mode:${shader?.composite?.blendMode ?? 'normal'}"/></g>`
     }
     if (node.type === 'frame') {
       const mask = frameMask(state.elements, node)
@@ -133,7 +135,7 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
       content += `<g ${clip(rect(node))} ${strokeAttrs}>${textMarkup(node, shaderSrc ? 'none' : fill ?? 'none', assets.measureText, assets.textBaseline)}</g>`
     } else if (node.type === 'image') {
       const src = assets.images.get(id) ?? node.src
-      content += `<g ${clip(rect(node))}><g fill="${xml(fill ?? 'none')}">${rect(node)}</g>${shaderSrc ? '' : `<image href="${xml(src)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="${node.fit === 'fill' ? 'none' : node.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}"/>`}</g><g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`
+      content += `${shaderSrc ? '' : `<g ${clip(rect(node))}><g fill="${xml(fill ?? 'none')}">${rect(node)}</g><image href="${xml(src)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="${node.fit === 'fill' ? 'none' : node.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}"/></g>`}<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`
     } else content += `<g fill="${xml(shaderSrc ? 'none' : fill ?? 'none')}" ${strokeAttrs}>${shape(node, (stroke?.width ?? 0) / 2)}</g>`
     const transform = root ? matrix(getWorldMatrix(state, id)) : `translate(${num(node.x)} ${num(node.y)}) rotate(${num(node.rotation)} ${num(node.width / 2)} ${num(node.height / 2)})`
     // A selected descendant retains inherited opacity, without exporting siblings.
@@ -160,6 +162,6 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
   const background = options.background === 'cream' ? `<rect x="${num(bounds.x)}" y="${num(bounds.y)}" width="${num(bounds.width)}" height="${num(bounds.height)}" fill="#edebe1"/>` : ''
   const shader = options.scope === 'canvas' && state.backgroundShader ? assets.shaders.get('paper:background') : null
   if (options.scope === 'canvas' && state.backgroundShader && !shader) throw new Error('The canvas shader could not be captured.')
-  const shaderBackground = shader ? `<image x="${num(bounds.x)}" y="${num(bounds.y)}" width="${num(bounds.width)}" height="${num(bounds.height)}" href="${xml(shader)}" preserveAspectRatio="none"/>` : ''
+  const shaderBackground = shader ? `<image x="${num(bounds.x)}" y="${num(bounds.y)}" width="${num(bounds.width)}" height="${num(bounds.height)}" href="${xml(shader)}" preserveAspectRatio="none" opacity="${num(state.backgroundShader?.composite?.opacity ?? 1)}" style="mix-blend-mode:${state.backgroundShader?.composite?.blendMode ?? 'normal'}"/>` : ''
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${num(outputSize?.width ?? bounds.width * options.scale)}" height="${num(outputSize?.height ?? bounds.height * options.scale)}" viewBox="${[bounds.x, bounds.y, bounds.width, bounds.height].map(num).join(' ')}"><defs>${defs.join('')}</defs>${background}${shaderBackground}${content}</svg>`
 }

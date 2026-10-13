@@ -53,7 +53,7 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
   }
   const hasEffects = node.style.effects?.some(effect => effect.enabled)
   const frameStyle: CSSProperties | undefined = isFrame ? {
-    background: node.style.fill ?? undefined, borderRadius: node.cornerRadius,
+    background: node.style.shader ? undefined : node.style.fill ?? undefined, borderRadius: node.cornerRadius,
     overflow: node.clipContent && !presentationRoot ? 'hidden' : 'visible',
     boxShadow: !hasEffects && node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : node.style.fill === null ? 'none' : undefined,
   } : undefined

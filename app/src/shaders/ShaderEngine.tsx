@@ -1,12 +1,11 @@
-import { Dithering, DotOrbit, GrainGradient, HalftoneCmyk, MeshGradient, Metaballs, NeuroNoise } from '@paper-design/shaders-react'
-import type { HalftoneCmykProps, PaperShaderElement } from '@paper-design/shaders-react'
+import { Dithering, DotOrbit, FlutedGlass, GrainGradient, HalftoneCmyk, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, Warp } from '@paper-design/shaders-react'
+import type { FlutedGlassProps, HalftoneCmykProps, PaperShaderElement } from '@paper-design/shaders-react'
 import { useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import type { ShaderPaint } from './types'
 
-function ImageHalftone({ source, onError, ...props }: Omit<HalftoneCmykProps, 'image'> & { source: string; onError: () => void }) {
-  const ref = useRef<PaperShaderElement>(null)
+function useSourceImage(source: string, onError: () => void) {
   const [loaded, setLoaded] = useState<{ source: string; image: HTMLImageElement } | null>(null)
-  const { speed = 0, frame = 0, rotation = 0 } = props
   useEffect(() => {
     let active = true
     const image = new Image()
@@ -17,24 +16,44 @@ function ImageHalftone({ source, onError, ...props }: Omit<HalftoneCmykProps, 'i
     image.src = url.href
     return () => { active = false; image.onload = null; image.onerror = null }
   }, [source, onError])
+  return loaded?.source === source ? loaded.image : null
+}
+
+/** Image filters have no u_time; drive one uniform directly without React renders. */
+function useFilterMotion(ref: RefObject<PaperShaderElement | null>, ready: boolean, speed: number, frame: number, value: number, glass: boolean) {
   useEffect(() => {
-    if (loaded?.source !== source) return
-    // CMYK is an image filter without u_time. Animate its rotation uniform gently,
-    // keeping the same deterministic frame semantics as the procedural shaders.
+    if (!ready || speed === 0) return
     let request = 0
     const start = performance.now()
     const tick = (now: number) => {
       const mount = ref.current?.paperShaderMount
       if (mount) {
         const time = frame + (now - start) * speed
-        mount.setUniforms({ u_rotation: (rotation + Math.sin(time * .0002) * 3) * Math.PI / 180 })
+        mount.setUniforms(glass
+          ? { u_shift: Math.max(-1, Math.min(1, value + Math.sin(time * .0002) * .08)) }
+          : { u_rotation: (value + Math.sin(time * .0002) * 3) * Math.PI / 180 })
       }
-      if (!mount || speed !== 0) request = requestAnimationFrame(tick)
+      request = requestAnimationFrame(tick)
     }
     request = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(request)
-  }, [loaded, source, speed, frame, rotation])
-  return loaded?.source === source ? <HalftoneCmyk {...props} ref={ref} speed={0} image={loaded.image} /> : null
+  }, [ref, ready, speed, frame, value, glass])
+}
+
+function ImageHalftone({ source, onError, ...props }: Omit<HalftoneCmykProps, 'image'> & { source: string; onError: () => void }) {
+  const ref = useRef<PaperShaderElement>(null)
+  const image = useSourceImage(source, onError)
+  useFilterMotion(ref, !!image, props.speed ?? 0, props.frame ?? 0, props.rotation ?? 0, false)
+  const rotation = (props.rotation ?? 0) + Math.sin((props.frame ?? 0) * .0002) * 3
+  return image ? <HalftoneCmyk {...props} ref={ref} rotation={rotation} speed={0} image={image} /> : null
+}
+
+function ImageGlass({ source, onError, ...props }: Omit<FlutedGlassProps, 'image'> & { source: string; onError: () => void }) {
+  const ref = useRef<PaperShaderElement>(null)
+  const image = useSourceImage(source, onError)
+  useFilterMotion(ref, !!image, props.speed ?? 0, props.frame ?? 0, props.shift ?? 0, true)
+  const shift = Math.max(-1, Math.min(1, (props.shift ?? 0) + Math.sin((props.frame ?? 0) * .0002) * .08))
+  return image ? <FlutedGlass {...props} ref={ref} shift={shift} speed={0} image={image} /> : null
 }
 
 /** Uniform updates stay inside Paper's WebGL engine, outside React's frame loop. */
@@ -54,5 +73,8 @@ export default function ShaderEngine({ paint, paused, onError, captureScale, cap
     case 'neuro-noise': return <NeuroNoise {...common} {...paint.params} />
     case 'gooey': return <Metaballs {...common} {...paint.params} colors={[...paint.params.colors]} />
     case 'dithering': return <Dithering {...common} {...paint.params} />
+    case 'perlin-noise': return <PerlinNoise {...common} {...paint.params} />
+    case 'liquid-distortion': return <Warp {...common} {...paint.params} colors={[...paint.params.colors]} />
+    case 'glass-refraction': return <ImageGlass {...common} {...paint.params} source={paint.params.image} onError={onError} fit="cover" />
   }
 }

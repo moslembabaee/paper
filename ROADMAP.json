@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-EVOLVE-1791908179-3",
+  "current_task_id": "T-EVOLVE-1791910837-1",
   "tasks": [
     {
       "id": "T-ISSUE-1",
@@ -355,6 +355,37 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "completed_at": "2026-10-13T17:00:06.488333"
+    },
+    {
+      "id": "T-EVOLVE-1791910837-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive Procedural Shader Materials and Real-Time FX Studio",
+      "description": "Integrate customizable procedural shader material pipelines using @paper-design/shaders-react, supporting real-time WebGL noise, liquid distortion, glass refraction, dynamic uniform parameter controls, and blend mode compositing on canvas shapes.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-13T17:13:18.268584"
+    },
+    {
+      "id": "T-EVOLVE-1791910837-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive Prototyping and Physics-Based Motion Transition Engine",
+      "description": "Implement interactive prototype connection noodles between canvas frames with configurable gesture triggers (OnClick, Hover, Drag), spring-based motion curves, smart layer interpolation, and an interactive presentation preview mode.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T-EVOLVE-1791910837-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Vector Boolean Operations and Bezier Pen Curve Editing Engine",
+      "description": "Implement vector geometry editing tools on canvas including Bezier pen path drawing, anchor point manipulation (smooth/corner tangents), non-destructive Boolean operations (Union, Subtract, Intersect, Exclude), and optimized SVG path export.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
     }
   ]
 }

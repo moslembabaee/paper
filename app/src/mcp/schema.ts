@@ -1,6 +1,7 @@
 import { TOKEN_META } from '../tokens/model.ts'
 import { motionControls, shaderCatalog, shaderKinds } from '../shaders/catalog.ts'
 import type { ShaderControl } from '../shaders/types.ts'
+import { shaderBlendModes } from '../shaders/types.ts'
 
 /** The small JSON Schema vocabulary used by Paper's agent-facing contract. */
 export interface JsonSchema {
@@ -32,7 +33,7 @@ const object = (properties: Record<string, JsonSchema>, required: readonly strin
 const list = (items: JsonSchema): JsonSchema => ({ type: 'array', items })
 
 function controlSchema(control: ShaderControl): JsonSchema {
-  if (control.type === 'number') return { type: 'number', minimum: control.min, maximum: control.max }
+  if (control.type === 'number') return { type: control.integer ? 'integer' : 'number', minimum: control.min, maximum: control.max }
   if (control.type === 'select') return { type: 'string', enum: control.options }
   const color: JsonSchema = { type: 'string', pattern: '^#[\\da-fA-F]{6}([\\da-fA-F]{2})?$' }
   if (control.type === 'color') return color
@@ -47,7 +48,7 @@ const motionProperties: Record<string, JsonSchema> = {
 export const shaderSchema: JsonSchema = {
   anyOf: shaderKinds.map(kind => {
     const params = Object.fromEntries(shaderCatalog[kind].controls.map(control => [control.key, controlSchema(control)]))
-    return object({ kind: { type: 'string', enum: [kind] }, params: object(params, Object.keys(params)), ...motionProperties }, ['kind', 'params', ...Object.keys(motionProperties)])
+    return object({ kind: { type: 'string', enum: [kind] }, params: object(params, Object.keys(params)), composite: object({ blendMode: { type: 'string', enum: shaderBlendModes }, opacity: { type: 'number', minimum: 0, maximum: 1 } }, ['blendMode', 'opacity']), ...motionProperties }, ['kind', 'params', ...Object.keys(motionProperties)])
   }),
 }
 const stroke = object({ color: str(), width: nonnegative, dash: list(nonnegative) }, ['color', 'width', 'dash'])

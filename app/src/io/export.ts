@@ -71,7 +71,7 @@ async function prepareAssets(state: SceneSnapshot, options: ExportOptions, captu
   for (const id of visited) {
     signal?.throwIfAborted()
     const node = state.elements[id]
-    if (node.type === 'image' && !node.style.shader) {
+    if (node.type === 'image') {
       let source = imageCache.get(node.src)
       if (!source) { source = await embedImage(node.src, signal); imageCache.set(node.src, source) }
       images.set(id, source)

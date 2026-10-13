@@ -5,7 +5,9 @@ import { ShaderSurface } from './ShaderSurface'
 
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]!)
 
-function textMask(node: Extract<SceneElement, { type: 'text' }>) {
+type TextLayout = Pick<Extract<SceneElement, { type: 'text' }>, 'text' | 'width' | 'fontWeight' | 'fontSize' | 'fontFamily' | 'letterSpacing' | 'textAlign' | 'lineHeight'>
+
+function textMask(node: TextLayout) {
   // Match the text layer's pre-wrap layout, including wrapping in its own font.
   const context = document.createElement('canvas').getContext('2d')
   if (context) context.font = `${node.fontWeight} ${node.fontSize}px ${node.fontFamily}`
@@ -32,17 +34,31 @@ function textMask(node: Extract<SceneElement, { type: 'text' }>) {
 }
 
 export function ShapeShader({ node }: { node: SceneElement }) {
+  const { type, width, height } = node
+  const textNode = node.type === 'text' ? node : undefined
+  const text = textNode?.text ?? '', fontWeight = textNode?.fontWeight ?? 400, fontSize = textNode?.fontSize ?? 16
+  const fontFamily = textNode?.fontFamily ?? 'sans-serif', letterSpacing = textNode?.letterSpacing ?? 0
+  const textAlign = textNode?.textAlign ?? 'left', lineHeight = textNode?.lineHeight ?? 1
+  // Uniform and composite edits do not remeasure every glyph in a text layer.
+  const textSvg = useMemo(() => type === 'text' ? textMask({ width, text, fontWeight, fontSize, fontFamily, letterSpacing, textAlign, lineHeight }) : '', [type, width, text, fontWeight, fontSize, fontFamily, letterSpacing, textAlign, lineHeight])
+  const d = node.type === 'path' ? node.d : ''
+  const fillRule = node.type === 'path' ? node.fillRule : 'nonzero'
+  const viewBox = node.type === 'path' ? node.viewBox.join(' ') : `0 0 ${width} ${height}`
   const mask = useMemo(() => {
-    if (node.type !== 'path' && node.type !== 'text') return undefined
-    const viewBox = node.type === 'path' ? node.viewBox.join(' ') : `0 0 ${node.width} ${node.height}`
-    const content = node.type === 'path' ? `<path fill="white" fill-rule="${node.fillRule}" d="${escape(node.d)}"/>` : textMask(node)
-    return `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${node.width}" height="${node.height}" viewBox="${viewBox}" preserveAspectRatio="none">${content}</svg>`)}")`
-  }, [node])
+    if (type !== 'path' && type !== 'text') return undefined
+    const content = type === 'path' ? `<path fill="white" fill-rule="${fillRule}" d="${escape(d)}"/>` : textSvg
+    return `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${viewBox}" preserveAspectRatio="none">${content}</svg>`)}")`
+  }, [type, width, height, viewBox, fillRule, d, textSvg])
   if (!node.style.shader) return null
   const style: CSSProperties = {
     borderRadius: node.type === 'ellipse' ? '50%' : 'cornerRadius' in node ? node.cornerRadius : undefined,
     maskImage: mask, maskSize: '100% 100%', maskRepeat: 'no-repeat',
   }
-  const shadow = node.type !== 'frame' && node.type !== 'image' ? node.style.shadow : null
-  return <div className="shape-shader-wrap" style={{ filter: shadow ? `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` : undefined }}><ShaderSurface paint={node.style.shader} style={style} /></div>
+  const shadow = node.type !== 'frame' && node.type !== 'image' && !node.style.effects?.some(effect => effect.enabled) ? node.style.shadow : null
+  return <div className="shape-shader-wrap" style={{ filter: shadow ? `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` : undefined }}>
+    <div className="shader-base-paint" style={{ ...style, background: node.style.fill ?? undefined }}>
+      {node.type === 'image' && <img src={node.src} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: node.fit }} />}
+    </div>
+    <ShaderSurface paint={node.style.shader} style={style} />
+  </div>
 }
