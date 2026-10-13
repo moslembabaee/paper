@@ -117,7 +117,35 @@ export function validateElement(element: SceneElement, depth = 0): void {
       validateElement(operand, depth + 1)
     }
   }
-  if (element.type === 'text' && (typeof element.text !== 'string' || typeof element.fontFamily !== 'string' || ![element.fontSize, element.fontWeight, element.lineHeight, element.letterSpacing].every(Number.isFinite) || element.fontSize <= 0 || element.lineHeight <= 0 || element.fontWeight < 1 || element.fontWeight > 1000 || !['left', 'center', 'right'].includes(element.textAlign))) throw new Error('Invalid text')
+  if (element.type === 'text') {
+    if (typeof element.text !== 'string' || typeof element.fontFamily !== 'string' || ![element.fontSize, element.fontWeight, element.lineHeight, element.letterSpacing].every(Number.isFinite) || element.fontSize <= 0 || element.lineHeight <= 0 || element.fontWeight < 1 || element.fontWeight > 1000 || !['left', 'center', 'right'].includes(element.textAlign)) throw new Error('Invalid text')
+    if (element.variableAxes !== undefined) {
+      if (!element.variableAxes || typeof element.variableAxes !== 'object' || Array.isArray(element.variableAxes)) throw new Error('Invalid variable axes')
+      for (const [tag, val] of Object.entries(element.variableAxes)) {
+        if (val !== undefined && (!Number.isFinite(val))) throw new Error(`Invalid variable axis ${tag}`)
+      }
+    }
+    if (element.openTypeFeatures !== undefined) {
+      if (!element.openTypeFeatures || typeof element.openTypeFeatures !== 'object' || Array.isArray(element.openTypeFeatures)) throw new Error('Invalid OpenType features')
+      for (const [feat, val] of Object.entries(element.openTypeFeatures)) {
+        if (val !== undefined && typeof val !== 'boolean') throw new Error(`Invalid OpenType feature ${feat}`)
+      }
+    }
+    if (element.fontKerning !== undefined && !['auto', 'normal', 'none', 'optical'].includes(element.fontKerning)) throw new Error('Invalid font kerning')
+    if (element.opticalKerning !== undefined && !Number.isFinite(element.opticalKerning)) throw new Error('Invalid optical kerning')
+    if (element.textTransform !== undefined && !['none', 'uppercase', 'lowercase', 'capitalize'].includes(element.textTransform)) throw new Error('Invalid text transform')
+    if (element.textOnPath !== undefined) {
+      if (!element.textOnPath || typeof element.textOnPath !== 'object' || typeof element.textOnPath.enabled !== 'boolean') throw new Error('Invalid text on path')
+      if (element.textOnPath.pathId !== undefined && element.textOnPath.pathId !== null && typeof element.textOnPath.pathId !== 'string') throw new Error('Invalid text on path reference')
+      if (element.textOnPath.pathData !== undefined && typeof element.textOnPath.pathData !== 'string') throw new Error('Invalid text on path data')
+      if (element.textOnPath.offset !== undefined && !Number.isFinite(element.textOnPath.offset)) throw new Error('Invalid text on path offset')
+      if (element.textOnPath.side !== undefined && !['left', 'right'].includes(element.textOnPath.side)) throw new Error('Invalid text on path side')
+      if (element.textOnPath.align !== undefined && !['start', 'center', 'end'].includes(element.textOnPath.align)) throw new Error('Invalid text on path align')
+      if (element.textOnPath.spacing !== undefined && !Number.isFinite(element.textOnPath.spacing)) throw new Error('Invalid text on path spacing')
+      if (element.textOnPath.reverse !== undefined && typeof element.textOnPath.reverse !== 'boolean') throw new Error('Invalid text on path reverse')
+      if (element.textOnPath.preset !== undefined && !['custom', 'wave', 'arc', 'circle', 'scurve', 'spiral', 'banner', 'zigzag'].includes(element.textOnPath.preset)) throw new Error('Invalid text on path preset')
+    }
+  }
   if (element.type === 'image' && (typeof element.src !== 'string' || typeof element.alt !== 'string' || !['cover', 'contain', 'fill'].includes(element.fit))) throw new Error('Invalid image')
 }
 

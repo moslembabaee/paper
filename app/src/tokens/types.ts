@@ -1,3 +1,5 @@
+import type { FontKerningMode, OpenTypeFeatures, TextOnPath, TextTransform, VariableFontAxes } from '../scene/types.ts'
+
 export type TokenType = 'color' | 'elevation' | 'radius' | 'spacing' | 'container' | 'breakpoint' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight' | 'letterSpacing'
 export type DesignToken = {
   [T in TokenType]: Readonly<{ id: string; name: string; type: T; value: T extends 'color' | 'fontFamily' ? string : number; aliasId?: string; themeValues?: Readonly<Record<string, T extends 'color' | 'fontFamily' ? string : number>>; palette?: string }>
@@ -15,6 +17,12 @@ export interface TypographyPreset {
   readonly lineHeight: number
   readonly letterSpacing: number
   readonly textAlign: 'left' | 'center' | 'right'
+  readonly variableAxes?: VariableFontAxes
+  readonly openTypeFeatures?: OpenTypeFeatures
+  readonly fontKerning?: FontKerningMode
+  readonly opticalKerning?: number
+  readonly textTransform?: TextTransform
+  readonly textOnPath?: TextOnPath
   readonly tokenBindings?: TokenBindings
 }
 export type SharedStyle = Readonly<{ id: string; name: string }> & (

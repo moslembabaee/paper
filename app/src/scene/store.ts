@@ -789,12 +789,12 @@ export class SceneStore {
     if (id !== null) {
       if (kind === 'color') { delete overrides.style.fill; delete overrides.tokenBindings.fill }
       if (kind === 'effects') { delete overrides.style.effects; delete overrides.style.shadow; delete overrides.tokenBindings.shadow }
-      if (kind === 'typography') for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign'] as const) {
+      if (kind === 'typography') for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'] as const) {
         delete (overrides.properties as Record<string, unknown>)[key]
         delete (overrides.tokenBindings as Record<string, unknown>)[key]
       }
     }
-    const detached = id === null ? kind === 'color' ? { style: { ...overrides.style, fill: node.style.fill } } : kind === 'effects' ? { style: { ...overrides.style, effects: node.style.effects } } : { properties: { ...overrides.properties, ...(node.type === 'text' ? { fontFamily: node.fontFamily, fontSize: node.fontSize, fontWeight: node.fontWeight, lineHeight: node.lineHeight, letterSpacing: node.letterSpacing, textAlign: node.textAlign } : {}) } } : {}
+    const detached = id === null ? kind === 'color' ? { style: { ...overrides.style, fill: node.style.fill } } : kind === 'effects' ? { style: { ...overrides.style, effects: node.style.effects } } : { properties: { ...overrides.properties, ...(node.type === 'text' ? { fontFamily: node.fontFamily, fontSize: node.fontSize, fontWeight: node.fontWeight, lineHeight: node.lineHeight, letterSpacing: node.letterSpacing, textAlign: node.textAlign, variableAxes: node.variableAxes, openTypeFeatures: node.openTypeFeatures, fontKerning: node.fontKerning, opticalKerning: node.opticalKerning, textOnPath: node.textOnPath, textTransform: node.textTransform } : {}) } } : {}
     return { ...next, component: { ...node.component, overrides: { ...overrides, ...detached, sharedStyleBindings: { ...overrides.sharedStyleBindings, [kind]: id } } } }
   }
 

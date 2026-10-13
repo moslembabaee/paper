@@ -128,6 +128,93 @@ export interface BooleanCompound {
   readonly operands: readonly VectorElement[]
 }
 
+export interface VariableFontAxes {
+  /** Weight axis (wght): 1 to 1000 */
+  readonly wght?: number
+  /** Width axis (wdth): 25 to 200 (%) */
+  readonly wdth?: number
+  /** Slant axis (slnt): -90 to +90 (degrees) */
+  readonly slnt?: number
+  /** Optical size axis (opsz): in points/px (typically 6 to 144) */
+  readonly opsz?: number
+  /** Grade axis (GRAD): -200 to +200 */
+  readonly grad?: number
+  /** Casual axis (CASL): 0 to 1 */
+  readonly casl?: number
+  /** Cursive axis (CRSV): 0 to 1 */
+  readonly crsv?: number
+  /** Additional custom or registered variable axes */
+  readonly [axisTag: string]: number | undefined
+}
+
+export type FontKerningMode = 'auto' | 'normal' | 'none' | 'optical'
+
+export interface OpenTypeFeatures {
+  /** Standard Ligatures (liga) */
+  readonly liga?: boolean
+  /** Discretionary Ligatures (dlig) */
+  readonly dlig?: boolean
+  /** Contextual Alternates (calt) */
+  readonly calt?: boolean
+  /** Small Capitals (smcp) */
+  readonly smcp?: boolean
+  /** Capitals to Small Caps (c2sc) */
+  readonly c2sc?: boolean
+  /** Slashed Zero (zero) */
+  readonly zero?: boolean
+  /** Fractions (frac) */
+  readonly frac?: boolean
+  /** Ordinals (ordn) */
+  readonly ordn?: boolean
+  /** Tabular Numbers (tnum) */
+  readonly tnum?: boolean
+  /** Proportional Numbers (pnum) */
+  readonly pnum?: boolean
+  /** Oldstyle Figures (onum) */
+  readonly onum?: boolean
+  /** Lining Figures (lnum) */
+  readonly lnum?: boolean
+  /** Kerning (kern) */
+  readonly kern?: boolean
+  /** Stylistic Sets */
+  readonly ss01?: boolean
+  readonly ss02?: boolean
+  readonly ss03?: boolean
+  readonly ss04?: boolean
+  /** Swashes (swsh) */
+  readonly swsh?: boolean
+  /** Stylistic Alternates (salt) */
+  readonly salt?: boolean
+  /** Titling Alternates (titl) */
+  readonly titl?: boolean
+  /** Additional OpenType feature tags */
+  readonly [featureTag: string]: boolean | undefined
+}
+
+export type TextPathPreset = 'custom' | 'wave' | 'arc' | 'circle' | 'scurve' | 'spiral' | 'banner' | 'zigzag'
+
+export interface TextOnPath {
+  readonly enabled: boolean
+  /** Reference to a PathElement in the scene (by element id) */
+  readonly pathId?: string | null
+  /** Explicit SVG path data string (d attribute) */
+  readonly pathData?: string
+  /** Start offset along the path (percentage 0-100 or units) */
+  readonly offset?: number
+  /** Side of path: 'left' (standard/above) or 'right' (flipped/below) */
+  readonly side?: 'left' | 'right'
+  /** Alignment on path relative to offset */
+  readonly align?: 'start' | 'center' | 'end'
+  /** Letter spacing delta along the curve */
+  readonly spacing?: number
+  /** Reverse the direction of the path */
+  readonly reverse?: boolean
+  /** Built-in curve preset type */
+  readonly preset?: TextPathPreset
+}
+
+export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize'
+
 export interface TextElement extends BaseElement {
   readonly type: 'text'
   readonly text: string
@@ -138,6 +225,18 @@ export interface TextElement extends BaseElement {
   readonly lineHeight: number
   readonly letterSpacing: number
   readonly textAlign: 'left' | 'center' | 'right'
+  /** Variable font axis controls (wght, wdth, slnt, opsz, etc.) */
+  readonly variableAxes?: VariableFontAxes
+  /** OpenType feature toggles (liga, dlig, calt, smcp, zero, frac, tnum, etc.) */
+  readonly openTypeFeatures?: OpenTypeFeatures
+  /** Kerning mode: 'auto' | 'normal' | 'none' | 'optical' */
+  readonly fontKerning?: FontKerningMode
+  /** Optical kerning adjustment factor when mode is 'optical' */
+  readonly opticalKerning?: number
+  /** Dynamic text-on-vector path deformation */
+  readonly textOnPath?: TextOnPath
+  /** Text capitalization transformation */
+  readonly textTransform?: TextTransform
 }
 
 export interface ImageElement extends BaseElement {
