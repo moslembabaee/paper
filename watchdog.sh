@@ -2,6 +2,8 @@
 # Autonomous Self-Reflecting Watchdog for Paper Tri-Agent Orchestrator
 # Checks progress staleness, model health, memory, and revives execution.
 
+export PATH="/root/.local/bin:/root/.hermes/tools/node-26.7.0-linux-x64/bin:/root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
+
 PROJECT_DIR="/root/projects/paper"
 LOG_FILE="$PROJECT_DIR/watchdog.log"
 NOW=$(date -u "+%Y-%m-%d %H:%M:%S UTC")

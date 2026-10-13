@@ -14,6 +14,10 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+# Ensure complete PATH is always available even when launched via cron
+FULL_PATH = "/root/.local/bin:/root/.hermes/tools/node-26.7.0-linux-x64/bin:/root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+os.environ["PATH"] = f"{FULL_PATH}:{os.environ.get('PATH', '')}"
+
 PROJECT_ROOT = Path("/root/projects/paper").resolve()
 ROADMAP_FILE = PROJECT_ROOT / "ROADMAP.json"
 LOG_FILE = PROJECT_ROOT / "orchestrator.log"
@@ -201,14 +205,18 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
             log(f"Running quality gate verification: '{verify_cmd}'...")
             v_code, v_out = run_cmd(verify_cmd, timeout=300)
             
-            if v_code == 0:
-                log(f"✅ Quality gate PASSED for task {task_id}!")
+            if exit_code == 0 and v_code == 0:
+                log(f"✅ Agent implementation succeeded and quality gate PASSED for task {task_id}!")
                 task_success = True
                 break
             else:
-                log(f"❌ Verification FAILED with exit code {v_code}!")
-                log(f"Verification output snippet: {v_out[-500:] if len(v_out) > 500 else v_out}")
-                error_output = v_out[-2000:]
+                log(f"❌ Task attempt failed (agent_code={exit_code}, verify_code={v_code})!")
+                if exit_code != 0:
+                    log(f"Agent error snippet: {agent_out[-500:] if len(agent_out) > 500 else agent_out}")
+                    error_output = agent_out[-2000:]
+                else:
+                    log(f"Verification output snippet: {v_out[-500:] if len(v_out) > 500 else v_out}")
+                    error_output = v_out[-2000:]
                 pending_task["retry_count"] += 1
                 time.sleep(3)
                 
