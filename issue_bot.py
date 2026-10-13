@@ -165,7 +165,7 @@ def process_issues():
             continue
             
         # 2. Approved issue ready for implementation
-        if is_approved and "in-progress" not in labels and not existing_task:
+        if is_approved and not existing_task:
             log(f"Issue #{num} is APPROVED. Adding to active ROADMAP...")
             new_task = {
                 "id": task_id,
@@ -181,9 +181,10 @@ def process_issues():
             roadmap["tasks"].insert(0, new_task)
             roadmap_modified = True
             
-            ack_msg = f"🚀 **Scheduled for Autonomous Development!**\n\nThis issue has been authorized and queued into the Tri-Agent Orchestra as `{task_id}`. Implementation is starting..."
-            run_cmd(f'gh issue comment {num} --repo {REPO} -b {shlex.quote(ack_msg)}')
-            run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress"')
+            if "in-progress" not in labels:
+                ack_msg = f"🚀 **Scheduled for Autonomous Development!**\n\nThis issue has been authorized and queued into the Tri-Agent Orchestra as `{task_id}`. Implementation is starting..."
+                run_cmd(f'gh issue comment {num} --repo {REPO} -b {shlex.quote(ack_msg)}')
+                run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress"')
             log(f"Issue #{num} dispatched into ROADMAP as task {task_id}.")
             
     if roadmap_modified:
