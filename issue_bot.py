@@ -138,15 +138,33 @@ def process_issues():
             continue
             
         # Check approval status
+        is_autonomous_proposal = (
+            "autonomous roadmap proposal" in issue.get("body", "").lower()
+            or "planned by: tri-agent" in issue.get("body", "").lower()
+            or "tri-agent architect" in issue.get("body", "").lower()
+        )
+        
         is_approved = "approved" in labels
         if not is_approved:
-            # If opened directly by repository owner / authorized maintainer, auto-approve
-            if author in authorized_users:
+            if is_autonomous_proposal:
+                # Autonomous proposals NEVER auto-approve on creation!
+                # They strictly require an explicit approval comment (/approve, lgtm, approved)
+                for c in comments:
+                    c_author = c.get("author", {}).get("login", "").lower()
+                    c_body = c.get("body", "").lower()
+                    if c_author in authorized_users:
+                        if any(kw in c_body for kw in approval_keywords):
+                            is_approved = True
+                            log(f"Autonomous Proposal #{num} explicitly approved via comment by @{c_author}!")
+                            run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "approved"')
+                            break
+            elif author in authorized_users:
+                # Human manual issue created by repository owner
                 is_approved = True
-                log(f"Issue #{num} is created by authorized user @{author}. Auto-approving...")
+                log(f"Issue #{num} is created manually by authorized user @{author}. Auto-approving...")
                 run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "approved"')
             else:
-                # Check comments for approval keyword by authorized user
+                # External community issue
                 for c in comments:
                     c_author = c.get("author", {}).get("login", "").lower()
                     c_body = c.get("body", "").lower()
@@ -171,27 +189,43 @@ def process_issues():
             continue
             
         # 2. Approved issue ready for implementation
-        if is_approved and not existing_task:
-            log(f"Issue #{num} is APPROVED. Adding to active ROADMAP...")
-            new_task = {
-                "id": task_id,
-                "phase": "Community & Issues",
-                "title": f"Issue #{num}: {title}",
-                "description": issue.get("body", "") + f"\n\nReference: Closes #{num}",
-                "assigned_agent": "codex",
-                "status": "pending",
-                "retry_count": 0,
-                "verification_cmd": "cd /root/projects/paper/app && npm run build"
-            }
-            # Put approved issue task next in queue
-            roadmap["tasks"].insert(0, new_task)
-            roadmap_modified = True
-            
-            if "in-progress" not in labels:
-                ack_msg = f"🚀 **Scheduled for Autonomous Development!**\n\nThis issue has been authorized and queued into the Tri-Agent Orchestra as `{task_id}`. Implementation is starting..."
-                run_cmd(f'gh issue comment {num} --repo {REPO} -b {shlex.quote(ack_msg)}')
-                run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress"')
-            log(f"Issue #{num} dispatched into ROADMAP as task {task_id}.")
+        if is_approved:
+            # Check if this issue is already in roadmap (either as T-ISSUE-X or by github_issue_number)
+            matched_task = None
+            for t in roadmap["tasks"]:
+                if t.get("id") == task_id or t.get("github_issue_number") == num:
+                    matched_task = t
+                    break
+                    
+            if matched_task:
+                if matched_task.get("status") in ("waiting_approval", "pending_approval", "pending"):
+                    matched_task["status"] = "approved"
+                    roadmap_modified = True
+                    log(f"Issue #{num} task {matched_task['id']} is now APPROVED by maintainer!")
+                    if "in-progress" not in labels:
+                        run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress"')
+            elif not existing_task:
+                log(f"Issue #{num} is APPROVED. Adding to active ROADMAP...")
+                new_task = {
+                    "id": task_id,
+                    "phase": "Community & Issues",
+                    "title": f"Issue #{num}: {title}",
+                    "description": issue.get("body", "") + f"\n\nReference: Closes #{num}",
+                    "assigned_agent": "codex",
+                    "status": "approved",
+                    "retry_count": 0,
+                    "verification_cmd": "cd /root/projects/paper/app && npm run build",
+                    "github_issue_number": num
+                }
+                # Put approved issue task next in queue
+                roadmap["tasks"].insert(0, new_task)
+                roadmap_modified = True
+                
+                if "in-progress" not in labels:
+                    ack_msg = f"🚀 **Scheduled for Autonomous Development!**\n\nThis issue has been authorized and queued into the Tri-Agent Orchestra as `{task_id}`. Implementation is starting..."
+                    run_cmd(f'gh issue comment {num} --repo {REPO} -b {shlex.quote(ack_msg)}')
+                    run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress"')
+                log(f"Issue #{num} dispatched into ROADMAP as task {task_id}.")
             
     if roadmap_modified:
         save_roadmap(roadmap)

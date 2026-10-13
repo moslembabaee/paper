@@ -25,6 +25,14 @@ if ! pgrep -f "python3 orchestrator.py" > /dev/null; then
     echo "[$NOW] [WATCHDOG] ✅ Orchestrator revived." >> "$LOG_FILE"
 fi
 
+# 2b. Check if webhook server is alive; if not, restart it
+if ! pgrep -f "python3 webhook_server.py" > /dev/null; then
+    echo "[$NOW] [WATCHDOG] ⚠️ Webhook server NOT FOUND! Reviving in tmux..." >> "$LOG_FILE"
+    tmux kill-session -t paper-webhook 2>/dev/null || true
+    tmux new-session -d -s paper-webhook "cd $PROJECT_DIR && python3 webhook_server.py"
+    echo "[$NOW] [WATCHDOG] ✅ Webhook server revived." >> "$LOG_FILE"
+fi
+
 # 3. SELF-REFLECTION & PROGRESS STALENESS CHECK
 # Check timestamp of latest commit
 LAST_COMMIT_TS=$(git -C "$PROJECT_DIR" log -1 --format=%ct 2>/dev/null || echo 0)

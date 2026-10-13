@@ -432,6 +432,39 @@
       "retry_count": 24,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "completed_at": "2026-10-13T20:21:15.935181+00:00"
+    },
+    {
+      "id": "T-EVOLVE-1791923074-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive Shader Canvas Material & Mesh Gradient Studio",
+      "description": "Implement an interactive shader material and multi-stop mesh gradient inspector using @paper-design/shaders-react. Support draggable canvas anchor nodes, procedural noise turbulence, chromatic aberration, grain overlay blending, and instant React shader code export.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 3
+    },
+    {
+      "id": "T-EVOLVE-1791923074-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Non-Destructive Vector Boolean Operations and Path Pen Studio",
+      "description": "Introduce advanced vector drawing and manipulation tools to the canvas scene graph: interactive B\u00e9zier pen with tangent handle controls, vertex snapping, and non-destructive compound path Boolean operations (Union, Subtract, Intersect, Exclude) with live SVG rendering.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 4
+    },
+    {
+      "id": "T-EVOLVE-1791923074-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Spring Physics Motion Timeline and Easing Curve Editor",
+      "description": "Build an integrated motion design timeline drawer for canvas elements featuring configurable spring physics (stiffness, damping, mass), interactive cubic-B\u00e9zier curve graph editor, multi-track keyframe playback scrubber, and code export to Framer Motion and CSS keyframes.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 5
     }
   ]
 }

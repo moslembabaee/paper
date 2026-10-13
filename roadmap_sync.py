@@ -105,27 +105,10 @@ def sync_roadmap_to_github():
         
     md_content = generate_roadmap_markdown(data)
     
-    # 1. Write ROADMAP.md
+    # Write local ROADMAP.md
     with open(ROADMAP_MD, "w", encoding="utf-8") as f:
         f.write(md_content)
-        
-    # 2. Sync to Pinned GitHub Issue #1
-    try:
-        tmp_issue_body = PROJECT_ROOT / ".issue_body.tmp"
-        with open(tmp_issue_body, "w", encoding="utf-8") as f:
-            f.write(md_content)
-        subprocess.run(
-            f'gh issue edit 1 --repo {REPO} --body-file "{tmp_issue_body}"',
-            shell=True,
-            cwd=str(PROJECT_ROOT),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        if tmp_issue_body.exists():
-            tmp_issue_body.unlink()
-    except Exception as e:
-        print(f"Error syncing to GitHub issue: {e}")
 
 if __name__ == "__main__":
     sync_roadmap_to_github()
-    print("ROADMAP.md and GitHub Issue #1 updated successfully!")
+    print("ROADMAP.md updated successfully!")

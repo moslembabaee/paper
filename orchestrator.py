@@ -129,10 +129,10 @@ def run_loop():
         check_resources()
         roadmap = load_roadmap()
         
-        # Find next pending task
+        # Find next approved task (strictly tasks approved by maintainer)
         pending_task = None
         for task in roadmap["tasks"]:
-            if task["status"] in ("pending", "in_progress", "failed"):
+            if task.get("status") == "approved":
                 pending_task = task
                 break
                 
@@ -142,7 +142,15 @@ def run_loop():
                 log("🛑 Stop flag detected (STOP_IMPROVEMENTS). Pausing continuous improvement loop.")
                 break
                 
-            log("✨ All scheduled tasks completed! Entering Continuous Evolution & Polish Phase...")
+            waiting_tasks = [t for t in roadmap["tasks"] if t.get("status") in ("waiting_approval", "pending_approval")]
+            if waiting_tasks:
+                waiting_issues = [f"#{t['github_issue_number']}" for t in waiting_tasks if t.get("github_issue_number")]
+                issues_str = ", ".join(waiting_issues) if waiting_issues else f"{len(waiting_tasks)} task(s)"
+                log(f"⏸️ [WAITING] {len(waiting_tasks)} task proposal(s) waiting for @moslembabaee approval on GitHub ({issues_str}). Sleeping 15s...")
+                time.sleep(15)
+                continue
+                
+            log("✨ No active proposals or pending tasks! Running Architecture Audit for new proposals...")
             log("Running Autonomous Architecture & Craft Audit via Claude / Codex / Antigravity...")
             
             audit_prompt = """Do not use any tools or bash commands. Do not read files.
@@ -155,7 +163,7 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
     "title": "Title here",
     "description": "Concrete requirements here",
     "assigned_agent": "claude",
-    "status": "pending",
+    "status": "waiting_approval",
     "retry_count": 0,
     "verification_cmd": "cd /root/projects/paper/app && npm run build"
   }
@@ -183,11 +191,14 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                     ts = int(time.time())
                     for idx, t in enumerate(new_tasks):
                         t["id"] = f"T-EVOLVE-{ts}-{idx+1}"
-                        # Automatically create a GitHub Issue for transparency
+                        t["status"] = "waiting_approval"
+                        # Automatically create a GitHub Issue as a proposal waiting for approval
                         try:
                             title = f"feat: {t['title']}"
                             agent_name = t.get("assigned_agent", "claude").upper()
-                            body = f"""### 🎯 Autonomous Roadmap Task
+                            body = f"""### 🎯 Autonomous Roadmap Proposal
+
+> ⏳ **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.
 
 **Task ID:** `{t['id']}`
 **Phase:** `{t['phase']}`
@@ -202,16 +213,16 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
 {t['verification_cmd']}
 ```
 """
-                            code, out = run_cmd(f'gh issue create --repo moslembabaee/paper --title {shlex.quote(title)} --body {shlex.quote(body)} --label "enhancement,approved"')
+                            code, out = run_cmd(f'gh issue create --repo moslembabaee/paper --title {shlex.quote(title)} --body {shlex.quote(body)} --label "enhancement,triaged"')
                             if code == 0 and "http" in out:
                                 created_num = int(out.strip().split("/")[-1])
                                 t["github_issue_number"] = created_num
-                                log(f"Created GitHub Issue #{created_num} for task {t['id']}")
+                                log(f"Created GitHub Proposal Issue #{created_num} for task {t['id']}")
                         except Exception as ex:
                             log(f"Warning: Failed to create GitHub issue for task {t['id']}: {ex}")
                     roadmap["tasks"].extend(new_tasks)
                     save_roadmap(roadmap)
-                    log(f"🎯 Generated {len(new_tasks)} new evolution tasks with GitHub issues!")
+                    log(f"🎯 Generated {len(new_tasks)} new evolution proposals as GitHub issues! Waiting for maintainer approval...")
                     time.sleep(5)
                     continue
             except Exception as e:

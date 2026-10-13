@@ -6,10 +6,9 @@ Built autonomously by the **Tri-Agent Orchestra** (`Claude Code` ↔ `OpenAI Cod
 
 ---
 
-### 🗺️ Live Development Roadmap & Real-Time Task Tracker
-Track real-time progress, currently running agents, and upcoming feature queues:
-- 📊 **[Read the Live Roadmap Dashboard (`ROADMAP.md`)](ROADMAP.md)** (Updated continuously on every commit)
-- 📌 **[Pinned GitHub Live Tracker (Issue #1)](https://github.com/moslembabaee/paper/issues/1)**
+### 🗺️ Live Development Roadmap & Task Tracker
+Track progress, planned features, and completed milestones:
+- 📊 **[Read the Roadmap (`ROADMAP.md`)](ROADMAP.md)** (Updated continuously on milestones)
 
 ---
 
