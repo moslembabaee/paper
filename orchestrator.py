@@ -9,6 +9,7 @@ import os
 import sys
 import json
 import time
+import shlex
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -67,19 +68,17 @@ def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple
     
     if agent == "claude":
         # Run Claude Code in non-interactive print mode
-        cmd = f'claude -p "{prompt}" --max-turns 20'
+        cmd = f'claude -p {shlex.quote(prompt)} --max-turns 20'
         return run_cmd(cmd, timeout=900)
         
     elif agent == "codex":
         # Run OpenAI Codex non-interactively in workspace-write sandbox
-        escaped_prompt = prompt.replace('"', '\\"').replace('$', '\\$')
-        cmd = f'codex exec --sandbox workspace-write -c \'model_reasoning_effort="high"\' "{escaped_prompt}"'
+        cmd = f'codex exec --sandbox workspace-write -c \'model_reasoning_effort="high"\' {shlex.quote(prompt)}'
         return run_cmd(cmd, timeout=900)
         
     elif agent == "antigravity":
         # Run Antigravity CLI with Gemini 3.8 Flash High
-        escaped_prompt = prompt.replace('"', '\\"').replace('$', '\\$')
-        cmd = f'agy -p "{escaped_prompt}" --model gemini-3.8-flash-high --effort high --dangerously-skip-permissions --print-timeout 15m'
+        cmd = f'agy -p {shlex.quote(prompt)} --model gemini-3.8-flash-high --effort high --dangerously-skip-permissions --print-timeout 15m'
         return run_cmd(cmd, timeout=900)
         
     else:
@@ -131,27 +130,29 @@ def run_loop():
                 break
                 
             log("✨ All scheduled tasks completed! Entering Continuous Evolution & Polish Phase...")
-            log("Running Autonomous Architecture & Craft Audit via Antigravity / Claude...")
+            log("Running Autonomous Architecture & Craft Audit via Claude / Codex / Antigravity...")
             
-            audit_prompt = """
-We are continuously perfecting 'Paper', our open-source self-hosted design tool.
+            audit_prompt = """We are continuously perfecting 'Paper', our open-source self-hosted design tool.
 Review the entire project in /root/projects/paper/app.
 Identify the top 3 high-impact UX, performance, architectural, or MCP feature gaps needed to reach absolute parity with Paper.design.
 Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no backticks):
 [
   {
-    "id": "T-POLISH-<timestamp>-1",
+    "id": "T-EVOLVE-1",
     "phase": "Continuous Polish & Evolution",
-    "title": "<clear title>",
-    "description": "<concrete requirements>",
+    "title": "Title here",
+    "description": "Concrete requirements here",
     "assigned_agent": "codex",
     "status": "pending",
     "retry_count": 0,
     "verification_cmd": "cd /root/projects/paper/app && npm run build"
   }
-]
-"""
-            c_code, c_out = execute_agent_task("antigravity", audit_prompt)
+]"""
+            c_code, c_out = execute_agent_task("claude", audit_prompt)
+            if c_code != 0 or not c_out.strip():
+                c_code, c_out = execute_agent_task("codex", audit_prompt)
+            if c_code != 0 or not c_out.strip():
+                c_code, c_out = execute_agent_task("antigravity", audit_prompt)
             try:
                 raw_json = c_out.strip()
                 if "```json" in raw_json:
@@ -160,6 +161,9 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                     raw_json = raw_json.split("```", 1)[1].split("```", 1)[0].strip()
                 new_tasks = json.loads(raw_json)
                 if isinstance(new_tasks, list) and len(new_tasks) > 0:
+                    ts = int(time.time())
+                    for idx, t in enumerate(new_tasks):
+                        t["id"] = f"T-EVOLVE-{ts}-{idx+1}"
                     roadmap["tasks"].extend(new_tasks)
                     save_roadmap(roadmap)
                     log(f"🎯 Generated {len(new_tasks)} new evolution tasks for continuous perfection!")
