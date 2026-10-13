@@ -9,13 +9,16 @@ import { paperTools, validateSchema } from './schema.ts'
 
 interface Stamp { clock: number; source: string }
 interface SyncMessage {
-  kind: 'hello' | 'document' | 'activity'; projectId: string; source: string
+  kind: 'hello' | 'document' | 'activity' | 'settings'; projectId: string; source: string
   project?: PaperProject; stamp?: Stamp; activity?: AgentActivity | null
+  settings?: { name: string; grid: boolean }
 }
 export interface LiveCanvasOptions {
   projectId: string; store: SceneStore; getProject: () => PaperProject
   onSettings: (project: PaperProject) => void
   onActivity: (activity: AgentActivity | null) => void
+  /** The multiplayer room owns document merging; retain tab metadata and agent activity. */
+  documentSync?: boolean
 }
 const newer = (a: Stamp, b: Stamp) => a.clock > b.clock || (a.clock === b.clock && a.source > b.source)
 
@@ -85,6 +88,10 @@ export class LiveCanvas {
   }
   private broadcast() {
     clearTimeout(this.timer)
+    if (this.options.documentSync === false) {
+      this.channel?.postMessage({ kind: 'settings', projectId: this.options.projectId, source: this.clientId, stamp: this.stamp, settings: this.metadata, activity: this.activity } satisfies SyncMessage)
+      return
+    }
     this.channel?.postMessage({ kind: 'document', projectId: this.options.projectId, source: this.clientId, stamp: this.stamp, project: this.options.getProject(), activity: this.activity } satisfies SyncMessage)
   }
   private broadcastActivity() {
@@ -106,7 +113,15 @@ export class LiveCanvas {
     if (message.activity && (!Array.isArray(message.activity.ids) || !message.activity.ids.every(id => typeof id === 'string') || typeof message.activity.tool !== 'string' || !Number.isFinite(message.activity.until))) return
     if (message.kind === 'activity') { this.showActivity(message.activity ?? null); return }
     if (message.kind === 'hello') { if (!this.options.store.getHistorySnapshot().active) this.broadcast(); return }
+    if (message.kind === 'settings' && message.settings && message.stamp && Number.isSafeInteger(message.stamp.clock) && typeof message.stamp.source === 'string' && typeof message.settings.name === 'string' && typeof message.settings.grid === 'boolean') {
+      if (this.synchronized && !newer(message.stamp, this.stamp)) return
+      this.stamp = message.stamp; this.synchronized = true; this.metadata = message.settings
+      this.options.onSettings({ ...this.options.getProject(), ...message.settings })
+      this.showActivity(message.activity ?? null)
+      return
+    }
     if (message.kind !== 'document' || !message.project || !message.stamp || !Number.isSafeInteger(message.stamp.clock) || message.stamp.clock < 0 || typeof message.stamp.source !== 'string') return
+    if (this.options.documentSync === false) return
     if (this.synchronized && !newer(message.stamp, this.stamp)) return
     if (this.options.store.getHistorySnapshot().active) {
       if (!this.deferred?.stamp || newer(message.stamp, this.deferred.stamp)) this.deferred = message

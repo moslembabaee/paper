@@ -7,6 +7,7 @@ import { createWorkspace } from '../io/useProjectIO'
 import { SceneStore } from '../scene/store'
 import { activateProject, initializeProjects, localProject, projectSummary, readProject, renameProject, writeProject } from './database'
 import type { LocalProject, ProjectSummary } from './types'
+import { roomFromHash } from '../collaboration/room'
 
 interface EditorWorkspace {
   record: LocalProject
@@ -40,7 +41,20 @@ export function useWorkspace() {
     let cancelled = false
     const seed = initial.project ?? createProject(initial.store, 'Space to think', initial.controller.getSnapshot().camera, true)
     initialization.current ??= initializeProjects(seed)
-    void initialization.current.then(restored => {
+    void initialization.current.then(async restored => {
+      const room = roomFromHash(window.location.hash)
+      if (room && room !== restored.active.id) {
+        let shared: LocalProject
+        try { shared = await readProject(room) }
+        catch {
+          const document = createProject(new SceneStore(), 'Shared canvas', { x: 0, y: 0, zoom: 1 }, true)
+          shared = { ...localProject(document), id: room }
+          await writeProject(shared)
+        }
+        if (cancelled) return
+        await activateProject(room)
+        restored = { ...restored, active: shared, created: false, projects: [...restored.projects.filter(project => project.id !== room), projectSummary(shared)] }
+      }
       if (cancelled) return
       const workspace = restored.created && !initial.project
         ? { record: restored.active, project: seed, store: initial.store, controller: initial.controller, initialCamera: undefined }

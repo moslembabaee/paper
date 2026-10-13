@@ -140,16 +140,22 @@ def process_issues():
         # Check approval status
         is_approved = "approved" in labels
         if not is_approved:
-            # Check comments for approval keyword by authorized user
-            for c in comments:
-                c_author = c.get("author", {}).get("login", "").lower()
-                c_body = c.get("body", "").lower()
-                if c_author in authorized_users:
-                    if any(kw in c_body for kw in approval_keywords):
-                        is_approved = True
-                        log(f"Issue #{num} approved via comment by @{c_author}!")
-                        run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "approved"')
-                        break
+            # If opened directly by repository owner / authorized maintainer, auto-approve
+            if author in authorized_users:
+                is_approved = True
+                log(f"Issue #{num} is created by authorized user @{author}. Auto-approving...")
+                run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "approved"')
+            else:
+                # Check comments for approval keyword by authorized user
+                for c in comments:
+                    c_author = c.get("author", {}).get("login", "").lower()
+                    c_body = c.get("body", "").lower()
+                    if c_author in authorized_users:
+                        if any(kw in c_body for kw in approval_keywords):
+                            is_approved = True
+                            log(f"Issue #{num} approved via comment by @{c_author}!")
+                            run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "approved"')
+                            break
                         
         # 1. New un-triaged issue
         if "triaged" not in labels and "in-progress" not in labels and not is_approved:

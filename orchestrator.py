@@ -183,9 +183,35 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                     ts = int(time.time())
                     for idx, t in enumerate(new_tasks):
                         t["id"] = f"T-EVOLVE-{ts}-{idx+1}"
+                        # Automatically create a GitHub Issue for transparency
+                        try:
+                            title = f"feat: {t['title']}"
+                            agent_name = t.get("assigned_agent", "claude").upper()
+                            body = f"""### 🎯 Autonomous Roadmap Task
+
+**Task ID:** `{t['id']}`
+**Phase:** `{t['phase']}`
+**Planned By:** Tri-Agent Autonomous Architect
+**Assigned Agent:** `{agent_name}`
+
+#### Description & Scope
+{t['description']}
+
+#### Quality Gate Verification
+```bash
+{t['verification_cmd']}
+```
+"""
+                            code, out = run_cmd(f'gh issue create --repo moslembabaee/paper --title {shlex.quote(title)} --body {shlex.quote(body)} --label "enhancement,approved"')
+                            if code == 0 and "http" in out:
+                                created_num = int(out.strip().split("/")[-1])
+                                t["github_issue_number"] = created_num
+                                log(f"Created GitHub Issue #{created_num} for task {t['id']}")
+                        except Exception as ex:
+                            log(f"Warning: Failed to create GitHub issue for task {t['id']}: {ex}")
                     roadmap["tasks"].extend(new_tasks)
                     save_roadmap(roadmap)
-                    log(f"🎯 Generated {len(new_tasks)} new evolution tasks for continuous perfection!")
+                    log(f"🎯 Generated {len(new_tasks)} new evolution tasks with GitHub issues!")
                     time.sleep(5)
                     continue
             except Exception as e:
@@ -198,6 +224,16 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
         pending_task["status"] = "in_progress"
         roadmap["current_task_id"] = task_id
         save_roadmap(roadmap)
+        
+        # Mark in-progress on GitHub issue if applicable
+        issue_num = pending_task.get("github_issue_number")
+        if not issue_num and pending_task["id"].startswith("T-ISSUE-"):
+            try:
+                issue_num = int(pending_task["id"].split("T-ISSUE-")[1])
+            except Exception:
+                pass
+        if issue_num:
+            run_cmd(f'gh issue edit {issue_num} --repo moslembabaee/paper --add-label "in-progress"')
         
         assigned_agent = pending_task.get("assigned_agent", "claude")
         task_success = False
@@ -250,6 +286,16 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                 log("🚀 Successfully pushed checkpoint to GitHub (moslembabaee/paper)!")
             else:
                 log(f"Warning: Git push returned {p_code}: {p_out}")
+                
+            # Close associated GitHub Issue if applicable
+            if issue_num:
+                try:
+                    close_comment = f"✅ **Implemented & Verified!**\n\nThe Tri-Agent Orchestra has completed and verified task `{pending_task['id']}` ({pending_task['title']}) in commit `{commit_msg}`.\n\nChanges are deployed and live on `main`."
+                    run_cmd(f'gh issue comment {issue_num} --repo moslembabaee/paper -b {shlex.quote(close_comment)}')
+                    run_cmd(f'gh issue close {issue_num} --repo moslembabaee/paper')
+                    log(f"Closed GitHub Issue #{issue_num} for completed task {pending_task['id']}")
+                except Exception as ex:
+                    log(f"Warning: Failed to close GitHub issue #{issue_num}: {ex}")
         else:
             log(f"⚠️ Task {task_id} failed across all agents. Pausing for 10s before retry.")
             pending_task["status"] = "failed"

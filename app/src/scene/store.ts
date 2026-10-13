@@ -3,7 +3,8 @@ import { detachEditedBindings, detachRemovedTokenBindings, resolveTokenBindings,
 import type { DesignToken, SharedStyle, SharedStyleInput, SharedStyleKind, StyleLibrary, TokenInput, TokenProperty } from '../tokens/types.ts'
 import { createElement, freezeElement, validateElement } from './elements.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
-import { CommandHistory, equalValue } from './history.ts'
+import { CommandHistory, equalValue, valueRebaser } from './history.ts'
+import { normalizeHierarchy } from '../collaboration/model.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { BooleanCompound, BooleanOperation, ElementInput, ElementOf, ElementPatch, ElementType, PathElement, SceneDocument, SceneElement, SceneSnapshot, VectorElement } from './types.ts'
 import { computeBoolean, isVector, refreshBooleanElement, transformedSource } from './booleanGeometry.ts'
@@ -827,6 +828,34 @@ export class SceneStore {
   }
 
   /** Validate the whole document before replacing state; invalid imports are atomic. */
+  applyRemote(document: SceneDocument): void {
+    const validator = new SceneStore()
+    validator.load(document)
+    const before = this.state, incoming = validator.getSnapshot()
+    const rebase = valueRebaser(before, { ...incoming, selection: before.selection })
+    const structural = !equalValue(before.rootIds, incoming.rootIds) || new Set([...Object.keys(before.elements), ...Object.keys(incoming.elements)]).size !== Object.keys(before.elements).length || Object.entries(before.elements).some(([id, node]) => {
+      const next = incoming.elements[id]
+      return !next || node.parentId !== next.parentId || node.zIndex !== next.zIndex || (node.type === 'frame' && next.type === 'frame' && !equalValue(node.children, next.children))
+    })
+    const transform = (snapshot: SceneSnapshot): SceneSnapshot => {
+      const rebased = rebase(snapshot) as SceneSnapshot
+      const normalized = structural ? normalizeHierarchy(rebased) : rebased
+      const elements = Object.fromEntries(Object.entries(normalized.elements).map(([id, node]) => [id, freezeElement(node)]))
+      return Object.freeze({ ...rebased, elements: Object.freeze(elements), rootIds: Object.freeze([...normalized.rootIds]), selection: Object.freeze(snapshot.selection.filter(id => elements[id])) })
+    }
+    this.history.rebase(transform)
+    if (this.transaction) this.transaction.before = transform(this.transaction.before)
+    // Preserve unchanged element references so unrelated canvas nodes stay memoized.
+    const elements = Object.fromEntries(Object.entries(incoming.elements).map(([id, node]) => [id, equalValue(before.elements[id], node) ? before.elements[id] : node]))
+    const selectable = (id: string) => {
+      let node: SceneElement | undefined = elements[id]
+      while (node) { if (!node.visible || node.locked) return false; node = node.parentId === null ? undefined : elements[node.parentId] }
+      return Boolean(elements[id])
+    }
+    this.state = Object.freeze({ ...incoming, elements: Object.freeze(elements), selection: Object.freeze(before.selection.filter(selectable)) })
+    this.emit()
+  }
+
   load(document: SceneDocument): void {
     if (document.version !== 1 || !document.elements || !Array.isArray(document.rootIds)) throw new Error('Unsupported scene document')
     if (document.backgroundShader !== undefined && document.backgroundShader !== null) validateShader(document.backgroundShader)

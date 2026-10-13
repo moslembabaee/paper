@@ -23,6 +23,27 @@ export function equalValue(a: unknown, b: unknown): boolean {
   return keys.length === Object.keys(right).length && keys.every(key => Object.hasOwn(right, key) && equalValue(left[key], right[key]))
 }
 
+/** Carry remote field changes into every local checkpoint, including gesture baselines. */
+export function valueRebaser(before: unknown, after: unknown): (value: unknown) => unknown {
+  if (equalValue(before, after)) return value => value
+  const record = (item: unknown): item is Record<string, unknown> => !!item && typeof item === 'object' && !Array.isArray(item)
+  if (!record(before) || !record(after)) return () => after
+  const changes = new Map<string, ((value: unknown) => unknown) | null>()
+  for (const name of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (equalValue(before[name], after[name])) continue
+    changes.set(name, Object.hasOwn(after, name) ? valueRebaser(before[name], after[name]) : null)
+  }
+  return value => {
+    if (!record(value)) return after
+    const result = { ...value }
+    for (const [name, transform] of changes) {
+      if (!transform) delete result[name]
+      else result[name] = transform(result[name])
+    }
+    return result
+  }
+}
+
 function sameDocument(a: SceneSnapshot, b: SceneSnapshot): boolean {
   return equalValue(a.prototype, b.prototype) && equalValue(a.styleLibrary, b.styleLibrary) && equalValue(a.tokens, b.tokens) && equalValue(a.elements, b.elements) && equalValue(a.rootIds, b.rootIds) && equalValue(a.backgroundShader, b.backgroundShader)
 }
@@ -98,6 +119,13 @@ export class CommandHistory {
   clear(): void {
     this.past = Object.freeze([])
     this.future = Object.freeze([])
+    this.refresh()
+  }
+
+  rebase(transform: (snapshot: SceneSnapshot) => SceneSnapshot): void {
+    const update = (command: SceneCommand) => new SceneCommand(command.label, transform(command.undo()), transform(command.redo()))
+    this.past = Object.freeze(this.past.map(update))
+    this.future = Object.freeze(this.future.map(update))
     this.refresh()
   }
 }
