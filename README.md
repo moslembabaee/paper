@@ -30,6 +30,17 @@ Track real-time progress, currently running agents, and upcoming feature queues:
 
 ---
 
+## 🛠 Prerequisites & Environment Setup
+
+Before running autonomous development or deploying on a new machine, check your system readiness:
+```bash
+./check-prerequisites.sh
+```
+For a complete breakdown of runtimes (Node 22, Python 3.10+, Docker), agent CLIs (Claude Code, OpenAI Codex, Antigravity), and GitHub CLI auth, see:
+👉 **[Full Prerequisites & Setup Guide (`PREREQUISITES.md`)](PREREQUISITES.md)**
+
+---
+
 ## 🚀 Quick Start (Self-Hosting)
 
 ### Run with Docker Compose
