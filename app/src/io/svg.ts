@@ -1,4 +1,5 @@
 import { effectFilterMarkup } from '../tokens/effects.ts'
+import { optimizeSVGPath } from './pathOptimize.ts'
 import type { Bounds } from '../canvas/types.ts'
 import { unionBounds } from '../canvas/math.ts'
 import { getWorldBounds, getWorldMatrix } from '../scene/geometry.ts'
@@ -96,7 +97,7 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
     if (node.type === 'path') {
       const [x, y, width, height] = node.viewBox, sx = node.width / width, sy = node.height / height
       // clipPath accepts paths directly, rather than nested SVG viewports.
-      return `<path d="${xml(node.d)}" transform="${matrix([sx, 0, 0, sy, -x * sx, -y * sy])}" fill-rule="${node.fillRule}" clip-rule="${node.fillRule}"/>`
+      return `<path d="${xml(optimizeSVGPath(node.d))}" transform="${matrix([sx, 0, 0, sy, -x * sx, -y * sy])}" fill-rule="${node.fillRule}" clip-rule="${node.fillRule}"/>`
     }
     return rect(node, inset)
   }
@@ -128,7 +129,7 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
       const mask = frameMask(state.elements, node)
       if (!shaderSrc) content += `<g fill="${xml(fill ?? 'none')}">${rect(node)}</g>`
       const children = node.children.filter(child => child !== mask?.id).map(child => render(child)).join('')
-      const masked = mask ? `<g ${clip(`<path d="${xml(maskPathData(mask))}" clip-rule="${maskFillRule(mask)}"/>`)}>${children}</g>` : children
+      const masked = mask ? `<g ${clip(`<path d="${xml(optimizeSVGPath(maskPathData(mask)))}" clip-rule="${maskFillRule(mask)}"/>`)}>${children}</g>` : children
       content += `<g ${node.clipContent ? clip(rect(node)) : ''}>${masked}</g>`
       content += `<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`
     } else if (node.type === 'text') {
@@ -152,7 +153,7 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
       if (frame.type === 'frame') {
         if (frame.clipContent) output = `<g ${clip(`<g transform="${matrix(getWorldMatrix(state, parent))}">${rect(frame)}</g>`)}>${output}</g>`
         const mask = frameMask(state.elements, frame)
-        if (mask && branch !== mask.id) output = `<g ${clip(`<path transform="${matrix(getWorldMatrix(state, parent))}" d="${xml(maskPathData(mask))}" clip-rule="${maskFillRule(mask)}"/>`)}>${output}</g>`
+        if (mask && branch !== mask.id) output = `<g ${clip(`<path transform="${matrix(getWorldMatrix(state, parent))}" d="${xml(optimizeSVGPath(maskPathData(mask)))}" clip-rule="${maskFillRule(mask)}"/>`)}>${output}</g>`
       }
       branch = parent
       parent = frame.parentId

@@ -1,0 +1,1 @@
+Introducing Paper: an open-source, code-bridged infinite canvas design platform built entirely by autonomous AI agents (Claude Code ✕ OpenAI Codex ✕ Google Antigravity). 60 FPS vector canvas, real-time shaders, and one-click React + Tailwind generation. Self-host it today: github.com/moslembabaee/paper

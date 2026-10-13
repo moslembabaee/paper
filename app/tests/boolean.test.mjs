@@ -170,7 +170,7 @@ test('nested compounds remain immutable, serializable and exported as real SVG p
   const restored = new SceneStore(); restored.load(JSON.parse(JSON.stringify(store.toJSON())))
   assert.deepEqual(restored.toJSON(), store.toJSON())
   const svg = sceneToSVG(store.getSnapshot(), { scope: 'selection', scale: 1, background: 'transparent' })
-  assert.match(svg, /<path d="M /); assert.match(svg, /fill-rule="nonzero"/)
+  assert.match(svg, /<path d="[Mm]/); assert.match(svg, /fill-rule="nonzero"/)
   assert.doesNotMatch(svg, /foreignObject|boolean|mask=/)
   restored.releaseBoolean(outer.id)
   assert.ok(restored.getSnapshot().elements[inner.id].boolean)

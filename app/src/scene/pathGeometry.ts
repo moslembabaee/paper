@@ -5,7 +5,7 @@ export interface PathAnchor extends Point { in?: Point; out?: Point; handleType?
 export interface PathContour { anchors: PathAnchor[]; closed: boolean }
 export interface PathNodes { readonly anchors: readonly PathAnchor[]; readonly closed: boolean }
 export interface AnchorSelection { contour: number; anchor: number }
-export const copyContours = (contours: readonly PathNodes[]): PathContour[] => contours.map(c => ({ ...c, anchors: c.anchors.map(a => ({ ...a, in: a.in && { ...a.in }, out: a.out && { ...a.out } })) }))
+export const copyContours = (contours: readonly PathNodes[]): PathContour[] => contours.map(c => ({ ...c, anchors: c.anchors.map(a => ({ ...a, ...(a.in ? { in: { ...a.in } } : {}), ...(a.out ? { out: { ...a.out } } : {}) })) }))
 const point = (x: number, y: number): Point => ({ x, y })
 const reflect = (handle: Point, anchor: Point): Point => point(2 * anchor.x - handle.x, 2 * anchor.y - handle.y)
 const format = (n: number) => Number(n.toFixed(4))

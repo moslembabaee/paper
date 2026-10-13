@@ -1,18 +1,19 @@
 import { test, expect, type Page } from '@playwright/test'
-import { drag, expectZoom, waitForCanvasReady } from './helpers'
+import { drag, drawVectorPath, expectZoom, waitForCanvasReady } from './helpers'
 
 const anchor = (page: Page, contour: number, index: number) => page.locator(`.pen-anchor[data-contour="${contour}"][data-anchor="${index}"]`)
 const center = async (locator: ReturnType<typeof anchor>) => { const b = (await locator.boundingBox())!; return { x: b.x + b.width / 2, y: b.y + b.height / 2 } }
 
 async function editPath(page: Page, d?: string) {
   await waitForCanvasReady(page)
-  await page.getByTestId('tool-path').click()
+  await drawVectorPath(page)
   if (d) { await page.getByLabel('SVG path data', { exact: true }).fill(d); await page.getByLabel('SVG path data', { exact: true }).press('Tab') }
   await page.getByTestId('zoom-value').click()
   await page.getByTestId('zoom-menu').getByRole('button', { name: '100%', exact: true }).click()
   await expectZoom(page, 1)
   const path = page.locator('.scene-node[data-element-type="path"].is-selected')
-  await path.dblclick({ position: { x: 30, y: 30 }, force: true })
+  if (d) await page.getByTestId('canvas-viewport').press('Enter')
+  else await path.dblclick({ position: { x: 60, y: 80 }, force: true })
   await expect(page.getByTestId('node-inspector')).toBeVisible()
   return path
 }
@@ -46,7 +47,7 @@ test('double-click editing offers constrained handles, corner radius, and persis
   await expect(panel.getByLabel('Node Corner radius')).toHaveValue('8')
   await page.getByRole('button', { name: 'Done' }).click()
   await expect(page.getByTestId('pen-overlay')).toHaveCount(0)
-  await path.dblclick({ position: { x: 30, y: 30 }, force: true })
+  await page.getByTestId('canvas-viewport').press('Enter')
   await anchor(page, 0, 1).click()
   await expect(panel.getByLabel('Node Corner radius')).toHaveValue('8')
 })

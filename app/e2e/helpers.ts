@@ -67,6 +67,21 @@ export async function expectZoom(page: Page, zoom: number): Promise<void> {
   await expect(page.getByTestId('zoom-value')).toHaveText(`${Math.round(zoom * 100)}%`)
 }
 
+/** Create actual pen geometry rather than relying on the old placeholder path. */
+export async function drawVectorPath(page: Page) {
+  await page.getByTestId('zoom-value').click()
+  await page.getByTestId('zoom-menu').getByRole('button', { name: '100%', exact: true }).click()
+  await expectZoom(page, 1)
+  const bounds = (await page.getByTestId('canvas-viewport').boundingBox())!
+  const x = bounds.x + 160, y = bounds.y + 200
+  await page.getByTestId('tool-path').click()
+  await page.mouse.click(x, y + 120)
+  await page.mouse.click(x + 60, y)
+  await page.mouse.click(x + 120, y + 120)
+  await page.locator('.pen-anchor[data-anchor="0"]').click()
+  await expect(page.getByTestId('pen-overlay')).toHaveCount(0)
+}
+
 /** A CSS fallback alone must not make a shader rendering test pass. */
 export async function expectShaderRendered(surface: Locator): Promise<void> {
   await expect(surface).toBeVisible()

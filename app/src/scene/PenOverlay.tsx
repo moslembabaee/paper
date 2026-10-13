@@ -5,6 +5,7 @@ import { getWorldMatrix } from './geometry'
 import { copyContours, insertPathAnchor, moveAnchor, moveHandle, nearestPathSegment, parsePath, pathBounds, roundPathContours, serializePath, setHandleType, snapPathPoint } from './pathGeometry'
 import type { AnchorSelection, HandleType, PathAnchor, PathContour } from './pathGeometry'
 import { PathNodeInspector } from './PathNodeInspector'
+import { PathDraftHistory } from './pathDraftHistory'
 import { getPixelSnap, subscribePixelSnap, togglePixelSnap } from './pixelSnap'
 import type { SceneStore } from './store'
 import type { PathElement } from './types'
@@ -33,6 +34,9 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
   const [session, setSession] = useState(initial.session)
   const sessionRef = useRef<Session>(initial.session)
   const finishRef = useRef<() => void>(() => {})
+  const draftHistory = useRef(new PathDraftHistory())
+  const [draftHistoryState, setDraftHistoryState] = useState({ canUndo: false, canRedo: false })
+  const draftUndoRef = useRef<(redo?: boolean) => void>(() => {})
   const callbackRef = useRef(onFinish)
   useLayoutEffect(() => { callbackRef.current = onFinish }, [onFinish])
   const [hover, setHover] = useState<Point | null>(null)
@@ -44,7 +48,12 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
   useLayoutEffect(() => { snappingRef.current = snapping }, [snapping])
   useEffect(() => subscribePixelSnap(setSnapping), [])
   const [error, setError] = useState(initial.error)
-  const redraw = () => { const session = sessionRef.current; setSession({ ...session, contours: copyContours(session.contours) }) }
+  const redraw = () => {
+    const session = sessionRef.current
+    setSession({ ...session, contours: copyContours(session.contours) })
+    const { canUndo, canRedo } = draftHistory.current
+    setDraftHistoryState(previous => previous.canUndo === canUndo && previous.canRedo === canRedo ? previous : { canUndo, canRedo })
+  }
   const state = useScene(store, value => value)
   const [camera, setCamera] = useState(() => controller.getSnapshot().camera)
   const node = session.id ? state.elements[session.id] as PathElement | undefined : undefined
@@ -94,15 +103,25 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       frame = 0; pending = null
       const previous = gesture; gesture = null
       if (previous && dragBefore && cancel) sessionRef.current.contours = dragBefore
+      if (previous?.creating && dragBefore && !cancel) draftHistory.current.record(dragBefore, sessionRef.current.contours)
       dragBefore = null
       if (previous && !previous.creating) { if (cancel) store.cancelTransaction(); else { if (previous.moved || penMode) normalize(); store.endTransaction() } }
       if (previous && root.hasPointerCapture(previous.pointerId)) root.releasePointerCapture(previous.pointerId)
+      if (cancel) chooseMany(selectedRef.current.filter(p => sessionRef.current.contours[p.contour]?.anchors[p.anchor]))
       redraw()
     }
+    const undoDraft = (redo = false) => {
+      if (sessionRef.current.id) return
+      if (gesture) { stopGesture(true); return }
+      const next = redo ? draftHistory.current.redo(sessionRef.current.contours) : draftHistory.current.undo(sessionRef.current.contours)
+      if (next) { sessionRef.current.contours = next; chooseMany([]); setHover(null); redraw() }
+    }
+    draftUndoRef.current = undoDraft
     const editSelected = (action: 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete', value?: number) => {
       stopGesture()
       const s = sessionRef.current, selected = selectedRef.current
       if (!selected.length) return
+      const before = !s.id ? copyContours(s.contours) : null
       store.batch(() => {
         if (action === 'delete') {
           const removed = new Set(selected.map(p => `${p.contour}:${p.anchor}`))
@@ -125,6 +144,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
         }
         publish(); normalize()
       }, action === 'delete' ? 'Delete path nodes' : action === 'insert' ? 'Insert path node' : 'Edit path nodes')
+      if (before) { draftHistory.current.record(before, s.contours); redraw() }
     }
     editRef.current = editSelected
     const commit = () => {
@@ -160,7 +180,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
           chooseMany(exists ? selectedRef.current.filter(p => p.contour !== contourIndex || p.anchor !== anchorIndex) : [...selectedRef.current, { contour: contourIndex, anchor: anchorIndex }])
           return
         }
-        if (penMode && anchorIndex === 0 && !contour.closed && s.contours[contourIndex].anchors.length > 1) { contour.closed = true; publish(); finish(); return }
+        if (penMode && !handle && anchorIndex === 0 && !contour.closed && contour.anchors.length > 1) { store.batch(() => { contour.closed = true; publish(); normalize() }, 'Close vector path'); finish(); return }
         if (s.id && penMode && event.altKey && !handle) {
           const anchor = contour.anchors[anchorIndex]
           const changed = { x: anchor.x, y: anchor.y }
@@ -168,8 +188,10 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
         }
       } else {
         if (!penMode) { choose(-1, -1); return }
+        const before = copyContours(s.contours)
         if (!s.contours.length) {
           // Hit-test under the drawing surface so paths stay inside the clicked frame.
+          s.parentId = null
           const hit = document.elementsFromPoint(event.clientX, event.clientY).map(e => e.closest<HTMLElement>('[data-element-id]')).find(Boolean)
           let candidate = hit?.dataset.elementId ? store.getSnapshot().elements[hit.dataset.elementId] : undefined
           if (candidate && candidate.type !== 'frame') candidate = candidate.parentId ? store.getSnapshot().elements[candidate.parentId] : undefined
@@ -185,7 +207,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
           p = { x: last.x + Math.cos(angle) * length, y: last.y + Math.sin(angle) * length }
         }
         if (s.id) store.beginTransaction('Extend vector path')
-        dragBefore = copyContours(s.contours)
+        dragBefore = before
         contour.anchors.push({ ...p }); anchorIndex = contour.anchors.length - 1
       }
       if (control) {
@@ -234,6 +256,9 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
     const up = (event: PointerEvent) => { if (gesture?.pointerId === event.pointerId) { if (event.type === 'pointerup') applyMove(event); stopGesture(event.type === 'pointercancel') } }
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || document.querySelector('[aria-modal="true"]') || (event.target as Element).closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [data-token-ui]')) return
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === 'z' && !sessionRef.current.id) {
+        event.preventDefault(); event.stopImmediatePropagation(); undoDraft(event.shiftKey); return
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'a') {
         event.preventDefault(); event.stopImmediatePropagation()
         chooseMany(sessionRef.current.contours.flatMap((c, ci) => c.anchors.map((_, ai) => ({ contour: ci, anchor: ai })))); return
@@ -242,6 +267,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
         event.preventDefault(); event.stopImmediatePropagation()
         if (!selectedRef.current.length || store.getHistorySnapshot().active) return
         const delta = event.shiftKey ? 10 : 1
+        const before = !sessionRef.current.id ? copyContours(sessionRef.current.contours) : null
         store.batch(() => {
           for (const chosen of selectedRef.current) {
             const c = sessionRef.current.contours[chosen.contour], a = c?.anchors[chosen.anchor]
@@ -249,6 +275,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
           }
           publish(); normalize()
         }, 'Nudge path nodes')
+        if (before) { draftHistory.current.record(before, sessionRef.current.contours); redraw() }
         return
       }
       if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); if (gesture) stopGesture(true); else finish() }
@@ -323,6 +350,15 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       </g>))}
     </svg>
     {!penMode && <PathNodeInspector contours={session.contours} selection={selected} onEdit={(action, value) => editRef.current(action, value)} />}
-    <div className="pen-help viewport-ui" role="status"><span className="pen-tool-label">{editingId ? 'EDIT PATH' : 'PEN'}</span><span>{error || (penMode ? 'Click for a corner · Drag for a curve · Click first point to close' : 'Shift-click to select · Double-click an edge to insert · Alt to break a handle')}</span><button aria-pressed={snapping} onClick={() => togglePixelSnap()} title="Snap to half pixels · ⌘⇧'">Pixel snap</button><button onClick={() => finishRef.current()}>Done <kbd>↵</kbd></button></div>
+    <div className="pen-help viewport-ui" role="status">
+      <span className="pen-tool-label">{editingId ? 'EDIT PATH' : 'PEN'}</span>
+      <span>{error || (penMode ? 'Click for a corner · Drag for a curve · Click first point to close' : 'Shift-click to select · Double-click an edge to insert · Alt to break a handle')}</span>
+      {!session.id && <>
+        <button disabled={!draftHistoryState.canUndo} aria-label="Undo pen point" title="Undo draft edit · Ctrl/⌘Z" onClick={() => draftUndoRef.current()}>Undo</button>
+        <button disabled={!draftHistoryState.canRedo} aria-label="Redo pen point" title="Redo draft edit · Ctrl/⌘⇧Z" onClick={() => draftUndoRef.current(true)}>Redo</button>
+      </>}
+      <button aria-pressed={snapping} onClick={() => togglePixelSnap()} title="Snap to half pixels · ⌘⇧'">Pixel snap</button>
+      <button onClick={() => finishRef.current()}>Done <kbd>↵</kbd></button>
+    </div>
   </div>
 }

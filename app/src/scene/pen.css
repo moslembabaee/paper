@@ -11,6 +11,8 @@
 .pen-tool-label { font:10px var(--font-mono); letter-spacing:1px; color:var(--paper-text); }
 .pen-help button { border:1px solid var(--paper-border); border-radius:4px; padding:5px 8px; background:var(--paper-surface); color:var(--paper-text); cursor:pointer; white-space:nowrap; }
 .pen-help button[aria-pressed='true'] { background:var(--paper-accent-soft); }
+.pen-help button:disabled { opacity:.35; cursor:default; }
+.pen-help button:focus-visible { outline:2px solid #81adec; outline-offset:2px; }
 .pen-help kbd { margin-left:8px; color:var(--paper-text-muted); }
 .canvas-viewport[data-space='true'] .pen-overlay, .canvas-viewport[data-pan-mode='true'] .pen-overlay { pointer-events:none; }
 .node-inspector { position:absolute; right:16px; top:16px; width:248px; padding:16px; border:1px solid var(--paper-border); border-radius:8px; background:var(--paper-surface); box-shadow:0 8px 32px #08080812; cursor:default; color:var(--paper-text); }

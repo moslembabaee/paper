@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { waitForCanvasReady } from './helpers'
+import { drawVectorPath, waitForCanvasReady } from './helpers'
 
 test.describe('Shape & Element Creation', () => {
   test.beforeEach(async ({ page }) => {
@@ -100,9 +100,7 @@ test.describe('Shape & Element Creation', () => {
   test('creates a new vector path element with SVG path data inspector', async ({ page }) => {
     const pathCountBefore = await page.locator('.scene-node[data-element-type="path"]').count()
 
-    // Click "Add vector path"
-    await page.getByTestId('tool-path').click()
-    await page.waitForTimeout(100)
+    await drawVectorPath(page)
 
     const paths = page.locator('.scene-node[data-element-type="path"]')
     await expect(paths).toHaveCount(pathCountBefore + 1)
