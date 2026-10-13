@@ -4,6 +4,7 @@ import { getWorldBounds } from './geometry'
 import type { SceneStore } from './store'
 import type { ElementPatch, ElementType, SceneElement } from './types'
 import { useScene } from './useScene'
+import { useRangeHistory } from './useRangeHistory'
 import { ShaderInspector } from '../shaders/ShaderInspector'
 
 function NumberField({ label, value, onChange, min, max, step = 1 }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
@@ -20,6 +21,7 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
 }
 
 export function ElementInspector({ store, controller, grid, onGridChange }: { store: SceneStore; controller: ViewportController; grid: boolean; onGridChange: () => void }) {
+  const onRangePointerDown = useRangeHistory(store)
   const state = useScene(store, snapshot => snapshot)
   const node = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
   const patch = (changes: ElementPatch<ElementType>) => { if (node) store.update(node.id, node.type, changes) }
@@ -30,7 +32,7 @@ export function ElementInspector({ store, controller, grid, onGridChange }: { st
     while (parent) { if (parent.id === node?.id) return false; parent = parent.parentId === null ? undefined : state.elements[parent.parentId] }
     return !store.isLocked(candidate.id)
   })
-  return <aside className="inspector-panel" data-testid="inspector-panel" aria-label="Canvas properties">
+  return <aside className="inspector-panel" data-testid="inspector-panel" aria-label="Canvas properties" onPointerDownCapture={onRangePointerDown}>
     <div className="panel-heading"><span>{node ? node.type === 'frame' ? 'Frame' : node.type[0].toUpperCase() + node.type.slice(1) : state.selection.length > 1 ? `${state.selection.length} layers` : 'Canvas'}</span>{state.selection.length ? <button className="quiet-button" aria-label="Deselect elements" onClick={() => store.select([])}><X size={14} /></button> : <Circle size={11} />}</div>
     {node ? <>
       <div className="inspector-section">

@@ -36,7 +36,10 @@ button:focus-visible { outline: 2px solid var(--paper-blue-deep); outline-offset
 .canvas-stage { position: relative; flex: 1; min-width: 0; min-height: 0; }
 .canvas-toolbar { position: absolute; z-index: 3; top: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; padding: 4px; gap: 3px; background: var(--paper-surface); border: 1px solid rgba(8,8,8,.12); box-shadow: var(--paper-shadow-md); border-radius: 8px; }
 .tool-button { display: grid; place-items: center; width: 34px; height: 34px; background: transparent; border: none; border-radius: 4px; cursor: pointer; color: rgba(8,8,8,.6); }
-.tool-button:hover { background: rgba(8,8,8,.05); }
+.tool-button:hover:not(:disabled) { background: rgba(8,8,8,.05); }
+.tool-button:disabled { color: rgba(8,8,8,.22); cursor: default; }
+.tool-button:focus-visible { outline: 1px solid var(--paper-blue-deep); outline-offset: 2px; }
+.history-controls { display: flex; align-items: center; gap: inherit; }
 .tool-button.active { background: var(--paper-ink); color: var(--paper-cream); }
 .tool-button.grid-active { color: var(--paper-blue-deep); }
 .toolbar-divider { width: 1px; height: 18px; background: rgba(8,8,8,.12); margin: 0 4px; }

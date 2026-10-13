@@ -1,5 +1,6 @@
 import { createElement, freezeElement, validateElement } from './elements.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
+import { CommandHistory, equalValue } from './history.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { ElementInput, ElementOf, ElementPatch, ElementType, SceneDocument, SceneElement, SceneSnapshot } from './types.ts'
 
@@ -12,6 +13,54 @@ export class SceneStore {
   private listeners = new Set<Listener>()
   private batchDepth = 0
   private pending = false
+  private history = new CommandHistory()
+  private transaction: { before: SceneSnapshot; label: string } | null = null
+
+  getHistorySnapshot = () => this.history.getSnapshot()
+
+  /** A gesture may publish live frames while keeping only one history command. */
+  beginTransaction(label: string): void {
+    if (this.transaction || this.batchDepth) throw new Error('A history transaction is already active')
+    this.transaction = { before: this.state, label }
+    this.history.setActive(true)
+    this.emit()
+  }
+
+  endTransaction(): void {
+    if (!this.transaction) return
+    const { before, label } = this.transaction
+    this.transaction = null
+    this.history.record(before, this.state, label)
+    this.history.setActive(false)
+    this.emit()
+  }
+
+  cancelTransaction(): void {
+    if (!this.transaction) return
+    this.state = this.transaction.before
+    this.transaction = null
+    this.history.setActive(false)
+    this.emit()
+  }
+
+  undo = (): void => {
+    if (this.batchDepth || this.transaction) return
+    const previous = this.history.undo()
+    if (previous) { this.state = previous; this.emit() }
+  }
+
+  redo = (): void => {
+    if (this.batchDepth || this.transaction) return
+    const next = this.history.redo()
+    if (next) { this.state = next; this.emit() }
+  }
+
+  /** Establish a fresh baseline when seeding or opening a different project. */
+  clearHistory(): void {
+    if (this.batchDepth || this.transaction) throw new Error('Finish the active edit before clearing history')
+    this.history.clear()
+    this.emit()
+  }
 
   getSnapshot = (): SceneSnapshot => this.state
   subscribe = (listener: Listener): (() => void) => {
@@ -19,20 +68,31 @@ export class SceneStore {
     return () => { this.listeners.delete(listener) }
   }
 
-  /** One notification for many edits. Nested batches are supported. */
-  batch<T>(work: () => T): T {
+  /** One history command and notification for many edits. Nested batches are supported. */
+  batch<T>(work: () => T, label = 'Edit elements'): T {
+    const before = this.state
     this.batchDepth++
     try { return work() } finally {
       this.batchDepth--
-      if (!this.batchDepth && this.pending) { this.pending = false; this.emit() }
+      if (!this.batchDepth && this.pending) {
+        if (!this.transaction) this.history.record(before, this.state, label)
+        this.pending = false
+        this.emit()
+      }
     }
   }
 
   private emit() { for (const listener of [...this.listeners]) listener() }
-  private commit(elements: Record<string, SceneElement>, rootIds = this.state.rootIds, selection = this.state.selection) {
-    this.state = Object.freeze({ ...this.state, elements: Object.freeze(elements), rootIds: rootIds === this.state.rootIds ? rootIds : Object.freeze([...rootIds]), selection: selection === this.state.selection ? selection : Object.freeze([...selection]) })
+  private publish(next: SceneSnapshot, label: string, documentChanged = true) {
+    const before = this.state
+    this.state = next
+    if (!this.batchDepth && !this.transaction && documentChanged) this.history.record(before, next, label)
     if (this.batchDepth) this.pending = true
     else this.emit()
+  }
+
+  private commit(elements: Readonly<Record<string, SceneElement>>, rootIds = this.state.rootIds, selection = this.state.selection, label = 'Edit elements', documentChanged = true) {
+    this.publish(Object.freeze({ ...this.state, elements: Object.freeze(elements), rootIds: rootIds === this.state.rootIds ? rootIds : Object.freeze([...rootIds]), selection: selection === this.state.selection ? selection : Object.freeze([...selection]) }), label, documentChanged)
   }
 
   private require(id: string): SceneElement {
@@ -94,7 +154,7 @@ export class SceneStore {
     siblings.splice(this.index(index ?? siblings.length, siblings.length), 0, node.id)
     const elements = { ...this.state.elements, [node.id]: node }
     this.ordered(elements, node.parentId, siblings)
-    this.commit(elements, node.parentId === null ? siblings : this.state.rootIds)
+    this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, this.state.selection, `Add ${node.name}`)
     return elements[node.id] as ElementOf<T>
   }
 
@@ -108,7 +168,9 @@ export class SceneStore {
     }
     const updated = { ...node, ...patch, style: { ...node.style, ...patch.style } } as SceneElement
     validateElement(updated)
-    this.commit({ ...this.state.elements, [id]: freezeElement(updated) })
+    if (equalValue(node, updated)) return
+    const label = patch.style ? 'Style' : ['x', 'y', 'width', 'height', 'rotation'].some(key => Object.hasOwn(patch, key)) ? 'Transform' : 'Edit'
+    this.commit({ ...this.state.elements, [id]: freezeElement(updated) }, this.state.rootIds, this.state.selection, `${label} ${node.name}`)
   }
 
   /** Flags are editable even for a locked layer, so it can always be unlocked. */
@@ -117,17 +179,18 @@ export class SceneStore {
   private setFlag(id: string, key: 'locked' | 'visible', value: boolean) {
     const node = this.require(id)
     if (node[key] === value) return
+    const action = key === 'locked' ? value ? 'Lock' : 'Unlock' : value ? 'Show' : 'Hide'
     const elements = { ...this.state.elements, [id]: freezeElement({ ...node, [key]: value }) }
     this.batch(() => {
       this.commit(elements)
       this.select(this.state.selection)
-    })
+    }, `${action} ${node.name}`)
   }
 
   select = (ids: readonly string[]): void => {
     const selection = [...new Set(ids)].filter(id => this.isVisible(id) && !this.isLocked(id))
     if (selection.length === this.state.selection.length && selection.every((id, i) => id === this.state.selection[i])) return
-    this.commit({ ...this.state.elements }, this.state.rootIds, selection)
+    this.commit(this.state.elements, this.state.rootIds, selection, 'Select elements', false)
   }
 
   private index(value: number, max: number): number {
@@ -155,7 +218,7 @@ export class SceneStore {
     this.batch(() => {
       this.commit(elements, parentId === null ? newIds : node.parentId === null ? oldIds : this.state.rootIds)
       this.select(this.state.selection)
-    })
+    }, `Reparent ${node.name}`)
   }
 
   reorder(id: string, index: number): void {
@@ -166,7 +229,7 @@ export class SceneStore {
     if (ids.every((child, i) => child === this.getChildren(node.parentId)[i])) return
     const elements = { ...this.state.elements }
     this.ordered(elements, node.parentId, ids)
-    this.commit(elements, node.parentId === null ? ids : this.state.rootIds)
+    this.commit(elements, node.parentId === null ? ids : this.state.rootIds, this.state.selection, `Reorder ${node.name}`)
   }
 
   remove(id: string): void {
@@ -181,14 +244,13 @@ export class SceneStore {
     removeTree(id)
     const siblings = this.getChildren(node.parentId).filter(child => child !== id)
     this.ordered(elements, node.parentId, siblings)
-    this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, this.state.selection.filter(selected => Object.hasOwn(elements, selected)))
+    this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, this.state.selection.filter(selected => Object.hasOwn(elements, selected)), `Delete ${node.name}`)
   }
 
   setBackgroundShader(paint: ShaderPaint | null): void {
     if (paint !== null) validateShader(paint)
-    this.state = Object.freeze({ ...this.state, backgroundShader: paint ? freezeShader(paint) : null })
-    if (this.batchDepth) this.pending = true
-    else this.emit()
+    if (equalValue(this.state.backgroundShader, paint)) return
+    this.publish(Object.freeze({ ...this.state, backgroundShader: paint ? freezeShader(paint) : null }), 'Style canvas background')
   }
 
   toJSON(): SceneDocument { return { version: 1, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
@@ -216,6 +278,6 @@ export class SceneStore {
     this.batch(() => {
       this.commit(elements, document.rootIds, EMPTY)
       this.setBackgroundShader(document.backgroundShader ?? null)
-    })
+    }, 'Load artwork')
   }
 }

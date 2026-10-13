@@ -177,7 +177,7 @@ export function insertImportedScene(store: SceneStore, document: SceneDocument, 
     elements[updated.id] = updated
   }
   const roots = state.rootIds.map(id => ids.get(id)!)
-  store.batch(() => { store.load({ ...current, elements, rootIds: [...current.rootIds, ...roots] }); store.select(roots) })
+  store.batch(() => { store.load({ ...current, elements, rootIds: [...current.rootIds, ...roots] }); store.select(roots) }, 'Import artwork')
   return roots
 }
 

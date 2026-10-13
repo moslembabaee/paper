@@ -16,6 +16,7 @@ export function createWorkspace() {
   } catch { restoreError = 'The local project could not be restored. Open a saved JSON file to recover it.' }
   const store = project ? new SceneStore() : createDemoScene()
   if (project) store.load(project.scene)
+  store.clearHistory()
   return { store, controller: new ViewportController(project?.viewport), project, restoreError }
 }
 
@@ -97,6 +98,7 @@ export function useProjectIO({ store, controller, name, grid, onOpen, onImport, 
         const project = parseProject(source)
         if (before !== revision.current) throw new Error('The document changed while opening the file. Please open it again.')
         store.load(project.scene)
+        store.clearHistory()
         controller.setCamera(project.viewport, false)
         values.current.onOpen(project)
         setMessage(`Opened “${project.name}”.`)

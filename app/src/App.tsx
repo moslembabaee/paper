@@ -5,6 +5,7 @@ import { SceneCanvas } from './scene/SceneCanvas'
 import { LayerTree } from './scene/LayerTree'
 import { ElementInspector } from './scene/ElementInspector'
 import { DevModeInspector } from './scene/DevModeInspector'
+import { HistoryControls } from './scene/HistoryControls'
 import { createWorkspace, useProjectIO } from './io/useProjectIO'
 import { DocumentActions } from './io/DocumentActions'
 import './App.css'
@@ -41,12 +42,14 @@ export default function App() {
     const center = controller.screenToWorld({ x: snapshot.size.width / 2, y: snapshot.size.height / 2 })
     const width = type === 'frame' ? 720 : type === 'text' ? 240 : 120
     const height = type === 'frame' ? 480 : type === 'text' ? 48 : 120
-    const node = store.add(type, {
-      parentId, width, height,
-      x: Math.round((parent ? Math.max(0, (parent.width - width) / 2) : center.x - width / 2) / 24) * 24,
-      y: Math.round((parent ? Math.max(0, (parent.height - height) / 2) : center.y - height / 2) / 24) * 24,
-    })
-    store.select([node.id])
+    store.batch(() => {
+      const node = store.add(type, {
+        parentId, width, height,
+        x: Math.round((parent ? Math.max(0, (parent.width - width) / 2) : center.x - width / 2) / 24) * 24,
+        y: Math.round((parent ? Math.max(0, (parent.height - height) / 2) : center.y - height / 2) / 24) * 24,
+      })
+      store.select([node.id])
+    }, `Add ${type === 'path' ? 'vector path' : type}`)
     setTool('select')
   }
 
@@ -67,6 +70,8 @@ export default function App() {
           {creationTools.map(({ type, label, Icon }) => <button key={type} className="tool-button" data-testid={`tool-${type}`} aria-label={label} title={label} onClick={() => addElement(type)}><Icon size={16} /></button>)}
           <span className="toolbar-divider" />
           <button className={`tool-button ${grid ? 'grid-active' : ''}`} data-testid="tool-grid" aria-label="Toggle engineering grid" aria-pressed={grid} title="120px engineering grid" onClick={() => setGrid(!grid)}><Grid2X2 size={16} /></button>
+          <span className="toolbar-divider" />
+          <HistoryControls store={store} />
         </div>
         <SceneCanvas store={store} controller={controller} initialCamera={workspace.project?.viewport} grid={grid} panMode={tool === 'hand'} />
       </main>

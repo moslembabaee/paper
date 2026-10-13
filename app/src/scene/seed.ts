@@ -42,5 +42,6 @@ export function createDemoScene(): SceneStore {
     store.add('ellipse', { parentId: material.id, name: 'Mesh Gradient study', x: 504, y: 64, width: 112, height: 112, style: { shader: createShader('mesh-gradient') } })
     store.add('rectangle', { parentId: material.id, name: 'Cream square', x: 568, y: 64, width: 112, height: 112, style: { fill: '#edebe1' } })
   })
+  store.clearHistory()
   return store
 }

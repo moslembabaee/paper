@@ -72,9 +72,12 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       if (frame !== null) cancelAnimationFrame(frame)
       frame = null
       pending = null
-      if (restore && previous) {
-        update(previous.origins, origin => ({ x: origin.x, y: origin.y, width: origin.width, height: origin.height, rotation: origin.rotation }))
-        store.select(previous.initialSelection)
+      if (previous) {
+        if (previous.type !== 'marquee') {
+          if (restore) store.cancelTransaction()
+          else store.endTransaction()
+        }
+        if (restore) store.select(previous.initialSelection)
       }
       if (previous && overlay.hasPointerCapture(previous.pointerId)) overlay.releasePointerCapture(previous.pointerId)
       setGuides([])
@@ -171,6 +174,7 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       }
       if (drag.type !== 'marquee') {
         const snapshot = store.getSnapshot()
+        store.beginTransaction(drag.type === 'move' ? 'Move elements' : drag.type === 'resize' ? 'Resize elements' : 'Rotate elements')
         drag.origins = captureOrigins(snapshot, snapshot.selection)
         const selected = new Set(drag.origins.map(origin => origin.id))
         drag.targets = Object.values(snapshot.elements).filter(node => {
@@ -204,7 +208,7 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       if (event.type === 'pointerup') applyPointer(event)
       reset(event.type === 'pointercancel')
     }
-    const lostCapture = () => reset()
+    const lostCapture = () => reset(true)
     const keydown = (event: KeyboardEvent) => {
       if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable="true"]')) return
       if (event.key === 'Escape' && (drag || viewport.contains(document.activeElement))) {
@@ -229,7 +233,7 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       overlay.removeEventListener('lostpointercapture', lostCapture)
       document.removeEventListener('keydown', keydown)
       window.removeEventListener('blur', blur)
-      reset()
+      reset(true)
     }
   }, [store, controller, panMode])
 

@@ -1,4 +1,6 @@
 export { SceneStore } from './store'
+export { HISTORY_LIMIT } from './history'
+export type { HistorySnapshot } from './history'
 export { createElement } from './elements'
 export { SceneRenderer } from './SceneRenderer'
 export { useScene } from './useScene'
