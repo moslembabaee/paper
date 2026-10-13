@@ -1,5 +1,9 @@
 # React + TypeScript + Vite
 
+## Precision canvas
+
+Hold **Option / Alt** to measure between your selection and another layer. Use the inspector's **Arrange** bar for alignment and equal spacing, arrows to nudge, Cmd/Ctrl + arrows to resize, and brackets to change layer depth. See [precision controls and shortcuts](docs/precision.md).
+
 ## Community roadmap
 
 Open **Roadmap** in the editor footer for live development tasks, completed features, progress, and search. Development reads the repository roadmap; production builds ship a public snapshot. See [feed format and self-hosted update instructions](docs/roadmap.md).

@@ -11,10 +11,12 @@ import { PenOverlay } from './PenOverlay'
 import { AgentOverlay } from '../mcp/AgentOverlay'
 import type { AgentActivity } from '../mcp/protocol'
 import { ShaderSurface } from '../shaders/ShaderSurface'
+import { useArrangeShortcuts } from './useArrangeShortcuts'
 
 export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  useArrangeShortcuts(store, controller, !penMode && !editingId)
   useLayoutEffect(() => {
     const viewport = hostRef.current!.querySelector<HTMLElement>('.canvas-viewport')!
     const enter = (id: string | undefined) => {

@@ -9,6 +9,7 @@ import type { ElementPatch, ElementType, SceneElement } from './types'
 import { useScene } from './useScene'
 import { useRangeHistory } from './useRangeHistory'
 import { ShaderInspector } from '../shaders/ShaderInspector'
+import { ArrangeBar } from './ArrangeBar'
 
 function NumberField({ label, value, onChange, min, max, step = 1, binding }: { binding?: ReactNode; label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
   return <div className="token-number-field"><label className="property-number"><span>{label}</span><input key={value} aria-label={label} type="number" defaultValue={Number(value.toFixed(3))} min={min} max={max} step={step} onBlur={(event) => {
@@ -38,6 +39,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
   })
   return <aside className="inspector-panel" data-testid="inspector-panel" aria-label="Canvas properties" onPointerDownCapture={onRangePointerDown}>
     <div className="panel-heading"><span>{node ? node.type === 'frame' ? 'Frame' : node.type[0].toUpperCase() + node.type.slice(1) : state.selection.length > 1 ? `${state.selection.length} layers` : 'Canvas'}</span>{state.selection.length ? <button className="quiet-button" aria-label="Deselect elements" onClick={() => store.select([])}><X size={14} /></button> : <Circle size={11} />}</div>
+    <ArrangeBar store={store} controller={controller} />
     {node ? <>
       <div className="inspector-section">
         <span className="section-caption">SELECTION</span>

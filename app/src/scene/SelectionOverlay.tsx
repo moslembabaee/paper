@@ -11,6 +11,7 @@ import type { SceneStore } from './store'
 import type { ElementGeometry } from './types'
 import { useScene } from './useScene'
 import './selection.css'
+import { MeasurementHUD } from './MeasurementHUD'
 
 type HandleId = ResizeHandle | 'rotate'
 const HANDLES: readonly { id: ResizeHandle; x: number; y: number; angle: number }[] = [
@@ -244,5 +245,6 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       {HANDLES.map(handle => <div key={handle.id} data-handle={handle.id} className="sel-handle" title={`Resize ${handle.id.toUpperCase()} · Shift for proportions`} style={{ left: `${handle.x * 100}%`, top: `${handle.y * 100}%`, cursor: resizeCursor(box.rotation + handle.angle) }} />)}
       <div data-handle="rotate" className="sel-rotate-handle" title="Rotate · Shift for 15° increments" />
     </div>}
+    <MeasurementHUD store={store} controller={controller} suppressed={panMode || activeCursor !== null} />
   </div>
 })

@@ -9,7 +9,7 @@ npx playwright test --reporter=line
 Playwright starts Vite at `http://127.0.0.1:4173`. The suite covers canvas
 mounting, the engineering grid and rulers, pan and zoom controls and gestures,
 shape creation, selection and resizing, Paper shader rendering and playback,
-and Dev Mode handoff. Each test starts from a fresh seeded document.
+precision measurement, alignment and distribution, arrange hotkeys, and Dev Mode handoff. Each test starts from a fresh seeded document.
 
 Zoom assertions wait for the camera to reach its target and settle. Keyboard
 tests explicitly focus the canvas and use physical key chords. Shader tests
