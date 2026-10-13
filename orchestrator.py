@@ -143,9 +143,8 @@ def run_loop():
             log("✨ All scheduled tasks completed! Entering Continuous Evolution & Polish Phase...")
             log("Running Autonomous Architecture & Craft Audit via Claude / Codex / Antigravity...")
             
-            audit_prompt = """We are continuously perfecting 'Paper', our open-source self-hosted design tool.
-Review the entire project in /root/projects/paper/app.
-Identify the top 3 high-impact UX, performance, architectural, or MCP feature gaps needed to reach absolute parity with Paper.design.
+            audit_prompt = """Do not use any tools or bash commands. Do not read files.
+Based on Paper.design specifications, identify 3 high-impact features needed in /root/projects/paper/app.
 Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no backticks):
 [
   {
@@ -153,13 +152,14 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
     "phase": "Continuous Polish & Evolution",
     "title": "Title here",
     "description": "Concrete requirements here",
-    "assigned_agent": "codex",
+    "assigned_agent": "claude",
     "status": "pending",
     "retry_count": 0,
     "verification_cmd": "cd /root/projects/paper/app && npm run build"
   }
 ]"""
-            c_code, c_out = execute_agent_task("claude", audit_prompt)
+            # For audit generation, run claude with max-turns 2 and no tool browsing
+            c_code, c_out = run_cmd(f'claude -p {shlex.quote(audit_prompt)} --max-turns 2', timeout=180)
             if c_code != 0 or not c_out.strip():
                 c_code, c_out = execute_agent_task("codex", audit_prompt)
             if c_code != 0 or not c_out.strip():
