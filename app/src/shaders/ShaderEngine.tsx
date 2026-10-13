@@ -38,10 +38,10 @@ function ImageHalftone({ source, onError, ...props }: Omit<HalftoneCmykProps, 'i
 }
 
 /** Uniform updates stay inside Paper's WebGL engine, outside React's frame loop. */
-export default function ShaderEngine({ paint, paused, onError, captureScale }: { paint: ShaderPaint; paused: boolean; onError: () => void; captureScale?: number }) {
+export default function ShaderEngine({ paint, paused, onError, captureScale, capturePixelCount }: { paint: ShaderPaint; paused: boolean; onError: () => void; captureScale?: number; capturePixelCount?: number }) {
   const common = {
     width: '100%', height: '100%', style: { position: 'absolute' as const, inset: 0 },
-    minPixelRatio: captureScale ?? 1, maxPixelCount: captureScale ? 64_000_000 : 1_500_000,
+    minPixelRatio: captureScale ?? 1, maxPixelCount: capturePixelCount ?? (captureScale ? 64_000_000 : 1_500_000),
     speed: paused || !paint.animated ? 0 : paint.speed,
     frame: paint.frame, scale: paint.scale, rotation: paint.rotation, offsetX: paint.offsetX, offsetY: paint.offsetY,
     webGlContextAttributes: { alpha: true, antialias: false, powerPreference: 'high-performance' as const, preserveDrawingBuffer: !!captureScale },

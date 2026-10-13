@@ -8,6 +8,9 @@ export interface ExportOptions {
   readonly scope: 'selection' | 'canvas'
   readonly scale: 1 | 2 | 3 | 4
   readonly background: 'transparent' | 'cream'
+  /** Raster output gamut. SVG retains native CSS paints. PDF/WebP use sRGB. */
+  readonly colorSpace?: 'srgb' | 'display-p3'
+  readonly quality?: number
 }
 export interface ExportAssets {
   readonly images: ReadonlyMap<string, string>
@@ -77,7 +80,7 @@ export function textMarkup(node: TextElement, fill: string, measure?: ExportAsse
 }
 
 /** Native SVG, with no editor chrome, CSS dependency, or foreignObject. */
-export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets = EMPTY_ASSETS): string {
+export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets = EMPTY_ASSETS, outputSize?: Pick<Bounds, 'width' | 'height'>): string {
   const bounds = exportBounds(state, options.scope)
   if (!bounds) throw new Error(options.scope === 'selection' ? 'Select a frame or layer to export.' : 'The canvas has no visible layers to export.')
   const defs: string[] = []
@@ -142,5 +145,5 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
   const shader = options.scope === 'canvas' && state.backgroundShader ? assets.shaders.get('paper:background') : null
   if (options.scope === 'canvas' && state.backgroundShader && !shader) throw new Error('The canvas shader could not be captured.')
   const shaderBackground = shader ? `<image x="${num(bounds.x)}" y="${num(bounds.y)}" width="${num(bounds.width)}" height="${num(bounds.height)}" href="${xml(shader)}" preserveAspectRatio="none"/>` : ''
-  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${num(bounds.width)}" height="${num(bounds.height)}" viewBox="${[bounds.x, bounds.y, bounds.width, bounds.height].map(num).join(' ')}"><defs>${defs.join('')}</defs>${background}${shaderBackground}${content}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${num(outputSize?.width ?? bounds.width * options.scale)}" height="${num(outputSize?.height ?? bounds.height * options.scale)}" viewBox="${[bounds.x, bounds.y, bounds.width, bounds.height].map(num).join(' ')}"><defs>${defs.join('')}</defs>${background}${shaderBackground}${content}</svg>`
 }
