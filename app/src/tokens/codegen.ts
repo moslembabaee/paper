@@ -47,9 +47,9 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
     if (node.type === 'text') {
       props.push({ property: 'color', value: raw, token })
     } else {
-      props.push({ property: 'background-color', value: raw, token })
+      props.push({ property: node.type === 'path' ? 'fill' : 'background-color', value: raw, token })
     }
-  }
+  } else if (node.type === 'path') props.push({ property: 'fill', value: 'none' })
 
   if ('cornerRadius' in node && (node.cornerRadius > 0 || node.tokenBindings?.cornerRadius)) {
     props.push({ property: 'border-radius', value: `${node.cornerRadius}px` })
@@ -57,12 +57,17 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
 
   if (node.style.stroke) {
     const { color, width } = node.style.stroke
-    props.push({ property: 'border', value: `${width}px solid ${color}` })
+    if (node.type === 'path') {
+      props.push({ property: 'stroke', value: color }, { property: 'stroke-width', value: String(width) })
+      if (node.style.stroke.dash.length) props.push({ property: 'stroke-dasharray', value: node.style.stroke.dash.join(' ') })
+    } else props.push({ property: 'border', value: `${width}px solid ${color}` })
   }
 
   if (node.style.shadow) {
     const { x, y, blur, color } = node.style.shadow
-    props.push({ property: 'box-shadow', value: `${x}px ${y}px ${blur}px ${hexToRgba(color)}` })
+    props.push(node.type === 'path'
+      ? { property: 'filter', value: `drop-shadow(${x}px ${y}px ${blur / 2}px ${hexToRgba(color)})` }
+      : { property: 'box-shadow', value: `${x}px ${y}px ${blur}px ${hexToRgba(color)}` })
   }
 
   if (node.type === 'text') {
@@ -79,7 +84,7 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
     props.push({ property: 'overflow', value: 'hidden' })
   }
 
-  const properties: Partial<Record<string, TokenProperty>> = { left: 'x', top: 'y', width: 'width', height: 'height', color: 'fill', 'background-color': 'fill', border: 'stroke', 'border-radius': 'cornerRadius', 'font-family': 'fontFamily', 'font-size': 'fontSize', 'font-weight': 'fontWeight', 'line-height': 'lineHeight', 'letter-spacing': 'letterSpacing' }
+  const properties: Partial<Record<string, TokenProperty>> = { left: 'x', top: 'y', width: 'width', height: 'height', fill: 'fill', stroke: 'stroke', color: 'fill', 'background-color': 'fill', border: 'stroke', 'border-radius': 'cornerRadius', 'font-family': 'fontFamily', 'font-size': 'fontSize', 'font-weight': 'fontWeight', 'line-height': 'lineHeight', 'letter-spacing': 'letterSpacing' }
   return props.map(prop => {
     const property = properties[prop.property]
     const token = property ? boundToken(node, property, tokens) : undefined
@@ -91,7 +96,7 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
 
 // ─── Tailwind generation ──────────────────────────────────────────────────────
 
-function colorToTailwind(color: string, prefix: 'bg' | 'text' | 'border'): string {
+function colorToTailwind(color: string, prefix: 'bg' | 'text' | 'border' | 'fill' | 'stroke'): string {
   const map: Record<string, string> = {
     '#080808': `${prefix}-neutral-950`,
     '#edebe1': `${prefix}-[#edebe1]`,
@@ -116,7 +121,8 @@ export function buildTailwindClasses(node: SceneElement, tokens: readonly Design
   }
 
   if (node.style.fill !== null && node.type !== 'text') {
-    classes.push(bindingClass('fill') ?? colorToTailwind(node.style.fill, 'bg'))
+    const token = boundToken(node, 'fill', tokens)
+    classes.push(node.type === 'path' ? token ? `fill-[var(${tokenVariable(token)})]` : colorToTailwind(node.style.fill, 'fill') : bindingClass('fill') ?? colorToTailwind(node.style.fill, 'bg'))
   }
 
   if (node.style.fill !== null && node.type === 'text') {
@@ -138,14 +144,20 @@ export function buildTailwindClasses(node: SceneElement, tokens: readonly Design
 
   if (node.style.stroke) {
     const { width } = node.style.stroke
-    classes.push('border')
-    if (width !== 1) classes.push(`border-[${width}px]`)
-    classes.push(bindingClass('stroke') ?? colorToTailwind(node.style.stroke.color, 'border'))
+    if (node.type === 'path') {
+      const token = boundToken(node, 'stroke', tokens)
+      classes.push(token ? `stroke-[var(${tokenVariable(token)})]` : colorToTailwind(node.style.stroke.color, 'stroke'), `[stroke-width:${width}]`)
+    } else {
+      classes.push('border')
+      if (width !== 1) classes.push(`border-[${width}px]`)
+      classes.push(bindingClass('stroke') ?? colorToTailwind(node.style.stroke.color, 'border'))
+    }
   }
 
   if (node.style.shadow) {
     const { x, y, blur } = node.style.shadow
-    if (x === 0 && y === 2 && blur === 4) classes.push('shadow-sm')
+    if (node.type === 'path') classes.push(`drop-shadow-[${x}px_${y}px_${blur / 2}px_${node.style.shadow.color}]`)
+    else if (x === 0 && y === 2 && blur === 4) classes.push('shadow-sm')
     else if (x === 0 && y === 4 && blur === 8) classes.push('shadow')
     else if (x === 0 && y === 4 && blur === 16) classes.push('shadow-md')
     else classes.push(`shadow-[${x}px_${y}px_${blur}px]`)
@@ -208,6 +220,14 @@ export function buildReactComponent(node: SceneElement, tokens: readonly DesignT
 
   if (node.type === 'ellipse') {
     return `export function ${name}() {\n  return (\n    <div\n      className="${tw} rounded-full"${styleAttribute}\n    />\n  )\n}`
+  }
+
+  if (node.type === 'path') {
+    const fillToken = boundToken(node, 'fill', tokens), strokeToken = boundToken(node, 'stroke', tokens)
+    const fill = fillToken ? `var(${tokenVariable(fillToken)})` : node.style.fill ?? 'none'
+    const stroke = strokeToken ? `var(${tokenVariable(strokeToken)})` : node.style.stroke?.color ?? 'none'
+    // A real SVG outline keeps compound holes and curves intact in handoff.
+    return `export function ${name}() {\n  return (\n    <svg\n      className="${tw}"${styleAttribute}\n      viewBox="${node.viewBox.join(' ')}"\n      preserveAspectRatio="none"\n      overflow="visible"\n    >\n      <path\n        d={${JSON.stringify(node.d)}}\n        fillRule="${node.fillRule}"\n        fill={${JSON.stringify(fill)}}\n        stroke={${JSON.stringify(stroke)}}\n        strokeWidth={${node.style.stroke?.width ?? 0}}\n        strokeDasharray="${node.style.stroke?.dash.join(' ') ?? ''}"\n        strokeLinejoin="round"\n      />\n    </svg>\n  )\n}`
   }
 
   return `export function ${name}() {\n  return (\n    <div\n      className="${tw}"${styleAttribute}\n    />\n  )\n}`

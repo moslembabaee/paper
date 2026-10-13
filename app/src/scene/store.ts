@@ -1,10 +1,11 @@
-import { detachEditedBindings, resolveTokenBindings, supportsTokenProperty, tokenVariable, validateTokens } from '../tokens/model.ts'
+import { detachEditedBindings, detachRemovedTokenBindings, resolveTokenBindings, supportsTokenProperty, tokenVariable, validateTokens } from '../tokens/model.ts'
 import type { DesignToken, TokenInput, TokenProperty } from '../tokens/types.ts'
 import { createElement, freezeElement, validateElement } from './elements.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
 import { CommandHistory, equalValue } from './history.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
-import type { ElementInput, ElementOf, ElementPatch, ElementType, SceneDocument, SceneElement, SceneSnapshot } from './types.ts'
+import type { BooleanCompound, BooleanOperation, ElementInput, ElementOf, ElementPatch, ElementType, PathElement, SceneDocument, SceneElement, SceneSnapshot, VectorElement } from './types.ts'
+import { computeBoolean, isVector, refreshBooleanElement, transformedSource } from './booleanGeometry.ts'
 
 type Listener = () => void
 const EMPTY = Object.freeze([]) as readonly string[]
@@ -166,9 +167,10 @@ export class SceneStore {
     const node = this.require(id)
     if (node.type !== type) throw new Error('Element type mismatch')
     if (this.isLocked(id)) throw new Error('Element is locked')
-    for (const key of ['id', 'type', 'children', 'parentId', 'zIndex', 'tokenBindings']) {
+    for (const key of ['id', 'type', 'children', 'parentId', 'zIndex', 'tokenBindings', 'boolean']) {
       if (Object.hasOwn(patch, key)) throw new Error(`Use structural actions to change ${key}`)
     }
+    if (node.type === 'path' && node.boolean && ['d', 'viewBox', 'fillRule'].some(key => Object.hasOwn(patch, key))) throw new Error('Flatten the compound before editing its merged outline')
     const tokenBindings = detachEditedBindings(node.tokenBindings, patch as Record<string, unknown>, node)
     const updated = { ...node, ...patch, ...(tokenBindings ? { tokenBindings } : {}), style: { ...node.style, ...patch.style } } as SceneElement
     validateElement(updated)
@@ -251,6 +253,133 @@ export class SceneStore {
     this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, this.state.selection.filter(selected => Object.hasOwn(elements, selected)), `Delete ${node.name}`)
   }
 
+  /** The same checks serve the toolbar and programmatic callers. */
+  booleanSelectionReason(ids = this.state.selection): string | null {
+    if (this.history.getSnapshot().active) return 'Finish the active edit first.'
+    if (new Set(ids).size < 2) return 'Select at least two vector shapes.'
+    const nodes = [...new Set(ids)].map(id => this.state.elements[id])
+    if (nodes.some(node => !node || !isVector(node))) return 'Select rectangles, ellipses, or vector paths.'
+    if (nodes.some(node => this.isLocked(node.id) || !this.isVisible(node.id))) return 'Choose visible, unlocked shapes.'
+    if (nodes.some(node => node.parentId !== nodes[0].parentId)) return 'Choose shapes in the same frame.'
+    return null
+  }
+
+  /** Compute before publishing so errors leave the entire selection untouched. */
+  booleanSelection(operation: BooleanOperation, destructive = false, ids = this.state.selection): PathElement {
+    const reason = this.booleanSelectionReason(ids)
+    if (reason) throw new Error(reason)
+    const operands = [...new Set(ids)].map(id => this.require(id) as VectorElement).sort((a, b) => a.zIndex - b.zIndex)
+    const result = computeBoolean(operands, operation), base = operands[0]
+    const node = createElement('path', {
+      name: `${operation[0].toUpperCase() + operation.slice(1)}${destructive ? ' path' : ' compound'}`,
+      parentId: base.parentId, ...result.bounds, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule, style: base.style,
+      ...(base.tokenBindings ? { tokenBindings: {
+        ...(base.tokenBindings.fill ? { fill: base.tokenBindings.fill } : {}),
+        ...(base.tokenBindings.stroke ? { stroke: base.tokenBindings.stroke } : {}),
+      } } : {}),
+      ...(destructive ? {} : { boolean: { operation, operands } }),
+    })
+    const selected = new Set(operands.map(n => n.id)), elements = { ...this.state.elements }
+    for (const operand of operands) delete elements[operand.id]
+    elements[node.id] = node
+    const siblings = this.getChildren(base.parentId)
+    // Replace at the top selected layer, retaining the order of unselected layers.
+    const topIndex = operands.at(-1)!.zIndex
+    const next = siblings.filter(id => !selected.has(id))
+    next.splice(siblings.slice(0, topIndex).filter(id => !selected.has(id)).length, 0, node.id)
+    this.ordered(elements, node.parentId, next)
+    this.commit(elements, node.parentId === null ? next : this.state.rootIds, [node.id], `${operation[0].toUpperCase() + operation.slice(1)} shapes${destructive ? ' and flatten' : ''}`)
+    return elements[node.id] as PathElement
+  }
+
+  private requireCompound(id: string): PathElement & { boolean: BooleanCompound } {
+    const node = this.require(id)
+    if (this.history.getSnapshot().active) throw new Error('Finish the active edit first')
+    if (node.type !== 'path' || !node.boolean) throw new Error('Select a boolean compound')
+    if (this.isLocked(id)) throw new Error('Element is locked')
+    return node as PathElement & { boolean: BooleanCompound }
+  }
+
+  private refreshCompound(node: PathElement, compound: BooleanCompound, label: string): void {
+    const updated = refreshBooleanElement(node, compound)
+    validateElement(updated)
+    this.commit({ ...this.state.elements, [node.id]: freezeElement(updated) }, this.state.rootIds, this.state.selection, label)
+  }
+
+  setBooleanOperation(id: string, operation: BooleanOperation): void {
+    const node = this.requireCompound(id)
+    if (node.boolean.operation === operation) return
+    this.refreshCompound(node, { ...node.boolean, operation }, `Change boolean to ${operation}`)
+  }
+
+  updateBooleanOperand(id: string, operandId: string, patch: ElementPatch<'rectangle' | 'ellipse' | 'path'>): void {
+    const node = this.requireCompound(id), operand = node.boolean.operands.find(source => source.id === operandId)
+    if (!operand) throw new Error('Unknown boolean source')
+    for (const key of ['id', 'type', 'children', 'parentId', 'zIndex', 'boolean', 'tokenBindings', 'visible', 'locked']) if (Object.hasOwn(patch, key)) throw new Error(`Cannot change source ${key}`)
+    if (operand.type === 'path' && operand.boolean && ['d', 'viewBox', 'fillRule'].some(key => Object.hasOwn(patch, key))) throw new Error('Release the compound to edit a nested operation')
+    const updated = { ...operand, ...patch, ...(operand.tokenBindings ? { tokenBindings: detachEditedBindings(operand.tokenBindings, patch as Record<string, unknown>, operand) } : {}), style: { ...operand.style, ...patch.style } } as VectorElement
+    validateElement(updated)
+    if (equalValue(operand, updated)) return
+    this.refreshCompound(node, { ...node.boolean, operands: node.boolean.operands.map(source => source.id === operandId ? updated : source) }, `Edit ${operand.name} source`)
+  }
+
+  flattenBoolean(id: string): void {
+    const node = this.requireCompound(id)
+    const { boolean: sources, ...path } = node
+    void sources
+    this.commit({ ...this.state.elements, [id]: freezeElement(path) }, this.state.rootIds, this.state.selection, 'Flatten boolean compound')
+  }
+
+  /** Release sources at the compound's current position, scale and rotation. */
+  releaseBoolean(id: string): readonly string[] {
+    const node = this.requireCompound(id), [vx, vy, vw, vh] = node.viewBox
+    const sx = node.width / vw, sy = node.height / vh, angle = node.rotation * Math.PI / 180
+    const cos = Math.cos(angle), sin = Math.sin(angle)
+    const elements = { ...this.state.elements }, released: string[] = []
+    for (const operand of node.boolean.operands) {
+      const sourceId = Object.hasOwn(elements, operand.id) ? crypto.randomUUID() : operand.id
+      let restored: VectorElement
+      if (Math.abs(sx - 1) < 1e-10 && Math.abs(sy - 1) < 1e-10 && node.rotation === 0) restored = { ...operand, id: sourceId, parentId: node.parentId, x: operand.x + node.x - vx, y: operand.y + node.y - vy }
+      else if (Math.abs(sx - sy) < 1e-10 || operand.rotation % 180 === 0) {
+        const dx = (operand.x + operand.width / 2 - vx) * sx - node.width / 2, dy = (operand.y + operand.height / 2 - vy) * sy - node.height / 2
+        const width = operand.width * sx, height = operand.height * sy
+        restored = { ...operand, id: sourceId, parentId: node.parentId, x: node.x + node.width / 2 + cos * dx - sin * dy - width / 2, y: node.y + node.height / 2 + sin * dx + cos * dy - height / 2, width, height, rotation: operand.rotation + node.rotation,
+          ...('cornerRadius' in operand ? { cornerRadius: operand.cornerRadius * Math.min(sx, sy) } : {}),
+        }
+        // Unequal scaling of rounded rectangles needs elliptical corner geometry.
+        if (operand.type === 'rectangle' && operand.cornerRadius > 0 && Math.abs(sx - sy) > 1e-10) {
+          const shape = transformedSource(operand, node)
+          restored = createElement('path', { id: sourceId, name: operand.name, visible: operand.visible, locked: operand.locked, style: operand.style, parentId: node.parentId, ...shape.bounds, d: shape.d, viewBox: shape.viewBox, fillRule: 'nonzero' })
+        }
+      } else {
+        const shape = transformedSource(operand, node)
+        restored = createElement('path', { id: sourceId, name: operand.name, parentId: node.parentId, ...shape.bounds, d: shape.d, viewBox: shape.viewBox, fillRule: operand.type === 'path' ? operand.fillRule : 'nonzero', style: operand.style })
+      }
+      // Primitive strokes are in element pixels; paths scale their strokes
+      // through the viewBox instead. Keep the fill boundary aligned on release.
+      if (operand.type !== 'path' && restored.type !== 'path' && operand.style.stroke && Math.abs(sx - sy) < 1e-10 && Math.abs(sx - 1) > 1e-10) {
+        restored = { ...restored, style: { ...restored.style, stroke: {
+          ...operand.style.stroke, width: operand.style.stroke.width * sx, dash: operand.style.stroke.dash.map(value => value * sx),
+        } } }
+      }
+      if (operand.tokenBindings) {
+        const tokenBindings = { ...operand.tokenBindings }
+        for (const property of Object.keys(tokenBindings) as TokenProperty[]) {
+          if (!supportsTokenProperty(restored, property) || (property !== 'fill' && property !== 'stroke' && restored[property as keyof VectorElement] !== operand[property as keyof VectorElement])) delete tokenBindings[property]
+        }
+        restored = { ...restored, tokenBindings }
+      }
+      validateElement(restored)
+      elements[sourceId] = freezeElement(restored); released.push(sourceId)
+    }
+    delete elements[id]
+    const siblings = [...this.getChildren(node.parentId)]
+    siblings.splice(node.zIndex, 1, ...released)
+    this.ordered(elements, node.parentId, siblings)
+    this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, released, 'Release boolean compound')
+    return released
+  }
+
   addToken(input: TokenInput): DesignToken {
     return this.addTokens([input])[0]
   }
@@ -284,11 +413,9 @@ export class SceneStore {
     if (!this.state.tokens.some(token => removed.has(token.id))) return
     const elements = { ...this.state.elements }
     for (const node of Object.values(elements)) {
-      if (!Object.values(node.tokenBindings ?? {}).some(id => removed.has(id))) continue
-      const tokenBindings = { ...node.tokenBindings }
-      for (const property of Object.keys(tokenBindings) as TokenProperty[]) if (removed.has(tokenBindings[property]!)) delete tokenBindings[property]
       // Values were already resolved; removing a token detaches, retaining its appearance.
-      elements[node.id] = freezeElement({ ...node, tokenBindings })
+      const next = detachRemovedTokenBindings(node, removed)
+      if (next !== node) elements[node.id] = freezeElement(next)
     }
     this.publish(Object.freeze({ ...this.state, tokens: validateTokens(this.state.tokens.filter(token => !removed.has(token.id))), elements: Object.freeze(elements) }), 'Delete tokens')
   }

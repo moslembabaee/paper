@@ -1,10 +1,20 @@
-import type { ElementInput, ElementOf, ElementType, SceneElement } from './types.ts'
+import type { BooleanCompound, ElementInput, ElementOf, ElementType, SceneElement, VectorElement } from './types.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
 
 const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectangle', ellipse: 'Ellipse', path: 'Vector path', text: 'Text', image: 'Image' }
+const frozenElements = new WeakSet<SceneElement>()
+const frozenCompounds = new WeakSet<BooleanCompound>()
+
+function freezeCompound(compound: BooleanCompound): BooleanCompound {
+  if (frozenCompounds.has(compound)) return compound
+  const frozen = Object.freeze({ operation: compound.operation, operands: Object.freeze(compound.operands.map(operand => freezeElement(operand) as VectorElement)) })
+  frozenCompounds.add(frozen)
+  return frozen
+}
 
 /** Freeze records at the boundary so consumers cannot corrupt the observable state. */
 export function freezeElement(element: SceneElement): SceneElement {
+  if (frozenElements.has(element)) return element
   const tokenBindings = element.tokenBindings ? Object.freeze({ ...element.tokenBindings }) : undefined
   element = { ...element, ...(tokenBindings ? { tokenBindings } : {}) }
   const style = Object.freeze({
@@ -13,12 +23,19 @@ export function freezeElement(element: SceneElement): SceneElement {
     stroke: element.style.stroke ? Object.freeze({ ...element.style.stroke, dash: Object.freeze([...element.style.stroke.dash]) }) : null,
     shadow: element.style.shadow ? Object.freeze({ ...element.style.shadow }) : null,
   })
-  if (element.type === 'frame') return Object.freeze({ ...element, style, children: Object.freeze([...element.children]) })
-  if (element.type === 'path') return Object.freeze({ ...element, style, viewBox: Object.freeze([...element.viewBox]) as typeof element.viewBox })
-  return Object.freeze({ ...element, style })
+  const frozen: SceneElement = element.type === 'frame'
+    ? Object.freeze({ ...element, style, children: Object.freeze([...element.children]) })
+    : element.type === 'path'
+      ? Object.freeze({ ...element, style, viewBox: Object.freeze([...element.viewBox]) as typeof element.viewBox,
+        ...(element.boolean ? { boolean: freezeCompound(element.boolean) } : {}),
+      })
+      : Object.freeze({ ...element, style })
+  frozenElements.add(frozen)
+  return frozen
 }
 
-export function validateElement(element: SceneElement): void {
+export function validateElement(element: SceneElement, depth = 0): void {
+  if (depth > 16) throw new Error('Boolean compounds may be nested up to 16 levels')
   if (typeof element.id !== 'string' || !element.id || typeof element.name !== 'string' || !element.name || (element.parentId !== null && typeof element.parentId !== 'string') || !['frame', 'rectangle', 'ellipse', 'path', 'text', 'image'].includes(element.type)) throw new Error('Invalid element identity')
   for (const key of ['x', 'y', 'width', 'height', 'rotation', 'zIndex'] as const) {
     if (!Number.isFinite(element[key])) throw new Error(`Invalid ${key}`)
@@ -33,6 +50,16 @@ export function validateElement(element: SceneElement): void {
   if ('cornerRadius' in element && (!Number.isFinite(element.cornerRadius) || element.cornerRadius < 0)) throw new Error('Invalid corner radius')
   if (element.type === 'frame' && (!Array.isArray(element.children) || typeof element.clipContent !== 'boolean')) throw new Error('Invalid frame')
   if (element.type === 'path' && (typeof element.d !== 'string' || !Array.isArray(element.viewBox) || element.viewBox.length !== 4 || !element.viewBox.every(Number.isFinite) || element.viewBox[2] <= 0 || element.viewBox[3] <= 0 || !['nonzero', 'evenodd'].includes(element.fillRule))) throw new Error('Invalid path')
+  if (element.type === 'path' && element.boolean !== undefined) {
+    const compound = element.boolean
+    if (!compound || !['union', 'subtract', 'intersect', 'exclude'].includes(compound.operation) || !Array.isArray(compound.operands) || compound.operands.length < 2 || compound.operands.length > 2000) throw new Error('Invalid boolean compound')
+    const ids = new Set<string>()
+    for (const operand of compound.operands) {
+      if (!operand || !['rectangle', 'ellipse', 'path'].includes(operand.type) || ids.has(operand.id)) throw new Error('Invalid boolean operand')
+      ids.add(operand.id)
+      validateElement(operand, depth + 1)
+    }
+  }
   if (element.type === 'text' && (typeof element.text !== 'string' || typeof element.fontFamily !== 'string' || ![element.fontSize, element.fontWeight, element.lineHeight, element.letterSpacing].every(Number.isFinite) || element.fontSize <= 0 || element.lineHeight <= 0 || element.fontWeight < 1 || element.fontWeight > 1000 || !['left', 'center', 'right'].includes(element.textAlign))) throw new Error('Invalid text')
   if (element.type === 'image' && (typeof element.src !== 'string' || typeof element.alt !== 'string' || !['cover', 'contain', 'fill'].includes(element.fit))) throw new Error('Invalid image')
 }

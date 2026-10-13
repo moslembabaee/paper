@@ -21,7 +21,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
     const viewport = hostRef.current!.querySelector<HTMLElement>('.canvas-viewport')!
     const enter = (id: string | undefined) => {
       const node = id ? store.getSnapshot().elements[id] : undefined
-      if (node?.type === 'path' && !store.isLocked(node.id) && store.isVisible(node.id)) { store.select([node.id]); setEditingId(node.id) }
+      if (node?.type === 'path' && !node.boolean && !store.isLocked(node.id) && store.isVisible(node.id)) { store.select([node.id]); setEditingId(node.id) }
     }
     const doubleClick = (event: MouseEvent) => {
       if (panMode || penMode || editingId || (event.target as Element).closest('.viewport-ui')) return

@@ -65,6 +65,16 @@ export interface PathElement extends BaseElement {
   readonly d: string
   readonly viewBox: readonly [number, number, number, number]
   readonly fillRule: 'nonzero' | 'evenodd'
+  /** Editable sources; d is the cached, merged outline used by all renderers. */
+  readonly boolean?: BooleanCompound
+}
+
+export type BooleanOperation = 'union' | 'subtract' | 'intersect' | 'exclude'
+export type VectorElement = RectangleElement | EllipseElement | PathElement
+export interface BooleanCompound {
+  readonly operation: BooleanOperation
+  /** Back to front, in the coordinate system of the compound's viewBox. */
+  readonly operands: readonly VectorElement[]
 }
 
 export interface TextElement extends BaseElement {
@@ -91,7 +101,7 @@ export type SceneElement = FrameElement | RectangleElement | EllipseElement | Pa
 export type ElementType = SceneElement['type']
 export type ElementOf<T extends ElementType> = Extract<SceneElement, { type: T }>
 export type ElementInput<T extends ElementType> = Partial<Omit<ElementOf<T>, 'type' | 'children' | 'zIndex' | 'style'>> & { readonly style?: Partial<ElementStyle> }
-export type ElementPatch<T extends ElementType> = T extends ElementType ? Partial<Omit<ElementOf<T>, 'type' | 'id' | 'parentId' | 'children' | 'zIndex' | 'style'>> & { readonly style?: Partial<ElementStyle> } : never
+export type ElementPatch<T extends ElementType> = T extends ElementType ? Partial<Omit<ElementOf<T>, 'type' | 'id' | 'parentId' | 'children' | 'zIndex' | 'boolean' | 'style'>> & { readonly style?: Partial<ElementStyle> } : never
 
 export interface SceneDocument {
   readonly version: 1

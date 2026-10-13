@@ -72,11 +72,16 @@ test('pathGeometry: snapPathPoint snaps strictly to half-pixels when enabled', (
   assert.deepEqual(snapPathPoint({ x: 10.26, y: 10.74 }, false), { x: 10.26, y: 10.74 })
 })
 
-test('pathGeometry: rejects invalid path commands or arcs', () => {
+test('pathGeometry: rejects invalid path commands and normalizes SVG arcs', () => {
   assert.deepEqual(parsePath(''), [])
   assert.throws(() => parsePath('M 0 0 @@@ 10 20'), /Invalid SVG path data/)
   assert.throws(() => parsePath('L 10 20'), /A path must start with Move/)
-  assert.throws(() => parsePath('M 0 0 A 10 10 0 0 0 20 20'), /Convert arcs to Bézier curves/)
+  const arcs = parsePath('M 0 0 A 10 10 0 0 0 20 20')
+  assert.equal(arcs[0].anchors.at(-1).x, 20)
+  assert.equal(arcs[0].anchors.at(-1).y, 20)
+  assert.ok(arcs[0].anchors[0].out)
+  assert.match(serializePath(arcs), / C /)
+  assert.throws(() => parsePath('M 0 0 A 10 10 0 2 0 20 20'), /arc flags/)
 })
 
 test('pixelSnap: state persists, notifies subscribers, and toggles cleanly', () => {
@@ -94,4 +99,14 @@ test('pixelSnap: state persists, notifies subscribers, and toggles cleanly', () 
   setPixelSnap(false)
   assert.equal(observed, true) // Unsubscribed listener was not notified
   setPixelSnap(true) // Restore
+})
+
+test('pathGeometry: SVG compact arc flags and drawing after close normalize correctly', () => {
+  const arc = parsePath('M0 50A50 50 0 01100 50')
+  assert.equal(arc[0].anchors.at(-1).x, 100)
+  assert.equal(arc[0].anchors.at(-1).y, 50)
+  const contours = parsePath('M0 0H10V10ZL20 20L20 0Z')
+  assert.equal(contours.length, 2)
+  assert.equal(contours[0].anchors.length, 3)
+  assert.deepEqual(contours[1].anchors[0], { x: 0, y: 0 })
 })

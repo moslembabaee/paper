@@ -10,6 +10,7 @@ import { useScene } from './useScene'
 import { useRangeHistory } from './useRangeHistory'
 import { ShaderInspector } from '../shaders/ShaderInspector'
 import { ArrangeBar } from './ArrangeBar'
+import { BooleanBar } from './BooleanBar'
 
 function NumberField({ label, value, onChange, min, max, step = 1, binding }: { binding?: ReactNode; label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
   return <div className="token-number-field"><label className="property-number"><span>{label}</span><input key={value} aria-label={label} type="number" defaultValue={Number(value.toFixed(3))} min={min} max={max} step={step} onBlur={(event) => {
@@ -40,6 +41,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
   return <aside className="inspector-panel" data-testid="inspector-panel" aria-label="Canvas properties" onPointerDownCapture={onRangePointerDown}>
     <div className="panel-heading"><span>{node ? node.type === 'frame' ? 'Frame' : node.type[0].toUpperCase() + node.type.slice(1) : state.selection.length > 1 ? `${state.selection.length} layers` : 'Canvas'}</span>{state.selection.length ? <button className="quiet-button" aria-label="Deselect elements" onClick={() => store.select([])}><X size={14} /></button> : <Circle size={11} />}</div>
     <ArrangeBar store={store} controller={controller} />
+    <BooleanBar key={state.selection.join(':')} store={store} />
     {node ? <>
       <div className="inspector-section">
         <span className="section-caption">SELECTION</span>
@@ -67,7 +69,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
         <div className="property-pair"><NumberField binding={binding('lineHeight', 'Line height')} label="Line height" value={node.lineHeight} min={.1} step={.1} onChange={lineHeight => store.update(node.id, 'text', { lineHeight })} /><NumberField binding={binding('letterSpacing', 'Tracking')} label="Tracking" value={node.letterSpacing} step={.1} onChange={letterSpacing => store.update(node.id, 'text', { letterSpacing })} /></div>
         <label className="property-select">Align<select aria-label="Text alignment" value={node.textAlign} onChange={event => store.update(node.id, 'text', { textAlign: event.currentTarget.value as typeof node.textAlign })}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
       </div>}
-      {node.type === 'path' && <div className="inspector-section"><span className="section-caption">VECTOR PATH</span><textarea className="property-textarea property-mono" key={node.id + node.d} aria-label="SVG path data" defaultValue={node.d} onBlur={event => store.update(node.id, 'path', { d: event.currentTarget.value })} /></div>}
+      {node.type === 'path' && <div className="inspector-section"><span className="section-caption">VECTOR PATH</span><textarea className="property-textarea property-mono" key={node.id + node.d} aria-label="SVG path data" readOnly={!!node.boolean} defaultValue={node.d} onBlur={event => { if (!node.boolean) store.update(node.id, 'path', { d: event.currentTarget.value }) }} />{node.boolean && <p>Flatten the compound to edit its merged outline with the pen tool.</p>}</div>}
       {node.type === 'image' && <div className="inspector-section"><span className="section-caption">IMAGE</span><label className="property-label">Source<input className="property-input" key={node.id + node.src} aria-label="Image source" defaultValue={node.src} onBlur={event => store.update(node.id, 'image', { src: event.currentTarget.value })} /></label><label className="property-label">Alt text<input className="property-input" key={node.id + node.alt} aria-label="Image alt text" defaultValue={node.alt} onBlur={event => store.update(node.id, 'image', { alt: event.currentTarget.value })} /></label><label className="property-select">Fit<select aria-label="Image fit" value={node.fit} onChange={event => store.update(node.id, 'image', { fit: event.currentTarget.value as typeof node.fit })}><option value="contain">Contain</option><option value="cover">Cover</option><option value="fill">Fill</option></select></label></div>}
       <div className="inspector-section"><span className="section-caption">HIERARCHY</span>
         <label className="property-select">Parent<select aria-label="Parent frame" value={node.parentId ?? ''} onChange={event => store.reparent(node.id, event.currentTarget.value || null)}><option value="">Canvas</option>{parentOptions.map(frame => <option key={frame.id} value={frame.id}>{frame.name}</option>)}</select></label>

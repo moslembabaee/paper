@@ -1,4 +1,5 @@
-import type { SceneElement } from '../scene/types.ts'
+import type { SceneElement, VectorElement } from '../scene/types.ts'
+import { refreshBooleanElement, sameVectorGeometry } from '../scene/booleanGeometry.ts'
 import type { DesignToken, TokenBindings, TokenProperty, TokenType } from './types.ts'
 
 export const TOKEN_META = {
@@ -61,10 +62,19 @@ export function supportsTokenProperty(node: SceneElement, property: string): pro
 
 /** Materialize bound values at the store boundary, preserving every unbound node's identity. */
 export function resolveTokenBindings(node: SceneElement, tokens: readonly DesignToken[] | ReadonlyMap<string, DesignToken>): SceneElement {
-  if (node.tokenBindings === undefined) return node
-  if (!node.tokenBindings || typeof node.tokenBindings !== 'object' || Array.isArray(node.tokenBindings)) throw new Error('Invalid token bindings')
-  if (!Object.keys(node.tokenBindings).length) return node
   let next = node
+  if (node.type === 'path' && node.boolean) {
+    const operands = node.boolean.operands.map(source => resolveTokenBindings(source, tokens) as VectorElement)
+    if (operands.some((source, index) => source !== node.boolean!.operands[index])) {
+      const compound = { ...node.boolean, operands }
+      // Paint-only changes do not invalidate the cached outline.
+      const geometryChanged = operands.some((source, index) => !sameVectorGeometry(source, node.boolean!.operands[index]))
+      next = geometryChanged ? refreshBooleanElement(node, compound) : { ...node, boolean: compound }
+    }
+  }
+  if (node.tokenBindings === undefined) return next
+  if (!node.tokenBindings || typeof node.tokenBindings !== 'object' || Array.isArray(node.tokenBindings)) throw new Error('Invalid token bindings')
+  if (!Object.keys(node.tokenBindings).length) return next
   for (const [property, id] of Object.entries(node.tokenBindings)) {
     const token = Array.isArray(tokens) ? tokens.find(candidate => candidate.id === id) : (tokens as ReadonlyMap<string, DesignToken>).get(id)
     if (!supportsTokenProperty(node, property) || !token || !propertyTokenTypes(property).includes(token.type)) throw new Error('Missing or incompatible token binding')
@@ -74,6 +84,21 @@ export function resolveTokenBindings(node: SceneElement, tokens: readonly Design
       if (!next.style.stroke) throw new Error('A stroke binding requires a stroke')
       if (next.style.stroke.color !== token.value) next = { ...next, style: { ...next.style, stroke: { ...next.style.stroke, color: token.value as string } } }
     } else if (next[property as keyof SceneElement] !== token.value) next = { ...next, [property]: token.value } as SceneElement
+  }
+  return next
+}
+
+/** Detach deleted tokens from retained boolean sources as well as visible layers. */
+export function detachRemovedTokenBindings(node: SceneElement, removed: ReadonlySet<string>): SceneElement {
+  let next = node
+  if (node.type === 'path' && node.boolean) {
+    const operands = node.boolean.operands.map(source => detachRemovedTokenBindings(source, removed) as VectorElement)
+    if (operands.some((source, index) => source !== node.boolean!.operands[index])) next = { ...node, boolean: { ...node.boolean, operands } }
+  }
+  if (Object.values(node.tokenBindings ?? {}).some(id => removed.has(id))) {
+    const tokenBindings = { ...node.tokenBindings }
+    for (const property of Object.keys(tokenBindings) as TokenProperty[]) if (removed.has(tokenBindings[property]!)) delete tokenBindings[property]
+    next = { ...next, tokenBindings }
   }
   return next
 }

@@ -4,6 +4,16 @@
 
 Hold **Option / Alt** to measure between your selection and another layer. Use the inspector's **Arrange** bar for alignment and equal spacing, arrows to nudge, Cmd/Ctrl + arrows to resize, and brackets to change layer depth. See [precision controls and shortcuts](docs/precision.md).
 
+## Boolean paths
+
+Shift-select two or more rectangles, ellipses, or paths in the same frame, then choose **Union**, **Subtract**, **Intersect**, or **Exclude** in the inspector's Boolean toolbar. Subtract removes the upper layers from the bottom selected layer; Exclude keeps areas covered by an odd number of sources.
+
+Operations create editable compounds by default. Expand a source to edit its geometry, switch the operation, or **Release sources** to restore the layers at the compound's current transform. **Flatten path**, or **Flatten result** before combining, produces a regular path for pen editing. Each action supports undo and redo. Compounds retain their sources in project files and use cached cubic outlines for canvas rendering, shader masks, SVG export, and React handoff.
+
+Source token bindings remain live, including inside nested compounds. Deleting tokens retains resolved geometry and paint; releasing transformed sources detaches changed geometry bindings and preserves color bindings. Geometry is recomputed only for source edits or operation changes, so moving a compound reuses its cached outline.
+
+Run `npm test` for geometry and store regressions, and `npx playwright test e2e/boolean.spec.ts` for toolbar workflows and comparisons with native browser path filling.
+
 ## Community roadmap
 
 Open **Roadmap** in the editor footer for live development tasks, completed features, progress, and search. Development reads the repository roadmap; production builds ship a public snapshot. See [feed format and self-hosted update instructions](docs/roadmap.md).

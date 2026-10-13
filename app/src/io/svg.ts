@@ -87,7 +87,11 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
   const clip = (content: string) => { const id = unique(); defs.push(`<clipPath id="${id}" clipPathUnits="userSpaceOnUse">${content}</clipPath>`); return `clip-path="url(#${id})"` }
   const shape = (node: SceneElement, inset = 0) => {
     if (node.type === 'ellipse') return `<ellipse cx="${num(node.width / 2)}" cy="${num(node.height / 2)}" rx="${num(Math.max(0, node.width / 2 - inset))}" ry="${num(Math.max(0, node.height / 2 - inset))}"/>`
-    if (node.type === 'path') return `<svg width="${num(node.width)}" height="${num(node.height)}" viewBox="${node.viewBox.map(num).join(' ')}" preserveAspectRatio="none" overflow="visible"><path d="${xml(node.d)}" fill-rule="${node.fillRule}"/></svg>`
+    if (node.type === 'path') {
+      const [x, y, width, height] = node.viewBox, sx = node.width / width, sy = node.height / height
+      // clipPath accepts paths directly, rather than nested SVG viewports.
+      return `<path d="${xml(node.d)}" transform="${matrix([sx, 0, 0, sy, -x * sx, -y * sy])}" fill-rule="${node.fillRule}" clip-rule="${node.fillRule}"/>`
+    }
     return rect(node, inset)
   }
   const render = (id: string, root = false): string => {

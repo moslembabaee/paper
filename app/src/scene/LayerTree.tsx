@@ -1,5 +1,5 @@
 import { memo, useState } from 'react'
-import { ChevronDown, ChevronRight, Circle, Eye, EyeOff, Frame, Image, Layers, LockKeyhole, PanelLeftClose, PenTool, Square, Type, UnlockKeyhole } from 'lucide-react'
+import { ChevronDown, ChevronRight, Circle, Combine, Eye, EyeOff, Frame, Image, Layers, LockKeyhole, PanelLeftClose, PenTool, Square, Type, UnlockKeyhole } from 'lucide-react'
 import type { SceneStore } from './store'
 import type { ElementType } from './types'
 import { useScene } from './useScene'
@@ -13,7 +13,7 @@ const LayerRow = memo(function LayerRow({ store, id, depth }: { store: SceneStor
   const visible = useScene(store, () => store.isVisible(id))
   const [expanded, setExpanded] = useState(false)
   if (!node) return null
-  const Icon = elementIcons[node.type]
+  const Icon = node.type === 'path' && node.boolean ? Combine : elementIcons[node.type]
   const hasChildren = node.type === 'frame' && node.children.length > 0
   return <div role="treeitem" aria-selected={selected} aria-expanded={hasChildren ? expanded : undefined}>
     <div className={`scene-layer-row ${selected ? 'selected' : ''} ${!visible ? 'is-hidden' : ''}`} style={{ paddingLeft: 8 + depth * 12 }}>
