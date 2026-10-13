@@ -148,6 +148,8 @@ export function CanvasViewport({ children, overlay, background, controller: prov
     const down = (event: PointerEvent) => {
       if (isControl(event.target)) return
       rect = root.getBoundingClientRect()
+      // Pointer tools own taps; wheel zoom and mouse/Space panning still use the viewport.
+      if (event.pointerType === 'touch' && event.target instanceof Element && event.target.closest('[data-canvas-pointer-tool]')) return
       if (event.pointerType === 'touch') {
         event.preventDefault()
         controller.stop()

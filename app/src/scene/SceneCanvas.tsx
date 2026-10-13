@@ -17,7 +17,7 @@ import { measurementHit } from './measurementGeometry'
 import { CollaborationOverlay } from '../collaboration/CollaborationOverlay'
 import type { CollaborationSession } from '../collaboration/session'
 
-export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity, prototypeOverlay, collaboration }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null; prototypeOverlay?: ReactNode; collaboration?: CollaborationSession | null }) {
+export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity, prototypeOverlay, collaboration, annotationOverlay, commentMode = false }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null; prototypeOverlay?: ReactNode; collaboration?: CollaborationSession | null; annotationOverlay?: ReactNode; commentMode?: boolean }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   useLayoutEffect(() => {
@@ -27,11 +27,11 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
     document.fonts.addEventListener('loadingdone', refresh)
     return () => { active = false; document.fonts.removeEventListener('loadingdone', refresh) }
   }, [store])
-  const isPrototype = Boolean(prototypeOverlay)
-  if (isPrototype && editingId !== null) setEditingId(null)
-  useArrangeShortcuts(store, controller, !isPrototype && !penMode && !editingId)
+  const interactionDisabled = Boolean(prototypeOverlay) || commentMode
+  if (interactionDisabled && editingId !== null) setEditingId(null)
+  useArrangeShortcuts(store, controller, !interactionDisabled && !penMode && !editingId)
   useLayoutEffect(() => {
-    if (isPrototype) return
+    if (interactionDisabled) return
     const viewport = hostRef.current!.querySelector<HTMLElement>('.canvas-viewport')!
     const enter = (id: string | undefined) => {
       if (store.getHistorySnapshot().active) return
@@ -55,7 +55,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
       if (node?.type !== 'path' || node.boolean || store.isLocked(editingId) || !store.isVisible(editingId) || state.selection.length !== 1 || state.selection[0] !== editingId) setEditingId(null)
     })
     return () => { unsubscribe(); viewport.removeEventListener('dblclick', doubleClick); document.removeEventListener('keydown', keydown) }
-  }, [store, controller, panMode, penMode, editingId, isPrototype])
+  }, [store, controller, panMode, penMode, editingId, interactionDisabled])
   const elements = useScene(store, state => state.elements)
   const rootIds = useScene(store, state => state.rootIds)
   const backgroundShader = useScene(store, state => state.backgroundShader)
@@ -65,8 +65,8 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   }, [store, rootIds, elements])
   const bounds = useMemo(() => unionBounds(items), [items])
   return (
-    <div ref={hostRef} style={{ display: 'contents' }}><CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{prototypeOverlay ?? (!panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <SelectionOverlay store={store} controller={controller} panMode={panMode} />)}</>}>
-      <SceneRenderer store={store} interactive={!panMode} />
+    <div ref={hostRef} style={{ display: 'contents' }}><CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (!panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <SelectionOverlay store={store} controller={controller} panMode={panMode} />)}</>}>
+      <SceneRenderer store={store} interactive={!panMode && !commentMode} />
     </CanvasViewport></div>
   )
 }

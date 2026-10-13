@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, ListChecks, MousePointer2, PenTool, Play, Sparkles, Square, Type, X } from 'lucide-react'
+import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, ListChecks, MessageSquare, MousePointer2, PenTool, Play, Sparkles, Square, Type, X } from 'lucide-react'
 import type { ElementType } from './scene/types'
 import { componentRoot } from './scene/components'
 import { SceneCanvas } from './scene/SceneCanvas'
@@ -24,6 +24,10 @@ import { PrototypeInspector } from './prototype/PrototypeInspector'
 import { PresentationPlayer } from './prototype/PresentationPlayer'
 import { useCollaboration } from './collaboration/useCollaboration'
 import { PresenceBar } from './collaboration/PresenceBar'
+import { useComments } from './comments/useComments'
+import { CommentOverlay } from './comments/CommentOverlay'
+import { CommentsSidebar } from './comments/CommentsSidebar'
+import './comments/comments.css'
 import './prototype/prototype.css'
 import './mcp/bridge.css'
 import './App.css'
@@ -57,7 +61,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
 }) {
   const { controller, store } = workspace
   const [name, setName] = useState(workspace.project?.name ?? 'Space to think')
-  const [tool, setTool] = useState<'select' | 'hand' | 'pen'>('select')
+  const [tool, setTool] = useState<'select' | 'hand' | 'pen' | 'comment'>('select')
   const [shadersOpen, setShadersOpen] = useState(false)
   const [grid, setGrid] = useState(workspace.project?.grid ?? true)
   const [layersVisible, setLayersVisible] = useState(true)
@@ -75,6 +79,11 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
 
   const bridge = useLiveBridge({ projectId: workspace.record.id, store, documentSync: false, getProject: io.getProject, onSettings: project => { setName(project.name); setGrid(project.grid) } })
   const collaboration = useCollaboration(workspace.record.id, store, controller, profile.name)
+  const comments = useComments(workspace.record.id, store, controller, profile.name)
+  const { setOpen: setCommentsOpen, setDraft: setCommentDraft, setActiveId: setCommentActiveId } = comments
+  const startComment = useCallback(() => { setTool('comment'); setCommentsOpen(true); setCommentDraft(null); setCommentActiveId(null); setPrototypeMode(false) }, [setCommentsOpen, setCommentDraft, setCommentActiveId])
+  const cancelComment = () => { if (tool === 'comment') setTool('select') }
+  const closeComments = () => { comments.setOpen(false); comments.setDraft(null); cancelComment() }
 
   async function changeProject(action: () => Promise<void>) {
     if (transition.current || io.importing) return
@@ -126,8 +135,10 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
         togglePixelSnap()
         return
       }
+      if (event.key === 'Escape' && tool === 'comment') { event.preventDefault(); setTool('select'); return }
       if (event.ctrlKey || event.metaKey || event.altKey) return
       const key = event.key.toLowerCase()
+      if (key === 'c') { event.preventDefault(); startComment(); return }
       if (prototypeMode) {
         if (key === 'v' || key === 'm') { event.preventDefault(); setTool('select') }
         if (key === 'h') { event.preventDefault(); setTool('hand') }
@@ -144,13 +155,13 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
     }
     document.addEventListener('keydown', keydown)
     return () => document.removeEventListener('keydown', keydown)
-  }, [prototypeMode, presenting, addElement])
+  }, [prototypeMode, presenting, addElement, tool, startComment])
 
   return <div className="paper-app">
     <header className="app-header">
       <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
       <ProjectSwitcher name={name} activeId={workspace.record.id} projects={manager.projects.map(project => project.id === workspace.record.id ? { ...project, name: name.trim() || 'Untitled' } : project)} workspaceName={profile.workspaceName} persistent={manager.persistent} disabled={changing || io.importing} open={projectsOpen} onToggle={setProjectsOpen} onNameChange={setName} onSwitch={id => changeProject(() => manager.open(id))} onCreate={next => changeProject(() => manager.create(next, profile.defaultGrid))} onRename={renameProject} />
-      <div className="header-end">{collaboration && <PresenceBar session={collaboration} />}<span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!bridge.activity} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : 'MCP offline'}</span><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => { setDevMode(!devMode); setPrototypeMode(false); setTool('select') }}><Code2 size={14} /><span>Dev</span></button><button className={`prototype-mode-toggle ${prototypeMode ? 'active' : ''}`} data-testid="prototype-mode-toggle" aria-label="Toggle prototype mode" aria-pressed={prototypeMode} onClick={() => { setPrototypeMode(!prototypeMode); setTool('select'); setDevMode(false); setInteractionId(null) }}><GitBranch size={14} /><span>Prototype</span></button><button className="prototype-present-button" aria-label="Present prototype" title="Present prototype" onClick={() => setPresenting(true)}><Play size={14} fill="currentColor" /></button><ProfileMenu profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
+      <div className="header-end">{collaboration && <PresenceBar session={collaboration} />}<span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!bridge.activity} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : 'MCP offline'}</span><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => { setDevMode(!devMode); setPrototypeMode(false); setTool('select') }}><Code2 size={14} /><span>Dev</span></button><button className={`prototype-mode-toggle ${prototypeMode ? 'active' : ''}`} data-testid="prototype-mode-toggle" aria-label="Toggle prototype mode" aria-pressed={prototypeMode} onClick={() => { setPrototypeMode(!prototypeMode); comments.setOpen(false); setTool('select'); setDevMode(false); setInteractionId(null) }}><GitBranch size={14} /><span>Prototype</span></button><button className="prototype-present-button" aria-label="Present prototype" title="Present prototype" onClick={() => setPresenting(true)}><Play size={14} fill="currentColor" /></button><ProfileMenu profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
     </header>
     <div className="editor-layout" inert={changing}>
       {layersVisible && <DocumentSidebar store={store} controller={controller} onHide={() => setLayersVisible(false)} />}
@@ -165,9 +176,11 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
           <button className={`tool-button ${grid ? 'grid-active' : ''}`} data-testid="tool-grid" aria-label="Toggle engineering grid" aria-pressed={grid} title="120px engineering grid" onClick={() => setGrid(!grid)}><Grid2X2 size={16} /></button>
           <span className="toolbar-divider" />
           {!prototypeMode && <button className="tool-button" data-testid="tool-shaders" aria-label="Browse shaders" title="Shaders (S)" onClick={() => { setTool('select'); setShadersOpen(true) }}><Sparkles size={16} /></button>}
+          <button className={`tool-button comment-tool ${comments.open ? 'active' : ''}`} data-testid="tool-comments" aria-label="Toggle comments" aria-pressed={comments.open} aria-expanded={comments.open} aria-controls={comments.open ? "paper-comments" : undefined} title="Comments · Place a pin with C" onClick={() => comments.open ? closeComments() : comments.setOpen(true)}><MessageSquare size={16} />{!!comments.unread.size && <span className="comment-tool-unread">{comments.unread.size}</span>}</button>
           <HistoryControls store={store} />
         </div>
-        <SceneCanvas collaboration={collaboration} prototypeOverlay={prototypeMode ? <ConnectionWires store={store} controller={controller} panMode={tool === 'hand'} selectedId={interactionId} onSelect={setInteractionId} /> : undefined} agentActivity={bridge.activity} store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
+        <SceneCanvas commentMode={tool === 'comment'} annotationOverlay={comments.open ? <CommentOverlay store={store} controller={controller} threads={comments.threads} unread={comments.unread} activeId={comments.activeId} draft={comments.draft} placing={tool === 'comment'} onSelect={thread => { setTool('select'); comments.select(thread) }} onPlace={anchor => { comments.setDraft(anchor); comments.setActiveId(null); setTool('select') }} /> : undefined} collaboration={collaboration} prototypeOverlay={prototypeMode ? <ConnectionWires store={store} controller={controller} panMode={tool === 'hand'} selectedId={interactionId} onSelect={setInteractionId} /> : undefined} agentActivity={bridge.activity} store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
+        {comments.open && <CommentsSidebar comments={comments} store={store} session={collaboration} placing={tool === 'comment'} onNew={startComment} onCancel={cancelComment} onClose={closeComments} />}
         {prototypeMode && <div className="prototype-canvas-status"><GitBranch size={12} /><span>PROTOTYPE</span><span>Select a layer · Drag a connection</span></div>}
       </main>
       {prototypeMode ? <PrototypeInspector store={store} selectedId={interactionId} onSelect={setInteractionId} onPresent={() => setPresenting(true)} /> : devMode ? <DevModeInspector store={store} name={name.trim() || 'Untitled'} onSave={io.saveProject} onMessage={io.setMessage} onExit={() => setDevMode(false)} /> : <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} onOpenShaders={() => { setTool('select'); setShadersOpen(true) }} />}

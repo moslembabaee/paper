@@ -1,3 +1,5 @@
+import { EMPTY_COMMENTS, validateComments } from '../comments/model.ts'
+import type { CommentDocument } from '../comments/types.ts'
 import { EMPTY_LIBRARY, detachEditedSharedStyles, resolveSharedStyles, resolveTokens, validateLibrary } from '../tokens/library.ts'
 import { detachEditedBindings, detachRemovedTokenBindings, resolveTokenBindings, supportsTokenProperty, tokenVariable, validateTokens } from '../tokens/model.ts'
 import type { DesignToken, SharedStyle, SharedStyleInput, SharedStyleKind, StyleLibrary, TokenInput, TokenProperty } from '../tokens/types.ts'
@@ -796,6 +798,11 @@ export class SceneStore {
     this.publish(Object.freeze({ ...this.state, backgroundShader: paint ? freezeShader(paint) : null }), 'Style canvas background')
   }
 
+  setComments(value: CommentDocument, label = 'Edit comments'): void {
+    const comments = validateComments(value)
+    if (!equalValue(this.state.comments ?? EMPTY_COMMENTS, comments)) this.publish(Object.freeze({ ...this.state, comments }), label)
+  }
+
   setPrototype(value: PrototypeDocument, label = 'Edit prototype'): void {
     const prototype = validatePrototype(value, this.state.elements)
     if (!equalValue(this.state.prototype ?? EMPTY_PROTOTYPE, prototype)) this.publish(Object.freeze({ ...this.state, prototype }), label)
@@ -818,7 +825,7 @@ export class SceneStore {
     this.setPrototype({ ...value, interactions: value.interactions.filter(item => item.id !== id) }, 'Remove interaction')
   }
 
-  toJSON(): SceneDocument { return { version: 1, tokens: this.state.tokens, styleLibrary: this.state.styleLibrary, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.prototype ? { prototype: this.state.prototype } : {}), ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
+  toJSON(): SceneDocument { return { version: 1, ...(this.state.comments ? { comments: this.state.comments } : {}), tokens: this.state.tokens, styleLibrary: this.state.styleLibrary, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.prototype ? { prototype: this.state.prototype } : {}), ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
 
   /** Font loading changes text metrics without creating a user edit. */
   refreshLayout(): void {
@@ -882,7 +889,8 @@ export class SceneStore {
     if (visited.size !== Object.keys(elements).length) throw new Error('Unreachable scene elements')
     validateMaskGraph(elements)
     validateComponentGraph(elements, resolvedTokens, styleLibrary)
+    const comments = document.comments === undefined ? undefined : validateComments(document.comments)
     const prototype = document.prototype === undefined ? undefined : validatePrototype(document.prototype, elements)
-    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(prototype ? { prototype } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
+    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(comments ? { comments } : {}), ...(prototype ? { prototype } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
   }
 }

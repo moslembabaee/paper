@@ -7,7 +7,7 @@ const record = (value: unknown): value is Record<string, unknown> => Boolean(val
 const key = (path: readonly string[]) => JSON.stringify(path)
 const newer = (a: Register, b: Register) => a.clock > b.clock || (a.clock === b.clock && a.actor > b.actor)
 
-function flatten(document: SceneDocument, changedIds?: ReadonlySet<string>): Map<string, { path: string[]; value: unknown }> {
+function flatten(document: SceneDocument, changedIds?: ReadonlySet<string>, includeComments = true): Map<string, { path: string[]; value: unknown }> {
   const fields = new Map<string, { path: string[]; value: unknown }>()
   const visit = (value: unknown, path: string[]) => {
     if (record(value) && Object.keys(value).length) {
@@ -17,6 +17,18 @@ function flatten(document: SceneDocument, changedIds?: ReadonlySet<string>): Map
   // Complex collections are atomic registers; element properties and paints merge independently.
   for (const name of ['tokens', 'styleLibrary', 'prototype', 'backgroundShader'] as const) {
     if (document[name] !== undefined) fields.set(key([name]), { path: [name], value: document[name] })
+  }
+  // Independent message registers preserve concurrent replies to the same thread.
+  for (const [id, thread] of Object.entries(includeComments ? document.comments ?? {} : {})) {
+    fields.set(key(['comments', id, '$alive']), { path: ['comments', id, '$alive'], value: true })
+    for (const name of ['id', 'anchor', 'createdAt', 'status'] as const) {
+      const path = ['comments', id, name]
+      fields.set(key(path), { path, value: thread[name] })
+    }
+    for (const [messageId, message] of Object.entries(thread.messages)) {
+      const path = ['comments', id, 'messages', messageId]
+      fields.set(key(path), { path, value: message })
+    }
   }
   for (const [id, node] of Object.entries(document.elements)) {
     if (changedIds && !changedIds.has(id)) continue
@@ -79,15 +91,17 @@ export class SceneReplica {
     }
   }
   change(before: SceneDocument, after: SceneDocument): Register[] {
-    if (before.elements === after.elements && ['tokens', 'styleLibrary', 'prototype', 'backgroundShader'].every(name => before[name as keyof SceneDocument] === after[name as keyof SceneDocument])) return []
+    if (before.elements === after.elements && ['comments', 'tokens', 'styleLibrary', 'prototype', 'backgroundShader'].every(name => before[name as keyof SceneDocument] === after[name as keyof SceneDocument])) return []
     const changedIds = new Set([...Object.keys(before.elements), ...Object.keys(after.elements)].filter(id => before.elements[id] !== after.elements[id]))
-    const old = flatten(before, changedIds), next = flatten(after, changedIds), changes: Register[] = []
+    const commentsChanged = before.comments !== after.comments
+    const old = flatten(before, changedIds, commentsChanged), next = flatten(after, changedIds, commentsChanged), changes: Register[] = []
     const clock = ++this.clock
     for (const name of new Set([...old.keys(), ...next.keys()])) {
       const previous = old.get(name), value = next.get(name)
       if (previous && value && equalValue(previous.value, value.value)) continue
       // A tombstone keeps the entity's properties for undo, without resurrecting on late edits.
       if (!value && previous?.path[0] === 'elements' && previous.path[2] !== '$alive' && !after.elements[previous.path[1]]) continue
+      if (!value && previous?.path[0] === 'comments' && previous.path[2] !== '$alive' && !after.comments?.[previous.path[1]]) continue
       changes.push({ path: (value ?? previous)!.path, value: value?.value ?? null, deleted: !value, clock, actor: this.actor })
     }
     this.merge(changes)
@@ -97,10 +111,13 @@ export class SceneReplica {
   document(): SceneDocument {
     const result: Record<string, unknown> = { version: 1, elements: {}, rootIds: [] }
     const alive = new Set(this.export().filter(field => field.path[0] === 'elements' && field.path[2] === '$alive' && !field.deleted).map(field => field.path[1]))
+    const aliveThreads = new Set(this.export().filter(field => field.path[0] === 'comments' && field.path[2] === '$alive' && !field.deleted).map(field => field.path[1]))
+    if (this.export().some(field => field.path[0] === 'comments')) result.comments = {}
     // Parents are written first; newer leaf values replace an earlier null/atomic value.
     const entries = this.export().filter(field => !field.deleted).sort((a, b) => a.clock - b.clock || a.actor.localeCompare(b.actor) || a.path.length - b.path.length)
     for (const field of entries) {
       if (field.path[0] === 'elements' && (!alive.has(field.path[1]) || field.path[2] === '$alive')) continue
+      if (field.path[0] === 'comments' && (!aliveThreads.has(field.path[1]) || field.path[2] === '$alive')) continue
       let target = result
       field.path.slice(0, -1).forEach(part => {
         if (!record(target[part])) target[part] = {}

@@ -107,7 +107,7 @@ export class CollaborationServer {
       if (data.changes !== undefined) {
         if (!Array.isArray(data.changes) || data.changes.length > 100_000) throw new Error('Invalid changes')
         const changes = data.changes as Register[]
-        if (changes.some(change => change.actor !== id || !Array.isArray(change.path) || (change.path[0] === 'elements' ? change.path.length < 3 : change.path.length !== 1 || !['tokens', 'styleLibrary', 'prototype', 'backgroundShader'].includes(change.path[0])))) throw new Error('Invalid change actor or document field')
+        if (changes.some(change => change.actor !== id || !Array.isArray(change.path) || (change.path[0] === 'elements' ? change.path.length < 3 : change.path[0] === 'comments' ? !((change.path.length === 3 && ['id', 'anchor', 'createdAt', 'status', '$alive'].includes(change.path[2])) || (change.path.length === 4 && change.path[2] === 'messages')) : change.path.length !== 1 || !['tokens', 'styleLibrary', 'prototype', 'backgroundShader'].includes(change.path[0])))) throw new Error('Invalid change actor or document field')
         const candidate = new SceneReplica('server', room.replica.export()); candidate.merge(changes)
         try { const validator = new SceneStore(); validator.load(candidate.document()) }
         catch (error) { reply(response, 409, { error: `Shared edit rejected: ${error instanceof Error ? error.message : 'invalid document'}`, registers: room.replica.export() }); return }
