@@ -57,8 +57,8 @@ function CSSBlock({ props }: { props: CSSProp[] }) {
   )
 }
 
-function TailwindBlock({ node, tokens }: { node: SceneElement; tokens: readonly DesignToken[] }) {
-  const classes = buildTailwindClasses(node, tokens)
+function TailwindBlock({ node, tokens, parent }: { node: SceneElement; tokens: readonly DesignToken[]; parent?: SceneElement }) {
+  const classes = buildTailwindClasses(node, tokens, parent)
   return (
     <div className="dev-code-block">
       <div className="dev-code-header">
@@ -74,8 +74,8 @@ function TailwindBlock({ node, tokens }: { node: SceneElement; tokens: readonly 
   )
 }
 
-function ReactBlock({ node, tokens }: { node: SceneElement; tokens: readonly DesignToken[] }) {
-  const code = buildReactComponent(node, tokens)
+function ReactBlock({ node, tokens, parent }: { node: SceneElement; tokens: readonly DesignToken[]; parent?: SceneElement }) {
+  const code = buildReactComponent(node, tokens, parent)
   return (
     <div className="dev-code-block">
       <div className="dev-code-header">
@@ -90,7 +90,8 @@ function ReactBlock({ node, tokens }: { node: SceneElement; tokens: readonly Des
 function BoxModel({ node }: { node: SceneElement }) {
   const margin = 0
   const border = node.style.stroke?.width ?? 0
-  const padding = 0
+  const p = node.type === 'frame' ? node.layout?.padding : null
+  const padding = p ? `${p.top} / ${p.right} / ${p.bottom} / ${p.left}` : '0'
   const { width, height } = node
 
   return (
@@ -100,7 +101,7 @@ function BoxModel({ node }: { node: SceneElement }) {
         <span className="dev-bm-dim">{margin}</span>
         <div className="dev-bm-border" title={`Border: ${border}px`}>
           <span className="dev-bm-dim">{border > 0 ? border : '—'}</span>
-          <div className="dev-bm-padding" title="Padding (always 0)">
+          <div className="dev-bm-padding" title={`Padding, top / right / bottom / left: ${padding}`}>
             <span className="dev-bm-dim">{padding}</span>
             <div className="dev-bm-content">
               <span className="dev-bm-size">{Math.round(width)} × {Math.round(height)}</span>
@@ -119,7 +120,8 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
   const node = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
   const [tab, setTab] = useState<'inspect' | 'code'>('inspect')
 
-  const cssProps = node ? buildCSSProps(node, state.tokens) : []
+  const parent = node?.parentId ? state.elements[node.parentId] : undefined
+  const cssProps = node ? buildCSSProps(node, state.tokens, parent) : []
   const worldBounds = node ? (() => {
     try { return getWorldBounds(state, node.id) } catch { return null }
   })() : null
@@ -288,10 +290,10 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
             <div className="dev-element-name">{elementToComponentName(node)}</div>
           </div>
           <div className="inspector-section">
-            <TailwindBlock node={node} tokens={state.tokens} />
+            <TailwindBlock node={node} tokens={state.tokens} parent={parent} />
           </div>
           <div className="inspector-section">
-            <ReactBlock node={node} tokens={state.tokens} />
+            <ReactBlock node={node} tokens={state.tokens} parent={parent} />
           </div>
         </>
       )}

@@ -11,9 +11,10 @@ import { useRangeHistory } from './useRangeHistory'
 import { ShaderInspector } from '../shaders/ShaderInspector'
 import { ArrangeBar } from './ArrangeBar'
 import { BooleanBar } from './BooleanBar'
+import { AutoLayoutInspector } from './AutoLayoutInspector'
 
-function NumberField({ label, value, onChange, min, max, step = 1, binding }: { binding?: ReactNode; label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
-  return <div className="token-number-field"><label className="property-number"><span>{label}</span><input key={value} aria-label={label} type="number" defaultValue={Number(value.toFixed(3))} min={min} max={max} step={step} onBlur={(event) => {
+function NumberField({ label, value, onChange, min, max, step = 1, binding, disabled = false }: { disabled?: boolean; binding?: ReactNode; label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
+  return <div className="token-number-field"><label className="property-number"><span>{label}</span><input key={value} aria-label={label} disabled={disabled} type="number" defaultValue={Number(value.toFixed(3))} min={min} max={max} step={step} onBlur={(event) => {
     const next = event.currentTarget.valueAsNumber
     if (Number.isFinite(next) && (min === undefined || next >= min) && (max === undefined || next <= max)) { if (next !== value) onChange(next) }
     else event.currentTarget.value = String(value)
@@ -29,6 +30,8 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
   const onRangePointerDown = useRangeHistory(store)
   const state = useScene(store, snapshot => snapshot)
   const node = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
+  const parent = node?.parentId ? state.elements[node.parentId] : undefined
+  const managed = parent?.type === 'frame' && !!parent.layout
   const binding = (property: TokenProperty, label: string, color = false) => node ? <TokenSelector key={`${node.id}-${property}`} store={store} node={node} property={property} label={label} tokens={state.tokens} color={color} /> : null
   const patch = (changes: ElementPatch<ElementType>) => { if (node) store.update(node.id, node.type, changes) }
   const style = (changes: Partial<SceneElement['style']>) => patch({ style: changes })
@@ -46,12 +49,13 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
       <div className="inspector-section">
         <span className="section-caption">SELECTION</span>
         <input className="property-name" key={node.id + node.name} aria-label="Layer name" defaultValue={node.name} onBlur={event => { const name = event.currentTarget.value.trim(); if (name) patch({ name }); else event.currentTarget.value = node.name }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
-        <div className="property-pair"><NumberField binding={binding('x', 'X')} label="X" value={node.x} onChange={x => patch({ x })} /><NumberField binding={binding('y', 'Y')} label="Y" value={node.y} onChange={y => patch({ y })} /></div>
+        <div className="property-pair"><NumberField disabled={managed} binding={managed ? null : binding('x', 'X')} label="X" value={node.x} onChange={x => patch({ x })} /><NumberField disabled={managed} binding={managed ? null : binding('y', 'Y')} label="Y" value={node.y} onChange={y => patch({ y })} /></div>
         <div className="property-pair"><NumberField binding={binding('width', 'Width')} label="Width" value={node.width} min={.01} onChange={width => patch({ width })} /><NumberField binding={binding('height', 'Height')} label="Height" value={node.height} min={.01} onChange={height => patch({ height })} /></div>
         <div className="property-pair"><NumberField label="Rotation" value={node.rotation} onChange={rotation => patch({ rotation })} /><NumberField label="Opacity %" value={node.style.opacity * 100} min={0} max={100} onChange={opacity => style({ opacity: opacity / 100 })} /></div>
         {'cornerRadius' in node && <NumberField binding={binding('cornerRadius', 'Radius')} label="Radius" value={node.cornerRadius} min={0} onChange={cornerRadius => patch({ cornerRadius })} />}
         <button className="text-action" onClick={() => controller.fit(getWorldBounds(state, node.id))}>Focus element <ChevronRight size={12} /></button>
       </div>
+      <AutoLayoutInspector key={node.id} node={node} parent={parent} store={store} />
       <div className="inspector-section">
         <span className="section-caption">APPEARANCE</span>
         <div className="property-heading"><span>Fill</span><button className="quiet-button paint-toggle" aria-label="Toggle fill" aria-pressed={node.style.fill !== null} onClick={() => style({ fill: node.style.fill === null ? '#81adec' : null })}>{node.style.fill === null ? '+' : '−'}</button></div>

@@ -7,6 +7,7 @@ import type { ShaderPaint } from '../shaders/types.ts'
 import type { BooleanCompound, BooleanOperation, ElementInput, ElementOf, ElementPatch, ElementType, PathElement, SceneDocument, SceneElement, SceneSnapshot, VectorElement } from './types.ts'
 import { computeBoolean, isVector, refreshBooleanElement, transformedSource } from './booleanGeometry.ts'
 import { serializePath } from './pathGeometry.ts'
+import { FIXED_SIZING, invalidateLayoutTextMetrics, reflowAutoLayout } from './autoLayout.ts'
 
 type Listener = () => void
 const EMPTY = Object.freeze([]) as readonly string[]
@@ -89,6 +90,10 @@ export class SceneStore {
   private emit() { for (const listener of [...this.listeners]) listener() }
   private publish(next: SceneSnapshot, label: string, documentChanged = true) {
     const before = this.state
+    if (documentChanged) {
+      const elements = reflowAutoLayout(next.elements, next.rootIds)
+      if (elements !== next.elements) next = Object.freeze({ ...next, elements: Object.freeze(elements) })
+    }
     this.state = next
     if (!this.batchDepth && !this.transaction && documentChanged) this.history.record(before, next, label)
     if (this.batchDepth) this.pending = true
@@ -160,7 +165,7 @@ export class SceneStore {
     const elements = { ...this.state.elements, [node.id]: node }
     this.ordered(elements, node.parentId, siblings)
     this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, this.state.selection, `Add ${node.name}`)
-    return elements[node.id] as ElementOf<T>
+    return this.state.elements[node.id] as ElementOf<T>
   }
 
   /** Structural fields can only change through add/reparent/reorder/remove. */
@@ -174,11 +179,19 @@ export class SceneStore {
     if (node.type === 'path' && node.boolean && ['d', 'viewBox', 'fillRule', 'nodes'].some(key => Object.hasOwn(patch, key))) throw new Error('Flatten the compound before editing its merged outline')
     const tokenBindings = detachEditedBindings(node.tokenBindings, patch as Record<string, unknown>, node)
     const updated = { ...node, ...patch, ...(tokenBindings ? { tokenBindings } : {}), style: { ...node.style, ...patch.style } } as SceneElement
+    // A direct resize is an explicit fixed-size edit; layout settings remain
+    // authoritative when the caller supplies sizing in the same patch.
+    if (!Object.hasOwn(patch, 'sizing') && node.sizing && (Object.hasOwn(patch, 'width') || Object.hasOwn(patch, 'height'))) {
+      Object.assign(updated, { sizing: { ...node.sizing, ...(Object.hasOwn(patch, 'width') ? { width: 'fixed' } : {}), ...(Object.hasOwn(patch, 'height') ? { height: 'fixed' } : {}) } })
+    }
     if (updated.type === 'path') {
       if (Object.hasOwn(patch, 'nodes') && updated.nodes) Object.assign(updated, { d: serializePath(updated.nodes) })
       else if (Object.hasOwn(patch, 'd')) delete (updated as { nodes?: unknown }).nodes
     }
     validateElement(updated)
+    if (Object.hasOwn(patch, 'sizing') && updated.sizing && tokenBindings) {
+      for (const axis of ['width', 'height'] as const) if (updated.sizing[axis] !== 'fixed') delete tokenBindings[axis]
+    }
     if (equalValue(node, updated)) return
     const label = patch.style ? 'Style' : ['x', 'y', 'width', 'height', 'rotation'].some(key => Object.hasOwn(patch, key)) ? 'Transform' : 'Edit'
     this.commit({ ...this.state.elements, [id]: freezeElement(updated) }, this.state.rootIds, this.state.selection, `${label} ${node.name}`)
@@ -434,7 +447,7 @@ export class SceneStore {
     if (this.isLocked(id)) throw new Error('Element is locked')
     if (!supportsTokenProperty(node, property)) throw new Error('Unsupported token property')
     if (node.tokenBindings?.[property] === tokenId) return
-    const next = resolveTokenBindings({ ...node, tokenBindings: { ...node.tokenBindings, [property]: tokenId } }, this.state.tokens)
+    const next = resolveTokenBindings({ ...node, ...(property === 'width' || property === 'height' ? { sizing: { ...(node.sizing ?? FIXED_SIZING), [property]: 'fixed' } } : {}), tokenBindings: { ...node.tokenBindings, [property]: tokenId } }, this.state.tokens)
     validateElement(next)
     this.commit({ ...this.state.elements, [id]: freezeElement(next) }, this.state.rootIds, this.state.selection, `Bind ${property} token`)
   }
@@ -469,6 +482,13 @@ export class SceneStore {
   }
 
   toJSON(): SceneDocument { return { version: 1, tokens: this.state.tokens, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
+
+  /** Font loading changes text metrics without creating a user edit. */
+  refreshLayout(): void {
+    invalidateLayoutTextMetrics()
+    const elements = reflowAutoLayout(this.state.elements, this.state.rootIds)
+    if (elements !== this.state.elements) this.publish(Object.freeze({ ...this.state, elements: Object.freeze(elements) }), 'Refresh layout', false)
+  }
 
   /** Validate the whole document before replacing state; invalid imports are atomic. */
   load(document: SceneDocument): void {

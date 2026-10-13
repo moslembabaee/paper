@@ -4,6 +4,16 @@
 
 Hold **Option / Alt** to measure between your selection and another layer. Use the inspector's **Arrange** bar for alignment and equal spacing, arrows to nudge, Cmd/Ctrl + arrows to resize, and brackets to change layer depth. See [precision controls and shortcuts](docs/precision.md).
 
+## Auto layout
+
+Select a frame and click **+** beside **Auto layout**. Choose horizontal or vertical flow, gap, independent padding on each side, main-axis alignment (including space between), and cross-axis alignment. Children follow their layer order; reorder layers to change the flow. Hidden children do not occupy space. Removing auto layout preserves the current positions.
+
+Set each layer's width and height to **Fixed**, **Hug contents**, or **Fill container**. Hug frames wrap their visible children and padding; hug text measures its content and wraps when its width is constrained. Shapes and images hug their current dimensions. Fill siblings divide the remaining main-axis space equally, and fill on the cross axis occupies the parent's content area. Fill inside a hugging parent axis uses the child's intrinsic size to avoid a circular dependency. Fixed children retain their dimensions when space runs out; clipping follows the frame's Clip content setting. A direct resize changes the edited axis to Fixed.
+
+Layout reflows after creation, edits, reordering, reparenting, visibility changes, deletion, and token updates, within the same undo step. Project files retain layout settings, and legacy frames remain freely positioned. Dev mode exports matching flexbox CSS, Tailwind, and React rules. MCP `create_frame` and `update_element` accept `layout` and `sizing`; see [layout types](src/scene/types.ts).
+
+Run `npm test` for layout, history, persistence, and handoff regressions, or `npx playwright test e2e/auto-layout.spec.ts` for the inspector workflow. Headless MCP uses estimated font metrics; the editor measures the loaded browser font and reflows when fonts finish loading.
+
 ## Boolean paths
 
 Shift-select two or more rectangles, ellipses, or paths in the same frame, then choose **Union**, **Subtract**, **Intersect**, or **Exclude** in the inspector's Boolean toolbar. Subtract removes the upper layers from the bottom selected layer; Exclude keeps areas covered by an odd number of sources.

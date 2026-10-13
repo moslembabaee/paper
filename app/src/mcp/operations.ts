@@ -67,7 +67,7 @@ export function mutateCanvas(project: PaperProject, name: string, args: ToolArgu
   }
   let element: SceneElement
   if (name === 'create_frame' || name === 'add_shader_shape') {
-    const input = Object.fromEntries(Object.entries(args).filter(([key]) => ['id', 'name', 'parentId', 'x', 'y', 'width', 'height', 'rotation', 'visible', 'locked', 'style', 'cornerRadius', 'clipContent'].includes(key)))
+    const input = Object.fromEntries(Object.entries(args).filter(([key]) => ['id', 'name', 'parentId', 'x', 'y', 'width', 'height', 'rotation', 'visible', 'locked', 'style', 'cornerRadius', 'clipContent', 'sizing', 'layout'].includes(key)))
     if (name === 'create_frame') {
       const frame = input as ElementInput<'frame'>
       element = store.add('frame', { ...frame, style: { fill: '#edebe1', ...frame.style } })

@@ -35,6 +35,8 @@ export interface ElementStyle {
 }
 
 export interface BaseElement extends ElementGeometry {
+  /** Absent in legacy documents: both axes are fixed. */
+  readonly sizing?: ElementSizing
   readonly tokenBindings?: TokenBindings
   readonly id: string
   readonly name: string
@@ -51,6 +53,27 @@ export interface FrameElement extends BaseElement {
   readonly children: readonly string[]
   readonly clipContent: boolean
   readonly cornerRadius: number
+  /** Null or absent keeps free positioning. */
+  readonly layout?: AutoLayout | null
+}
+
+export type SizingRule = 'fixed' | 'hug' | 'fill'
+export interface ElementSizing {
+  readonly width: SizingRule
+  readonly height: SizingRule
+}
+export interface LayoutPadding {
+  readonly top: number
+  readonly right: number
+  readonly bottom: number
+  readonly left: number
+}
+export interface AutoLayout {
+  readonly direction: 'horizontal' | 'vertical'
+  readonly gap: number
+  readonly padding: LayoutPadding
+  readonly justify: 'start' | 'center' | 'end' | 'space-between'
+  readonly align: 'start' | 'center' | 'end'
 }
 
 export interface RectangleElement extends BaseElement {

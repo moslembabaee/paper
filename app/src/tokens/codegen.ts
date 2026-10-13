@@ -24,14 +24,23 @@ function hexToRgba(color: string): string {
 
 export interface CSSProp { property: string; value: string; token?: string }
 
-export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[] = []): CSSProp[] {
+export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[] = [], parent?: SceneElement): CSSProp[] {
   const props: CSSProp[] = []
-
-  props.push({ property: 'position', value: 'absolute' })
-  props.push({ property: 'left', value: `${node.x}px` })
-  props.push({ property: 'top', value: `${node.y}px` })
-  props.push({ property: 'width', value: `${node.width}px` })
-  props.push({ property: 'height', value: `${node.height}px` })
+  const parentLayout = parent?.type === 'frame' ? parent.layout : null
+  props.push({ property: 'position', value: parentLayout ? 'relative' : 'absolute' })
+  if (!parentLayout) props.push({ property: 'left', value: `${node.x}px` }, { property: 'top', value: `${node.y}px` })
+  if (parentLayout) props.push({ property: 'flex-shrink', value: '0' })
+  for (const axis of ['width', 'height'] as const) {
+    const rule = node.sizing?.[axis] ?? 'fixed'
+    const main = parentLayout && (parentLayout.direction === 'horizontal' ? axis === 'width' : axis === 'height')
+    const fills = rule === 'fill' && parentLayout && parent?.sizing?.[axis] !== 'hug'
+    props.push({ property: axis, value: rule === 'hug' ? axis === 'width' ? 'max-content' : 'auto' : fills ? main ? '0px' : '100%' : `${node[axis]}px` })
+    if (fills && main) props.push({ property: 'flex', value: '1 1 0px' }, { property: `min-${axis}`, value: '0.01px' })
+  }
+  if (node.type === 'frame' && node.layout) {
+    const { direction, gap, padding, justify, align } = node.layout
+    props.push({ property: 'display', value: 'flex' }, { property: 'box-sizing', value: 'border-box' }, { property: 'flex-direction', value: direction === 'horizontal' ? 'row' : 'column' }, { property: 'gap', value: `${gap}px` }, { property: 'padding', value: `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px` }, { property: 'justify-content', value: justify === 'start' || justify === 'end' ? `flex-${justify}` : justify }, { property: 'align-items', value: align === 'start' || align === 'end' ? `flex-${align}` : align })
+  }
 
   if (node.rotation !== 0) {
     props.push({ property: 'transform', value: `rotate(${node.rotation}deg)` })
@@ -72,6 +81,7 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
 
   if (node.type === 'text') {
     const t = node as TextElement
+    props.push({ property: 'margin', value: '0' }, { property: 'white-space', value: 'pre-wrap' }, { property: 'overflow-wrap', value: 'break-word' })
     props.push({ property: 'font-family', value: t.fontFamily })
     props.push({ property: 'font-size', value: `${t.fontSize}px` })
     props.push({ property: 'font-weight', value: String(t.fontWeight) })
@@ -87,6 +97,7 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
   const properties: Partial<Record<string, TokenProperty>> = { left: 'x', top: 'y', width: 'width', height: 'height', fill: 'fill', stroke: 'stroke', color: 'fill', 'background-color': 'fill', border: 'stroke', 'border-radius': 'cornerRadius', 'font-family': 'fontFamily', 'font-size': 'fontSize', 'font-weight': 'fontWeight', 'line-height': 'lineHeight', 'letter-spacing': 'letterSpacing' }
   return props.map(prop => {
     const property = properties[prop.property]
+    if ((property === 'width' || property === 'height') && node.sizing?.[property] && node.sizing[property] !== 'fixed') return prop
     const token = property ? boundToken(node, property, tokens) : undefined
     if (!token) return prop
     const variable = tokenVariable(token)
@@ -110,10 +121,26 @@ function colorToTailwind(color: string, prefix: 'bg' | 'text' | 'border' | 'fill
   return map[color.toLowerCase()] ?? `${prefix}-[${color}]`
 }
 
-export function buildTailwindClasses(node: SceneElement, tokens: readonly DesignToken[] = []): string {
-  const classes: string[] = ['absolute']
+export function buildTailwindClasses(node: SceneElement, tokens: readonly DesignToken[] = [], parent?: SceneElement): string {
+  const parentLayout = parent?.type === 'frame' ? parent.layout : null
+  const classes: string[] = [parentLayout ? 'relative' : 'absolute']
+  if (parentLayout) classes.push('shrink-0')
   const bindingClass = (property: TokenProperty) => { const token = boundToken(node, property, tokens); return token ? tokenClass(token, property, node.type === 'text', tokens) : undefined }
-  for (const property of ['x', 'y', 'width', 'height'] as const) { const name = bindingClass(property); if (name) classes.push(name) }
+  for (const property of ['x', 'y', 'width', 'height'] as const) {
+    if ((property === 'x' || property === 'y') && parentLayout) continue
+    if ((property === 'width' || property === 'height') && node.sizing?.[property] && node.sizing[property] !== 'fixed') continue
+    const name = bindingClass(property); if (name) classes.push(name)
+  }
+  for (const axis of ['width', 'height'] as const) {
+    const prefix = axis === 'width' ? 'w' : 'h', rule = node.sizing?.[axis]
+    const main = parentLayout && (parentLayout.direction === 'horizontal' ? axis === 'width' : axis === 'height')
+    if (rule === 'hug') classes.push(`${prefix}-${axis === 'width' ? 'max' : 'auto'}`)
+    if (rule === 'fill' && parentLayout && parent?.sizing?.[axis] !== 'hug') classes.push(...(main ? ['flex-1', `${prefix}-0`, `min-${prefix}-[0.01px]`] : [`${prefix}-full`]))
+  }
+  if (node.type === 'frame' && node.layout) {
+    const { direction, gap, padding, justify, align } = node.layout
+    classes.push('flex', 'box-border', direction === 'horizontal' ? 'flex-row' : 'flex-col', `gap-[${gap}px]`, `pt-[${padding.top}px]`, `pr-[${padding.right}px]`, `pb-[${padding.bottom}px]`, `pl-[${padding.left}px]`, `justify-${justify === 'space-between' ? 'between' : justify}`, `items-${align}`)
+  }
 
   if (node.style.opacity !== 1) {
     const pct = Math.round(node.style.opacity * 100)
@@ -165,6 +192,7 @@ export function buildTailwindClasses(node: SceneElement, tokens: readonly Design
 
   if (node.type === 'text') {
     const t = node as TextElement
+    classes.push('m-0', 'whitespace-pre-wrap', '[overflow-wrap:break-word]')
     const fsSizes: Record<number, string> = { 10: 'text-xs', 12: 'text-sm', 14: 'text-sm', 16: 'text-base', 18: 'text-lg', 20: 'text-xl', 24: 'text-2xl', 30: 'text-3xl', 36: 'text-4xl', 48: 'text-5xl', 57: 'text-[57px]', 60: 'text-6xl', 72: 'text-7xl' }
     classes.push(bindingClass('fontSize') ?? fsSizes[t.fontSize] ?? `text-[${t.fontSize}px]`)
     const fwMap: Record<number, string> = { 100: 'font-thin', 200: 'font-extralight', 300: 'font-light', 400: 'font-normal', 500: 'font-medium', 600: 'font-semibold', 700: 'font-bold', 800: 'font-extrabold', 900: 'font-black' }
@@ -192,10 +220,15 @@ export function elementToComponentName(node: SceneElement): string {
   return `${/^[a-zA-Z]/.test(name) ? '' : 'Paper'}${name[0].toUpperCase()}${name.slice(1)}`
 }
 
-export function buildReactComponent(node: SceneElement, tokens: readonly DesignToken[] = []): string {
+export function buildReactComponent(node: SceneElement, tokens: readonly DesignToken[] = [], parent?: SceneElement): string {
   const name = elementToComponentName(node)
-  const tw = buildTailwindClasses(node, tokens)
-  const geometryStyle = ['x', 'y', 'width', 'height'].filter(property => !node.tokenBindings?.[property as TokenProperty]).map(property => `${property === 'x' ? 'left' : property === 'y' ? 'top' : property}: ${node[property as 'x' | 'y' | 'width' | 'height']}`)
+  const tw = buildTailwindClasses(node, tokens, parent)
+  const parentLayout = parent?.type === 'frame' ? parent.layout : null
+  const geometryStyle = (['x', 'y', 'width', 'height'] as const).filter(property => {
+    if ((property === 'x' || property === 'y') && parentLayout) return false
+    if ((property === 'width' || property === 'height') && (node.sizing?.[property] === 'hug' || (node.sizing?.[property] === 'fill' && parentLayout && parent?.sizing?.[property] !== 'hug'))) return false
+    return !node.tokenBindings?.[property]
+  }).map(property => `${property === 'x' ? 'left' : property === 'y' ? 'top' : property}: ${node[property]}`)
   if (node.rotation !== 0) geometryStyle.push(`transform: 'rotate(${node.rotation}deg)'`)
   if (node.type === 'text' && !node.tokenBindings?.fontFamily) geometryStyle.push(`fontFamily: ${JSON.stringify(node.fontFamily)}`)
   const inlineStyle = geometryStyle.length ? `{{ ${geometryStyle.join(', ')} }}` : null

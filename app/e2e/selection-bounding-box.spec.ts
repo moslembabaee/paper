@@ -35,8 +35,8 @@ test.describe('Selection Bounding Box & Transformation', () => {
     await page.waitForTimeout(100)
 
     const inspector = page.getByTestId('inspector-panel')
-    const widthInput = inspector.getByLabel('Width')
-    const heightInput = inspector.getByLabel('Height')
+    const widthInput = inspector.getByLabel('Width', { exact: true })
+    const heightInput = inspector.getByLabel('Height', { exact: true })
 
     await expect(widthInput).toHaveValue('120')
     await expect(heightInput).toHaveValue('120')

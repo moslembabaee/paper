@@ -16,6 +16,13 @@ import { useArrangeShortcuts } from './useArrangeShortcuts'
 export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    let active = true
+    const refresh = () => { if (active) store.refreshLayout() }
+    void document.fonts.ready.then(refresh)
+    document.fonts.addEventListener('loadingdone', refresh)
+    return () => { active = false; document.fonts.removeEventListener('loadingdone', refresh) }
+  }, [store])
   useArrangeShortcuts(store, controller, !penMode && !editingId)
   useLayoutEffect(() => {
     const viewport = hostRef.current!.querySelector<HTMLElement>('.canvas-viewport')!

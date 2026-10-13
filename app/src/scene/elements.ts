@@ -18,6 +18,8 @@ export function freezeElement(element: SceneElement): SceneElement {
   if (frozenElements.has(element)) return element
   const tokenBindings = element.tokenBindings ? Object.freeze({ ...element.tokenBindings }) : undefined
   element = { ...element, ...(tokenBindings ? { tokenBindings } : {}) }
+  if (element.sizing) element = { ...element, sizing: Object.freeze({ ...element.sizing }) }
+  if (element.type === 'frame' && element.layout) element = { ...element, layout: Object.freeze({ ...element.layout, padding: Object.freeze({ ...element.layout.padding }) }) }
   const style = Object.freeze({
     ...element.style,
     shader: element.style.shader ? freezeShader(element.style.shader) : null,
@@ -43,6 +45,12 @@ export function validateElement(element: SceneElement, depth = 0): void {
     if (!Number.isFinite(element[key])) throw new Error(`Invalid ${key}`)
   }
   if (element.width <= 0 || element.height <= 0 || !Number.isInteger(element.zIndex) || element.zIndex < 0) throw new Error('Invalid element dimensions or order')
+  if (element.sizing !== undefined && (!element.sizing || !['fixed', 'hug', 'fill'].includes(element.sizing.width) || !['fixed', 'hug', 'fill'].includes(element.sizing.height))) throw new Error('Invalid sizing rules')
+  if ('layout' in element && element.layout !== undefined && element.layout !== null) {
+    if (element.type !== 'frame') throw new Error('Only frames support auto layout')
+    const layout = element.layout
+    if (!['horizontal', 'vertical'].includes(layout.direction) || !['start', 'center', 'end', 'space-between'].includes(layout.justify) || !['start', 'center', 'end'].includes(layout.align) || !Number.isFinite(layout.gap) || layout.gap < 0 || !layout.padding || !['top', 'right', 'bottom', 'left'].every(key => Number.isFinite(layout.padding[key as keyof typeof layout.padding]) && layout.padding[key as keyof typeof layout.padding] >= 0)) throw new Error('Invalid auto layout')
+  }
   if (typeof element.visible !== 'boolean' || typeof element.locked !== 'boolean') throw new Error('Invalid element flags')
   const { fill, stroke, opacity, shadow } = element.style
   if (element.style.shader !== undefined && element.style.shader !== null) validateShader(element.style.shader)

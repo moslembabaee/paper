@@ -31,8 +31,8 @@ test.describe('Shape & Element Creation', () => {
     // Inspector reflects selected rectangle
     const inspector = page.getByTestId('inspector-panel')
     await expect(inspector).toContainText('Rectangle')
-    await expect(inspector.getByLabel('Width')).toHaveValue('120')
-    await expect(inspector.getByLabel('Height')).toHaveValue('120')
+    await expect(inspector.getByLabel('Width', { exact: true })).toHaveValue('120')
+    await expect(inspector.getByLabel('Height', { exact: true })).toHaveValue('120')
   })
 
   test('creates a new ellipse element and verifies inspector controls', async ({ page }) => {
@@ -73,8 +73,8 @@ test.describe('Shape & Element Creation', () => {
     // Check default artboard size (720x480)
     const inspector = page.getByTestId('inspector-panel')
     await expect(inspector).toContainText('Frame')
-    await expect(inspector.getByLabel('Width')).toHaveValue('720')
-    await expect(inspector.getByLabel('Height')).toHaveValue('480')
+    await expect(inspector.getByLabel('Width', { exact: true })).toHaveValue('720')
+    await expect(inspector.getByLabel('Height', { exact: true })).toHaveValue('480')
   })
 
   test('creates a new editable text element with typography properties', async ({ page }) => {

@@ -55,9 +55,16 @@ const shadow = object({ color: str(), x: num, y: num, blur: nonnegative }, ['col
 const styleProperties = { fill: nullable({ type: 'string' }), opacity: { type: 'number', minimum: 0, maximum: 1 } as JsonSchema, stroke: nullable(stroke), shadow: nullable(shadow), shader: nullable(shaderSchema) }
 const style = object(styleProperties)
 const geometry = { x: num, y: num, width: positive, height: positive, rotation: num }
+const sizingRule: JsonSchema = { type: 'string', enum: ['fixed', 'hug', 'fill'] }
+const sizing = object({ width: sizingRule, height: sizingRule }, ['width', 'height'])
+const layout = nullable(object({
+  direction: { type: 'string', enum: ['horizontal', 'vertical'] }, gap: nonnegative,
+  padding: object({ top: nonnegative, right: nonnegative, bottom: nonnegative, left: nonnegative }, ['top', 'right', 'bottom', 'left']),
+  justify: { type: 'string', enum: ['start', 'center', 'end', 'space-between'] }, align: { type: 'string', enum: ['start', 'center', 'end'] },
+}, ['direction', 'gap', 'padding', 'justify', 'align']))
 const identity = { id: str(), name: str(), parentId: nullable(str()), zIndex: { type: 'integer', minimum: 0 } as JsonSchema, visible: flag, locked: flag }
 const specific: Record<string, Record<string, JsonSchema>> = {
-  frame: { children: list(str()), clipContent: flag, cornerRadius: nonnegative },
+  frame: { children: list(str()), clipContent: flag, cornerRadius: nonnegative, layout },
   rectangle: { cornerRadius: nonnegative },
   ellipse: {},
   path: { d: { type: 'string' }, viewBox: { ...list(num), minItems: 4, maxItems: 4 }, fillRule: { type: 'string', enum: ['nonzero', 'evenodd'] } },
@@ -75,7 +82,7 @@ export const tokenSchema: JsonSchema = {
 export const elementSchema: JsonSchema = {
   anyOf: Object.entries(specific).map(([type, fields]) => {
     const properties = { ...identity, ...geometry, type: { type: 'string', enum: [type] } as JsonSchema, style: object(styleProperties, ['fill', 'stroke', 'opacity', 'shadow']), ...fields }
-    return object({ ...properties, tokenBindings }, Object.keys(properties))
+    return object({ ...properties, tokenBindings, sizing }, Object.keys(properties).filter(key => key !== 'layout'))
   }),
 }
 export const projectSchema = {
@@ -98,8 +105,8 @@ export interface PaperTool {
 const file = str('Paper JSON file path within the configured workspace. Omit to use the active live editor, or --file in offline mode.')
 const revision = str('Optional opaque revision from get_basic_info or get_canvas_elements. Rejects stale edits; pass it unchanged.')
 const base = { file }
-const creation = { id: str('Optional stable ID; otherwise a UUID is generated.'), name: str(), parentId: nullable(str()), ...geometry, visible: flag, locked: flag, style }
-const mutable = { name: str(), ...geometry, visible: flag, locked: flag, style }
+const creation = { id: str('Optional stable ID; otherwise a UUID is generated.'), name: str(), parentId: nullable(str()), ...geometry, visible: flag, locked: flag, style, sizing }
+const mutable = { name: str(), ...geometry, visible: flag, locked: flag, style, sizing }
 export function patchSchema(type: string): JsonSchema {
   const fields = { ...specific[type] }
   delete fields.children
@@ -113,7 +120,7 @@ export const paperTools: readonly PaperTool[] = [
   tool('list_tokens', 'List design tokens in the active file. Optional type filters the result.', object({ ...base, type: { type: 'string', enum: Object.keys(TOKEN_META) } }), true),
   tool('create_token', 'Create a named design token. Names use lowercase kebab-case; values follow the token type. Creation is atomic and undoable.', object({ ...base, expected_revision: revision, id: str(), name: { ...str(), pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 100 }, type: { type: 'string', enum: Object.keys(TOKEN_META) }, value: { anyOf: [str(), num] } }, ['name', 'type', 'value'])),
   tool('get_canvas_elements', 'Read the latest canvas, hierarchy, project settings and file revision. Coordinates are relative to the parent frame, in pixels; the engineering grid is 120px. Optional element_ids includes those elements and their descendants.', object({ ...base, element_ids: { ...list(str()), minItems: 1 } }), true),
-  tool('create_frame', 'Create a frame in a Paper file. Creates a new project if the file does not exist. Defaults: 720×480px, cream fill, clipped content, 120px grid. Parent must be an unlocked frame.', object({ ...base, expected_revision: revision, project_name: { ...str(), maxLength: 200 }, ...creation, clipContent: flag, cornerRadius: nonnegative })),
+  tool('create_frame', 'Create a frame in a Paper file. Creates a new project if the file does not exist. Defaults: 720×480px, cream fill, clipped content, 120px grid. Optional layout enables flex flow; sizing controls each axis. Parent must be an unlocked frame.', object({ ...base, expected_revision: revision, project_name: { ...str(), maxLength: 200 }, ...creation, clipContent: flag, cornerRadius: nonnegative, layout })),
   tool('add_shader_shape', 'Add a rectangle or ellipse with a native @paper-design/shaders-react paint. Supply shader_kind; optional params and motion override catalog defaults. Inspect paper://shaders for supported controls.', object({ ...base, expected_revision: revision, ...creation, shape: { type: 'string', enum: ['rectangle', 'ellipse'] }, cornerRadius: nonnegative, shader_kind: { type: 'string', enum: shaderKinds }, params: { type: 'object', additionalProperties: true }, motion: object(motionProperties) }, ['shader_kind'])),
   tool('update_element', 'Patch an existing element. Style fields merge; shader paints are complete values. Optionally reparent or reorder using parentId and index. Structural edits and validation are atomic. Locked elements must be unlocked first.', object({ ...base, expected_revision: revision, element_id: str(), patch: object({ ...mutable, ...allPatchFields }), parentId: nullable(str()), index: { type: 'integer', minimum: 0 } }, ['element_id', 'patch'])),
   tool('export_selection', 'Export element_ids and frame descendants as editable Paper JSON (default) or SVG. Omit element_ids for the whole canvas. Shader JSON is lossless; SVG shaders require supplied shader_snapshots from the browser. Returns content inline; optional output writes a new file without overwriting existing files.', object({ ...base, element_ids: { ...list(str()), minItems: 1 }, format: { type: 'string', enum: ['json', 'svg'] }, background: { type: 'string', enum: ['transparent', 'cream'] }, output: str('New export path within the workspace.'), shader_snapshots: { type: 'object', additionalProperties: { type: 'string', pattern: '^data:image/png;base64,[A-Za-z0-9+/=]+$' } } })),
