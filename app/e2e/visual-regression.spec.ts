@@ -25,11 +25,11 @@ test.describe('Visual Verification & Regression Prevention', () => {
   test('captures full canvas overview screenshot matching Paper aesthetic', async ({ page }, testInfo) => {
     const app = page.locator('.paper-app')
     const appBg = await app.evaluate(el => getComputedStyle(el).backgroundColor)
-    expect(appBg).toBe('rgb(245, 244, 238)')
+    expect(appBg).toBe('rgb(24, 24, 27)')
 
     const viewport = page.getByTestId('canvas-viewport')
     const viewportBg = await viewport.evaluate(el => getComputedStyle(el).backgroundColor)
-    expect(viewportBg).toBe('rgb(237, 235, 225)')
+    expect(viewportBg).toBe('rgb(12, 12, 14)')
 
     await capturePng(page, 'canvas-overview.png', testInfo)
   })

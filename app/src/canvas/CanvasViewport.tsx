@@ -8,6 +8,7 @@ import { ViewportController } from './ViewportController'
 import { ZoomControls } from './ZoomControls'
 import type { Bounds, Camera, MinimapItem, Point, ViewportSnapshot } from './types'
 import './viewport.css'
+import { subscribeTheme } from '../design-system/theme'
 
 const EMPTY_ITEMS: readonly MinimapItem[] = []
 const isControl = (target: EventTarget | null) => target instanceof Element && !!target.closest('input, textarea, select, button, a, [contenteditable]:not([contenteditable="false"]), .viewport-ui')
@@ -91,7 +92,7 @@ export function CanvasViewport({ children, overlay, background, controller: prov
     updateMotion()
     media.addEventListener('change', updateMotion)
 
-    const unsubscribe = controller.subscribe((snapshot) => {
+    const paint = (snapshot: ViewportSnapshot) => {
       const { x, y, zoom } = snapshot.camera
       world.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${zoom})`
       root.dataset.zoom = String(zoom)
@@ -108,7 +109,10 @@ export function CanvasViewport({ children, overlay, background, controller: prov
       const center = controller.screenToWorld({ x: (snapshot.size.width - rs) / 2, y: (snapshot.size.height - rs) / 2 })
       if (coordinatesRef.current) coordinatesRef.current.textContent = `${Math.round(center.x)}, ${Math.round(center.y)}`
       callbackRef.current?.(snapshot)
-    })
+    }
+    const unsubscribe = controller.subscribe(paint)
+    // Redraw raster UI immediately without refitting or moving the document camera.
+    const unsubscribeTheme = subscribeTheme(() => paint(controller.getSnapshot()))
 
     const resize = () => {
       rect = root.getBoundingClientRect()
@@ -231,6 +235,7 @@ export function CanvasViewport({ children, overlay, background, controller: prov
     return () => {
       observer.disconnect()
       unsubscribe()
+      unsubscribeTheme()
       media.removeEventListener('change', updateMotion)
       root.removeEventListener('wheel', wheel)
       root.removeEventListener('pointerdown', down, true)

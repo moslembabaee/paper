@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import { unionBounds } from './math'
 import type { Bounds, MinimapItem, Point } from './types'
 import type { ViewportController } from './ViewportController'
+import { getThemePalette, subscribeTheme } from '../design-system/theme'
+import type { ViewportSnapshot } from './types'
 
 interface MinimapProps {
   controller: ViewportController
@@ -22,36 +24,42 @@ export function Minimap({ controller, items }: MinimapProps) {
   const layoutRef = useRef(mapLayout(unionBounds(items)))
   const dragRef = useRef<{ id: number; layout: ReturnType<typeof mapLayout> } | null>(null)
 
-  useEffect(() => controller.subscribe(({ visibleBounds }) => {
-    const canvas = canvasRef.current
-    const ctx = canvas?.getContext('2d')
-    if (!canvas || !ctx) return
-    const ratio = Math.min(window.devicePixelRatio || 1, 2)
-    if (canvas.width !== WIDTH * ratio || canvas.height !== HEIGHT * ratio) {
-      canvas.width = WIDTH * ratio
-      canvas.height = HEIGHT * ratio
+  useEffect(() => {
+    const paint = ({ visibleBounds }: ViewportSnapshot) => {
+      const palette = getThemePalette()
+      const canvas = canvasRef.current
+      const ctx = canvas?.getContext('2d')
+      if (!canvas || !ctx) return
+      const ratio = Math.min(window.devicePixelRatio || 1, 2)
+      if (canvas.width !== WIDTH * ratio || canvas.height !== HEIGHT * ratio) {
+        canvas.width = WIDTH * ratio
+        canvas.height = HEIGHT * ratio
+      }
+      // Include the viewport so navigation stays useful arbitrarily far from artboards.
+      const layout = dragRef.current?.layout ?? mapLayout(unionBounds([...items, visibleBounds]))
+      layoutRef.current = layout
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
+      ctx.clearRect(0, 0, WIDTH, HEIGHT)
+      ctx.fillStyle = palette.canvas
+      ctx.fillRect(0, 0, WIDTH, HEIGHT)
+      for (const item of items) {
+        ctx.fillStyle = item.color ?? palette['text-secondary']
+        ctx.fillRect(item.x * layout.scale + layout.x, item.y * layout.scale + layout.y, Math.max(1, item.width * layout.scale), Math.max(1, item.height * layout.scale))
+      }
+      const x = visibleBounds.x * layout.scale + layout.x
+      const y = visibleBounds.y * layout.scale + layout.y
+      const w = visibleBounds.width * layout.scale
+      const h = visibleBounds.height * layout.scale
+      ctx.fillStyle = palette['accent-soft']
+      ctx.fillRect(x, y, w, h)
+      ctx.strokeStyle = palette['accent-text']
+      ctx.lineWidth = 1
+      ctx.strokeRect(x, y, w, h)
     }
-    // Include the viewport so navigation stays useful arbitrarily far from artboards.
-    const layout = dragRef.current?.layout ?? mapLayout(unionBounds([...items, visibleBounds]))
-    layoutRef.current = layout
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
-    ctx.clearRect(0, 0, WIDTH, HEIGHT)
-    ctx.fillStyle = '#edebe1'
-    ctx.fillRect(0, 0, WIDTH, HEIGHT)
-    for (const item of items) {
-      ctx.fillStyle = item.color ?? '#222222'
-      ctx.fillRect(item.x * layout.scale + layout.x, item.y * layout.scale + layout.y, Math.max(1, item.width * layout.scale), Math.max(1, item.height * layout.scale))
-    }
-    const x = visibleBounds.x * layout.scale + layout.x
-    const y = visibleBounds.y * layout.scale + layout.y
-    const w = visibleBounds.width * layout.scale
-    const h = visibleBounds.height * layout.scale
-    ctx.fillStyle = 'rgba(129,173,236,0.16)'
-    ctx.fillRect(x, y, w, h)
-    ctx.strokeStyle = '#4c8eef'
-    ctx.lineWidth = 1
-    ctx.strokeRect(x, y, w, h)
-  }), [controller, items])
+    const unsubscribe = controller.subscribe(paint)
+    const unsubscribeTheme = subscribeTheme(() => paint(controller.getSnapshot()))
+    return () => { unsubscribe(); unsubscribeTheme() }
+  }, [controller, items])
 
   function navigate(client: Point) {
     const rect = canvasRef.current!.getBoundingClientRect()

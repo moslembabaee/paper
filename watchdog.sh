@@ -53,7 +53,10 @@ if [ "$COMMIT_AGE" -gt 1800 ]; then
     fi
 fi
 
-# 4. Log rotation if > 2MB
+# 4. Check & Process GitHub Issues (Triage, Authorize, Dispatch)
+python3 "$PROJECT_DIR/issue_bot.py" >> "$LOG_FILE" 2>&1
+
+# 5. Log rotation if > 2MB
 if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE") -gt 2097152 ]; then
     tail -n 1000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
 fi

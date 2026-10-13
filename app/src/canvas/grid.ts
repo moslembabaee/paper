@@ -1,9 +1,11 @@
 import { GRID_SIZE, SUBGRID_SIZE } from './math.ts'
 import type { ViewportSnapshot } from './types.ts'
+import { getThemePalette } from '../design-system/theme.ts'
 
 /** Screen-space rasterization keeps grid strokes exactly one device pixel wide. */
 export function drawGrid(canvas: HTMLCanvasElement, snapshot: ViewportSnapshot): void {
   const { camera, size } = snapshot
+  const palette = getThemePalette()
   const ratio = Math.min(window.devicePixelRatio || 1, 2)
   const width = Math.round(size.width * ratio)
   const height = Math.round(size.height * ratio)
@@ -34,10 +36,10 @@ export function drawGrid(canvas: HTMLCanvasElement, snapshot: ViewportSnapshot):
     }
     ctx.stroke()
   }
-  if (SUBGRID_SIZE * camera.zoom >= 12) lines(SUBGRID_SIZE, 'rgba(8,8,8,0.035)')
-  lines(GRID_SIZE, 'rgba(8,8,8,0.085)')
+  if (SUBGRID_SIZE * camera.zoom >= 12) lines(SUBGRID_SIZE, palette['grid-minor'])
+  lines(GRID_SIZE, palette['grid-major'])
   // World axes remain anchored at (0, 0), even after arbitrarily long pans.
-  ctx.strokeStyle = 'rgba(76,142,239,0.30)'
+  ctx.strokeStyle = palette['grid-axis']
   ctx.beginPath()
   if (camera.x >= 0 && camera.x <= size.width) {
     ctx.moveTo(camera.x, 0)

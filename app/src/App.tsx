@@ -8,6 +8,7 @@ import { DevModeInspector } from './scene/DevModeInspector'
 import { HistoryControls } from './scene/HistoryControls'
 import { createWorkspace, useProjectIO } from './io/useProjectIO'
 import { DocumentActions } from './io/DocumentActions'
+import { ThemeSwitcher } from './design-system/ThemeSwitcher'
 import './App.css'
 
 const creationTools = [
@@ -20,7 +21,7 @@ const creationTools = [
 ] as const
 
 function PaperMark() {
-  return <svg width="23" height="25" viewBox="0 0 23 25" fill="none" aria-hidden="true"><path d="M2 1h13l6 6v17H2V1Z" fill="currentColor" /><path d="M14 1v7h7" stroke="#edebe1" strokeWidth="1.5" /><path d="M6 13h11M6 17h8" stroke="#edebe1" strokeWidth="1.5" /></svg>
+  return <svg width="23" height="25" viewBox="0 0 23 25" fill="none" aria-hidden="true"><path d="M2 1h13l6 6v17H2V1Z" fill="currentColor" /><path d="M14 1v7h7" stroke="var(--paper-surface)" strokeWidth="1.5" /><path d="M6 13h11M6 17h8" stroke="var(--paper-surface)" strokeWidth="1.5" /></svg>
 }
 
 export default function App() {
@@ -57,7 +58,7 @@ export default function App() {
     <header className="app-header">
       <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
       <div className="document-name"><span className="document-divider" /><input className="document-title" aria-label="Project name" value={name} maxLength={200} onChange={event => setName(event.target.value)} onBlur={() => { if (!name.trim()) setName('Untitled') }} /><ChevronDown size={12} /><span className="document-state">Local document</span></div>
-      <div className="header-end"><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><span className="project-avatar" title="Your self-hosted workspace">P</span></div>
+      <div className="header-end"><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><span className="project-avatar" title="Your self-hosted workspace">P</span></div>
     </header>
     <div className="editor-layout">
       {layersVisible && <LayerTree store={store} onHide={() => setLayersVisible(false)} />}

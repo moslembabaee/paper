@@ -11,13 +11,13 @@
 .selection-overlay[data-transforming='true'] * { cursor: inherit !important; }
 .marquee-rect {
   position: absolute;
-  border: 1px solid #81adec;
-  background: rgba(129, 173, 236, .10);
+  border: 1px solid var(--paper-accent-text);
+  background: var(--paper-accent-soft);
   pointer-events: none;
 }
 .sel-box {
   position: absolute;
-  outline: 1px solid #81adec;
+  outline: 1px solid var(--paper-accent-text);
   transform-origin: center;
   pointer-events: auto;
   cursor: move;
@@ -26,20 +26,20 @@
   position: absolute;
   width: 8px;
   height: 8px;
-  background: #edebe1;
-  border: 1px solid #81adec;
+  background: var(--paper-surface);
+  border: 1px solid var(--paper-accent-text);
   border-radius: 1px;
   box-sizing: border-box;
   transform: translate(-50%, -50%);
   pointer-events: auto;
 }
 .sel-handle::after, .sel-rotate-handle::after { content: ''; position: absolute; inset: -5px; }
-.sel-handle:hover, .sel-rotate-handle:hover { background: #81adec; }
+.sel-handle:hover, .sel-rotate-handle:hover { background: var(--paper-accent-text); }
 .sel-rotate-handle { left: 50%; top: -24px; border-radius: 50%; cursor: crosshair; }
-.sel-rotate-handle::before { content: ''; position: absolute; left: 50%; top: 7px; width: 1px; height: 20px; background: #81adec; transform: translateX(-50%); pointer-events: none; }
+.sel-rotate-handle::before { content: ''; position: absolute; left: 50%; top: 7px; width: 1px; height: 20px; background: var(--paper-accent-text); transform: translateX(-50%); pointer-events: none; }
 .snap-guides-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
-.snap-guides-svg line, .snap-guides-svg path { stroke: #81adec; stroke-width: 1; fill: none; }
-.snap-guides-svg text { fill: #080808; font: 10px var(--font-mono); paint-order: stroke; stroke: #edebe1; stroke-width: 3px; stroke-linejoin: round; }
+.snap-guides-svg line, .snap-guides-svg path { stroke: var(--paper-accent-text); stroke-width: 1; fill: none; }
+.snap-guides-svg text { fill: var(--paper-text); font: 10px var(--font-mono); paint-order: stroke; stroke: var(--paper-surface); stroke-width: 3px; stroke-linejoin: round; }
 /* Controls remain above the selection affordances. */
 .canvas-viewport > .viewport-ui { z-index: 4; }
 .canvas-viewport[data-space='true'] .selection-overlay, .canvas-viewport[data-pan-mode='true'] .selection-overlay { pointer-events: none; }

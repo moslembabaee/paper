@@ -47,12 +47,9 @@ function buildCSSProps(node: SceneElement): CSSProp[] {
   if (node.style.fill !== null) {
     const raw = node.style.fill
     let token: string | undefined
-    if (raw === '#edebe1') token = '--paper-cream'
-    else if (raw === '#080808') token = '--paper-ink'
-    else if (raw === '#81adec') token = '--paper-blue'
-    else if (raw === '#4c8eef') token = '--paper-blue-deep'
-    else if (raw === '#222222') token = '--paper-charcoal'
-    else if (raw === '#f5f4ee') token = '--paper-surface'
+    // Only label colors that have the same value in both studio themes.
+    if (raw.toLowerCase() === '#3b82f6') token = '--paper-accent'
+    else if (raw.toLowerCase() === '#ffffff') token = '--paper-on-accent'
     if (node.type === 'text') {
       props.push({ property: 'color', value: raw, token })
     } else {

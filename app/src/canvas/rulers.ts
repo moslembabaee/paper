@@ -1,14 +1,8 @@
 import { GRID_SIZE } from './math.ts'
 import type { ViewportSnapshot } from './types.ts'
+import { getThemePalette } from '../design-system/theme.ts'
 
 export const RULER_SIZE = 20 // px, ruler thickness (width of left ruler / height of top ruler)
-
-// Ink palette
-const RULER_BG = '#f0efe8'
-const RULER_TICK = 'rgba(8,8,8,0.30)'
-const RULER_LABEL = 'rgba(8,8,8,0.45)'
-const RULER_AXIS_LINE = 'rgba(76,142,239,0.55)'
-const RULER_BORDER = 'rgba(8,8,8,0.10)'
 
 // Label spacing: only show labels when ticks are at least this many px apart.
 const MIN_LABEL_GAP = 48
@@ -42,6 +36,7 @@ function setCanvasSize(canvas: HTMLCanvasElement, width: number, height: number)
 
 /** Horizontal ruler along the top edge. canvas is sized to (viewportWidth, RULER_SIZE). */
 export function drawHorizontalRuler(canvas: HTMLCanvasElement, snapshot: ViewportSnapshot): void {
+  const palette = getThemePalette()
   const { camera, size } = snapshot
   const w = size.width
   const h = RULER_SIZE
@@ -49,9 +44,9 @@ export function drawHorizontalRuler(canvas: HTMLCanvasElement, snapshot: Viewpor
   if (!ctx) return
 
   // Background + bottom border
-  ctx.fillStyle = RULER_BG
+  ctx.fillStyle = palette.surface
   ctx.fillRect(0, 0, w, h)
-  ctx.fillStyle = RULER_BORDER
+  ctx.fillStyle = palette.border
   ctx.fillRect(0, h - 1, w, 1)
 
   const step = pickStep(camera.zoom, 12)
@@ -63,12 +58,12 @@ export function drawHorizontalRuler(canvas: HTMLCanvasElement, snapshot: Viewpor
   const worldLeft = -originX / camera.zoom
   const firstTick = Math.ceil(worldLeft / step) * step
 
-  ctx.strokeStyle = RULER_TICK
+  ctx.strokeStyle = palette['ruler-tick']
   ctx.lineWidth = 1
   ctx.font = `9px "Inter", "Matter", ui-sans-serif, sans-serif`
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.fillStyle = RULER_LABEL
+  ctx.fillStyle = palette['ruler-label']
 
   const showLabel = screenStep >= MIN_LABEL_GAP
 
@@ -82,12 +77,12 @@ export function drawHorizontalRuler(canvas: HTMLCanvasElement, snapshot: Viewpor
     ctx.beginPath()
     ctx.moveTo(px, h - 6)
     ctx.lineTo(px, h)
-    ctx.strokeStyle = RULER_TICK
+    ctx.strokeStyle = palette['ruler-tick']
     ctx.stroke()
 
     if (showLabel) {
       const label = String(Math.round(world))
-      ctx.fillStyle = RULER_LABEL
+      ctx.fillStyle = palette['ruler-label']
       ctx.fillText(label, px + 2, h / 2 - 1)
     }
   }
@@ -95,7 +90,7 @@ export function drawHorizontalRuler(canvas: HTMLCanvasElement, snapshot: Viewpor
   // World-axis marker (x=0 vertical line)
   if (originX >= 0 && originX <= w) {
     const px = Math.round(originX) + 0.5
-    ctx.strokeStyle = RULER_AXIS_LINE
+    ctx.strokeStyle = palette['accent-text']
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(px, 0)
@@ -106,6 +101,7 @@ export function drawHorizontalRuler(canvas: HTMLCanvasElement, snapshot: Viewpor
 
 /** Vertical ruler along the left edge. canvas is sized to (RULER_SIZE, viewportHeight). */
 export function drawVerticalRuler(canvas: HTMLCanvasElement, snapshot: ViewportSnapshot): void {
+  const palette = getThemePalette()
   const { camera, size } = snapshot
   const w = RULER_SIZE
   const h = size.height
@@ -113,9 +109,9 @@ export function drawVerticalRuler(canvas: HTMLCanvasElement, snapshot: ViewportS
   if (!ctx) return
 
   // Background + right border
-  ctx.fillStyle = RULER_BG
+  ctx.fillStyle = palette.surface
   ctx.fillRect(0, 0, w, h)
-  ctx.fillStyle = RULER_BORDER
+  ctx.fillStyle = palette.border
   ctx.fillRect(w - 1, 0, 1, h)
 
   const step = pickStep(camera.zoom, 12)
@@ -125,7 +121,7 @@ export function drawVerticalRuler(canvas: HTMLCanvasElement, snapshot: ViewportS
   const worldTop = -originY / camera.zoom
   const firstTick = Math.ceil(worldTop / step) * step
 
-  ctx.strokeStyle = RULER_TICK
+  ctx.strokeStyle = palette['ruler-tick']
   ctx.lineWidth = 1
   const showLabel = screenStep >= MIN_LABEL_GAP
 
@@ -138,7 +134,7 @@ export function drawVerticalRuler(canvas: HTMLCanvasElement, snapshot: ViewportS
     ctx.beginPath()
     ctx.moveTo(w - 6, py)
     ctx.lineTo(w, py)
-    ctx.strokeStyle = RULER_TICK
+    ctx.strokeStyle = palette['ruler-tick']
     ctx.stroke()
 
     if (showLabel) {
@@ -149,7 +145,7 @@ export function drawVerticalRuler(canvas: HTMLCanvasElement, snapshot: ViewportS
       ctx.font = `9px "Inter", "Matter", ui-sans-serif, sans-serif`
       ctx.textAlign = 'left'
       ctx.textBaseline = 'middle'
-      ctx.fillStyle = RULER_LABEL
+      ctx.fillStyle = palette['ruler-label']
       ctx.fillText(String(Math.round(world)), 0, 0)
       ctx.restore()
     }
@@ -158,7 +154,7 @@ export function drawVerticalRuler(canvas: HTMLCanvasElement, snapshot: ViewportS
   // World-axis marker (y=0 horizontal line)
   if (originY >= 0 && originY <= h) {
     const py = Math.round(originY) + 0.5
-    ctx.strokeStyle = RULER_AXIS_LINE
+    ctx.strokeStyle = palette['accent-text']
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(0, py)

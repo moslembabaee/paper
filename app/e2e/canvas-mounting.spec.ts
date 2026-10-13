@@ -116,20 +116,20 @@ test.describe('Canvas Mounting & Infrastructure', () => {
   })
 
   test('applies Paper design system color tokens and typography', async ({ page }) => {
-    // Check computed styles on app container (--paper-surface #f5f4ee is rgb(245, 244, 238))
+    // Dark Studio uses matte panels, a deep canvas, and electric blue tools.
     const app = page.locator('.paper-app')
     const appBg = await app.evaluate((el) => window.getComputedStyle(el).backgroundColor)
-    expect(appBg).toMatch(/rgb\(245,\s*244,\s*238\)/)
+    expect(appBg).toMatch(/rgb\(24,\s*24,\s*27\)/)
 
-    // Check canvas viewport background (--paper-cream #edebe1 is rgb(237, 235, 225))
+    // Canvas background
     const viewport = page.getByTestId('canvas-viewport')
     const viewportBg = await viewport.evaluate((el) => window.getComputedStyle(el).backgroundColor)
-    expect(viewportBg).toMatch(/rgb\(237,\s*235,\s*225\)/)
+    expect(viewportBg).toMatch(/rgb\(12,\s*12,\s*14\)/)
 
-    // Check active tool button (--paper-ink #080808 is rgb(8, 8, 8))
+    // Active tool accent
     const activeTool = page.locator('.tool-button.active')
     const activeToolBg = await activeTool.evaluate((el) => window.getComputedStyle(el).backgroundColor)
-    expect(activeToolBg).toMatch(/rgb\(8,\s*8,\s*8\)/)
+    expect(activeToolBg).toMatch(/rgb\(59,\s*130,\s*246\)/)
 
     // Check header style
     const header = page.locator('.app-header')
