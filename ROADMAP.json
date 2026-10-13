@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-1",
+  "current_task_id": "T-EVOLVE-1791870443-1",
   "tasks": [
     {
       "id": "T-ISSUE-1",
@@ -190,6 +190,37 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "completed_at": "2026-10-13T04:49:12.245572"
+    },
+    {
+      "id": "T-EVOLVE-1791870443-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive Design Tokens & Theme Manager (Color, Radius, Spacing, Typography Binding)",
+      "description": "Implement Paper's first-class design token system according to official specs (docs/official-specs/tokens.txt). Add a \"Theme / Tokens\" tab in the left sidebar alongside Layers to manage Color, Radius, Spacing, and Typography tokens. Extend SceneDocument and SceneStore with a tokens collection (name, type, value). Enable binding element properties (fill, stroke, cornerRadius, fontSize, fontFamily) to tokens via property inspector selectors (four-circle icon for colors, dropdowns for radius/typography) with token detachment. When a token updates, reactively re-render all bound elements across the canvas, and map tokens directly to CSS variables and Tailwind classes in Dev Mode.",
+      "assigned_agent": "codex",
+      "status": "completed",
+      "retry_count": 6,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-13T06:23:14.245218"
+    },
+    {
+      "id": "T-EVOLVE-1791870443-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Live Real-Time MCP Synchronization Bridge with Active Canvas Push & get_basic_info",
+      "description": "Close the architectural gap between the standalone file-backed MCP server and the active browser editor as documented in docs/official-specs/mcp.txt and support.txt. Implement a real-time bidirectional communication bridge (via BroadcastChannel across tabs and local WebSocket/HTTP endpoint in Paper) so AI agent tool mutations (create_frame, update_element, add_shader_shape) push directly to the live canvas state without manual file exports or reloads. Add glowing agent selection indicators on affected elements during agent runs. Implement official Paper MCP tools including get_basic_info, list_tokens, and create_token.",
+      "assigned_agent": "codex",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T-EVOLVE-1791870443-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Alt-Option Distance Measurement HUD, Canvas Alignment Engine, and Arrange Hotkeys",
+      "description": "Implement essential precision canvas UX from Paper official shortcuts and layout specs (docs/official-specs/support.txt). Add the Option/Alt hover measurement HUD: when an element is selected, holding Option/Alt and hovering any other layer or canvas boundary displays smart red/blue distance guide lines with pixel badge indicators between edges. Build an Alignment & Distribution action bar and keyboard shortcuts (Alt+W/S/A/D/H/V for top/bottom/left/right/center, Ctrl+Alt+H/V for distribution). Implement keyboard arrow nudging (1px arrow, 8px Shift+arrow), resize shortcuts (Cmd+arrows), and layer depth hotkeys ([ and ]).",
+      "assigned_agent": "codex",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
     }
   ]
 }

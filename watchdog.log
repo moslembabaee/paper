@@ -449,3 +449,64 @@
 /root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
   timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
 [2026-10-13 05:30:01 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 05:32:02 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 05:32:02 UTC] [ISSUE-BOT] Issue #1 task T-ISSUE-1 is completed! Closing GitHub issue...
+[2026-10-13 05:36:01 UTC] [WATCHDOG] ⚠️ Orchestrator process NOT FOUND! Reviving in tmux...
+[2026-10-13 05:36:01 UTC] [WATCHDOG] ✅ Orchestrator revived.
+[2026-10-13 05:40:01 UTC] [WATCHDOG] ⚠️ Orchestrator process NOT FOUND! Reviving in tmux...
+[2026-10-13 05:40:01 UTC] [WATCHDOG] ✅ Orchestrator revived.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 05:56:02 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 05:58:01 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:00:02 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:02:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 31 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:02:05 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:04:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 33 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:04:11 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:06:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 35 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:06:11 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:08:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 37 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:08:06 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:10:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 39 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:10:07 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:12:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 41 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:12:12 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:14:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 43 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:14:05 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:16:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 45 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:16:07 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:18:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 47 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:18:05 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:20:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 49 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:20:15 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...
+[2026-10-13 06:22:01 UTC] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was 51 minutes ago.
+/root/projects/paper/issue_bot.py:28: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+[2026-10-13 06:22:10 UTC] [ISSUE-BOT] Found 1 open issue(s). Processing...

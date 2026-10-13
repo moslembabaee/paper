@@ -117,6 +117,9 @@ def process_issues():
     for issue in issues:
         num = issue["number"]
         title = issue["title"]
+        # Skip system tracker and roadmap dashboard issues
+        if num == 1 or "live tracker" in title.lower() or "roadmap" in title.lower():
+            continue
         author = issue.get("author", {}).get("login", "").lower()
         labels = [l.get("name", "").lower() for l in issue.get("labels", [])]
         comments = issue.get("comments", [])

@@ -1,3 +1,5 @@
+import { tokenVariable } from '../tokens/model.ts'
+import type { DesignToken, TokenBindings } from '../tokens/types.ts'
 import type { Point } from '../canvas/types.ts'
 import { unionBounds } from '../canvas/math.ts'
 import { getWorldBounds } from '../scene/geometry.ts'
@@ -197,14 +199,25 @@ export function insertImportedScene(store: SceneStore, document: SceneDocument, 
   const bounds = unionBounds(state.rootIds.map(id => getWorldBounds(state, id)))
   const ids = new Map(Object.keys(state.elements).map(id => [id, crypto.randomUUID()]))
   const current = store.toJSON()
+  const tokens = [...(current.tokens ?? [])]
+  const tokenIds = new Map<string, string>()
+  const names = new Set(tokens.map(tokenVariable))
+  for (const token of state.tokens) {
+    let name = token.name, index = 2
+    while (names.has(tokenVariable({ ...token, name }))) name = `${token.name}-${index++}`
+    const next = { ...token, id: crypto.randomUUID(), name } as DesignToken
+    tokenIds.set(token.id, next.id)
+    names.add(tokenVariable(next)); tokens.push(next)
+  }
   const elements: Record<string, SceneElement> = { ...current.elements }
   for (const [id, node] of Object.entries(state.elements)) {
     const root = node.parentId === null
-    const updated = { ...node, id: ids.get(id)!, parentId: root ? null : ids.get(node.parentId!)!, x: node.x + (root ? center.x - bounds.x - bounds.width / 2 : 0), y: node.y + (root ? center.y - bounds.y - bounds.height / 2 : 0), zIndex: node.zIndex + (root ? current.rootIds.length : 0), ...(node.type === 'frame' ? { children: node.children.map(child => ids.get(child)!) } : {}) } as SceneElement
+    const tokenBindings = Object.fromEntries(Object.entries(node.tokenBindings ?? {}).filter(([property]) => !root || !['x', 'y'].includes(property)).map(([property, tokenId]) => [property, tokenIds.get(tokenId)!])) as TokenBindings
+    const updated = { ...node, ...(node.tokenBindings ? { tokenBindings } : {}), id: ids.get(id)!, parentId: root ? null : ids.get(node.parentId!)!, x: node.x + (root ? center.x - bounds.x - bounds.width / 2 : 0), y: node.y + (root ? center.y - bounds.y - bounds.height / 2 : 0), zIndex: node.zIndex + (root ? current.rootIds.length : 0), ...(node.type === 'frame' ? { children: node.children.map(child => ids.get(child)!) } : {}) } as SceneElement
     elements[updated.id] = updated
   }
   const roots = state.rootIds.map(id => ids.get(id)!)
-  store.batch(() => { store.load({ ...current, elements, rootIds: [...current.rootIds, ...roots] }); store.select(roots) }, 'Import artwork')
+  store.batch(() => { store.load({ ...current, tokens, elements, rootIds: [...current.rootIds, ...roots] }); store.select(roots) }, 'Import artwork')
   return roots
 }
 

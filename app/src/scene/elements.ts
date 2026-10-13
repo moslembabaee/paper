@@ -5,6 +5,8 @@ const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectang
 
 /** Freeze records at the boundary so consumers cannot corrupt the observable state. */
 export function freezeElement(element: SceneElement): SceneElement {
+  const tokenBindings = element.tokenBindings ? Object.freeze({ ...element.tokenBindings }) : undefined
+  element = { ...element, ...(tokenBindings ? { tokenBindings } : {}) }
   const style = Object.freeze({
     ...element.style,
     shader: element.style.shader ? freezeShader(element.style.shader) : null,

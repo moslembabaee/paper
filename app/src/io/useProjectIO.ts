@@ -6,6 +6,7 @@ import { exportBounds } from './svg'
 import { importClipboard, importHTML, importSVG, insertImportedScene } from './import'
 import { createProject, downloadFile, fileName, MAX_IMPORT_BYTES, parseProject, PROJECT_STORAGE_KEY, serializeProject } from './project'
 import type { PaperProject } from './project'
+import { pasteTokenCSS } from '../tokens/clipboard'
 
 export function createWorkspace() {
   let project: PaperProject | null = null
@@ -131,6 +132,16 @@ export function useProjectIO({ store, controller, name, grid, onOpen, onImport, 
       const svg = data.getData('image/svg+xml')
       const html = data.getData('text/html')
       const text = data.getData('text/plain')
+      if (/^\s*(?::root|@theme(?:\s+static)?)\s*\{/.test(text)) {
+        try {
+          const count = pasteTokenCSS(store, text)
+          if (count) { event.preventDefault(); setMessage(`Pasted ${count} token${count === 1 ? '' : 's'}.`); return }
+        } catch (error) {
+          event.preventDefault()
+          setMessage(error instanceof Error ? error.message : 'Could not paste tokens.')
+          return
+        }
+      }
       const figma = data.getData('application/x-figma') || data.getData('application/figma') || data.getData('application/x-figma+json')
       const file = [...data.files].find(file => file.type === 'image/svg+xml')
       if (file) { event.preventDefault(); void importFile(file); return }

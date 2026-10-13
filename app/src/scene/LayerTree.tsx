@@ -28,11 +28,11 @@ const LayerRow = memo(function LayerRow({ store, id, depth }: { store: SceneStor
   </div>
 })
 
-export function LayerTree({ store, onHide }: { store: SceneStore; onHide: () => void }) {
+export function LayerTree({ store, onHide, embedded = false }: { store: SceneStore; onHide: () => void; embedded?: boolean }) {
   const rootIds = useScene(store, state => state.rootIds)
   const count = useScene(store, state => Object.keys(state.elements).length)
-  return <aside className="layers-panel" data-testid="layer-tree" aria-label="Document layers">
-    <div className="panel-heading"><span>Layers</span><button className="quiet-button" aria-label="Hide layers" onClick={onHide}><PanelLeftClose size={14} /></button></div>
+  return <aside className={embedded ? 'layers-content' : 'layers-panel'} data-testid="layer-tree" aria-label="Document layers">
+    {!embedded && <div className="panel-heading"><span>Layers</span><button className="quiet-button" aria-label="Hide layers" onClick={onHide}><PanelLeftClose size={14} /></button></div>}
     <div className="page-row"><Layers size={13} /><span>Explorations</span><span className="page-count">01</span></div>
     <div className="layer-section-heading">SCENE <span>{count} layers</span></div>
     <div className="scene-layer-tree" role="tree" aria-label="Scene hierarchy">{[...rootIds].reverse().map(id => <LayerRow key={id} store={store} id={id} depth={0} />)}</div>

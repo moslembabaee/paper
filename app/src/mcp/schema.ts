@@ -1,3 +1,4 @@
+import { TOKEN_META } from '../tokens/model.ts'
 import { motionControls, shaderCatalog, shaderKinds } from '../shaders/catalog.ts'
 import type { ShaderControl } from '../shaders/types.ts'
 
@@ -63,10 +64,18 @@ const specific: Record<string, Record<string, JsonSchema>> = {
   text: { text: { type: 'string' }, fontFamily: str(), fontSize: positive, fontWeight: { type: 'number', minimum: 1, maximum: 1000 }, lineHeight: positive, letterSpacing: num, textAlign: { type: 'string', enum: ['left', 'center', 'right'] } },
   image: { src: { type: 'string' }, alt: { type: 'string' }, fit: { type: 'string', enum: ['cover', 'contain', 'fill'] }, cornerRadius: nonnegative },
 }
+const tokenProperties = ['fill', 'stroke', 'cornerRadius', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'x', 'y', 'width', 'height'] as const
+const tokenBindings = object(Object.fromEntries(tokenProperties.map(property => [property, str()])))
+export const tokenSchema: JsonSchema = {
+  anyOf: Object.keys(TOKEN_META).map(type => object({
+    id: str(), name: { ...str(), pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 100 }, type: { type: 'string', enum: [type] },
+    value: type === 'color' || type === 'fontFamily' ? str() : type === 'letterSpacing' ? num : type === 'fontWeight' ? { type: 'number', minimum: 1, maximum: 1000 } : type === 'radius' || type === 'spacing' ? nonnegative : positive,
+  }, ['id', 'name', 'type', 'value'])),
+}
 export const elementSchema: JsonSchema = {
   anyOf: Object.entries(specific).map(([type, fields]) => {
     const properties = { ...identity, ...geometry, type: { type: 'string', enum: [type] } as JsonSchema, style: object(styleProperties, ['fill', 'stroke', 'opacity', 'shadow']), ...fields }
-    return object(properties, Object.keys(properties))
+    return object({ ...properties, tokenBindings }, Object.keys(properties))
   }),
 }
 export const projectSchema = {
@@ -76,7 +85,7 @@ export const projectSchema = {
     format: { type: 'string', enum: ['paper'] }, version: { type: 'integer', enum: [1] },
     name: { ...str(), maxLength: 200 }, grid: flag,
     viewport: object({ x: num, y: num, zoom: { type: 'number', minimum: .1, maximum: 32 } }, ['x', 'y', 'zoom']),
-    scene: object({ version: { type: 'integer', enum: [1] }, backgroundShader: nullable(shaderSchema), rootIds: list(str()), elements: { type: 'object', additionalProperties: elementSchema } }, ['version', 'rootIds', 'elements']),
+    scene: object({ tokens: list(tokenSchema), version: { type: 'integer', enum: [1] }, backgroundShader: nullable(shaderSchema), rootIds: list(str()), elements: { type: 'object', additionalProperties: elementSchema } }, ['version', 'rootIds', 'elements']),
   }, ['format', 'version', 'name', 'grid', 'viewport', 'scene']),
 }
 

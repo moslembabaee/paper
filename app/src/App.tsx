@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Circle, Code2, Frame, Grid2X2, Hand, Image, Layers, ListChecks, MousePointer2, PenTool, Sparkles, Square, Type, X } from 'lucide-react'
 import type { ElementType } from './scene/types'
 import { SceneCanvas } from './scene/SceneCanvas'
-import { LayerTree } from './scene/LayerTree'
+import { DocumentSidebar } from './tokens/DocumentSidebar'
 import { ElementInspector } from './scene/ElementInspector'
 import { DevModeInspector } from './scene/DevModeInspector'
 import { ShaderBrowser } from './shaders/ShaderBrowser'
@@ -99,7 +99,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.repeat || (event.target as Element).closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return
+      if (event.defaultPrevented || event.repeat || (event.target as Element).closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [data-token-ui]')) return
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === "'" || event.key === '"' || event.code === 'Quote')) {
         event.preventDefault()
         togglePixelSnap()
@@ -127,7 +127,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
       <div className="header-end"><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><ProfileMenu profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
     </header>
     <div className="editor-layout" inert={changing}>
-      {layersVisible && <LayerTree store={store} onHide={() => setLayersVisible(false)} />}
+      {layersVisible && <DocumentSidebar store={store} onHide={() => setLayersVisible(false)} />}
       <main className="canvas-stage">
         <div className="canvas-toolbar viewport-ui" role="toolbar" aria-label="Canvas tools">
           {!layersVisible && <button className="tool-button" title="Show layers" aria-label="Show layers" onClick={() => setLayersVisible(true)}><Layers size={17} /></button>}

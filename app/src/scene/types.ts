@@ -1,3 +1,4 @@
+import type { DesignToken, TokenBindings } from '../tokens/types.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 
 /** Coordinates are relative to the parent frame. Rotation is in degrees. */
@@ -33,6 +34,7 @@ export interface ElementStyle {
 }
 
 export interface BaseElement extends ElementGeometry {
+  readonly tokenBindings?: TokenBindings
   readonly id: string
   readonly name: string
   readonly parentId: string | null
@@ -93,11 +95,14 @@ export type ElementPatch<T extends ElementType> = T extends ElementType ? Partia
 
 export interface SceneDocument {
   readonly version: 1
+  /** Absent in legacy documents. */
+  readonly tokens?: readonly DesignToken[]
   readonly backgroundShader?: ShaderPaint | null
   readonly elements: Readonly<Record<string, SceneElement>>
   readonly rootIds: readonly string[]
 }
 
 export interface SceneSnapshot extends SceneDocument {
+  readonly tokens: readonly DesignToken[]
   readonly selection: readonly string[]
 }

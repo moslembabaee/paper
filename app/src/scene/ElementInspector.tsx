@@ -1,3 +1,6 @@
+import type { ReactNode } from 'react'
+import { TokenSelector } from '../tokens/TokenSelector'
+import type { TokenProperty } from '../tokens/types'
 import { ArrowDown, ArrowUp, ChevronRight, Circle, LockKeyhole, Trash2, X } from 'lucide-react'
 import type { ViewportController } from '../canvas/ViewportController'
 import { getWorldBounds } from './geometry'
@@ -7,23 +10,24 @@ import { useScene } from './useScene'
 import { useRangeHistory } from './useRangeHistory'
 import { ShaderInspector } from '../shaders/ShaderInspector'
 
-function NumberField({ label, value, onChange, min, max, step = 1 }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
-  return <label className="property-number"><span>{label}</span><input key={value} aria-label={label} type="number" defaultValue={Number(value.toFixed(3))} min={min} max={max} step={step} onBlur={(event) => {
+function NumberField({ label, value, onChange, min, max, step = 1, binding }: { binding?: ReactNode; label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
+  return <div className="token-number-field"><label className="property-number"><span>{label}</span><input key={value} aria-label={label} type="number" defaultValue={Number(value.toFixed(3))} min={min} max={max} step={step} onBlur={(event) => {
     const next = event.currentTarget.valueAsNumber
     if (Number.isFinite(next) && (min === undefined || next >= min) && (max === undefined || next <= max)) { if (next !== value) onChange(next) }
     else event.currentTarget.value = String(value)
-  }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>
+  }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>{binding}</div>
 }
 
-function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function ColorField({ label, value, onChange, binding }: { binding?: ReactNode; label: string; value: string; onChange: (value: string) => void }) {
   const hex = /^#[0-9a-f]{6}$/i.test(value) ? value : '#080808'
-  return <label className="property-color"><input type="color" aria-label={`${label} color picker`} value={hex} onChange={event => onChange(event.currentTarget.value)} /><input key={value} aria-label={`${label} color`} defaultValue={value} spellCheck={false} onBlur={event => { const next = event.currentTarget.value.trim(); if (CSS.supports('color', next)) { if (next !== value) onChange(next) } else event.currentTarget.value = value }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>
+  return <div className="token-color-field"><label className="property-color"><input type="color" aria-label={`${label} color picker`} value={hex} onChange={event => onChange(event.currentTarget.value)} /><input key={value} aria-label={`${label} color`} defaultValue={value} spellCheck={false} onBlur={event => { const next = event.currentTarget.value.trim(); if (CSS.supports('color', next)) { if (next !== value) onChange(next) } else event.currentTarget.value = value }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>{binding}</div>
 }
 
 export function ElementInspector({ store, controller, grid, onGridChange, onOpenShaders }: { store: SceneStore; controller: ViewportController; grid: boolean; onGridChange: () => void; onOpenShaders?: () => void }) {
   const onRangePointerDown = useRangeHistory(store)
   const state = useScene(store, snapshot => snapshot)
   const node = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
+  const binding = (property: TokenProperty, label: string, color = false) => node ? <TokenSelector key={`${node.id}-${property}`} store={store} node={node} property={property} label={label} tokens={state.tokens} color={color} /> : null
   const patch = (changes: ElementPatch<ElementType>) => { if (node) store.update(node.id, node.type, changes) }
   const style = (changes: Partial<SceneElement['style']>) => patch({ style: changes })
   const parentOptions = Object.values(state.elements).filter(candidate => {
@@ -38,26 +42,27 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
       <div className="inspector-section">
         <span className="section-caption">SELECTION</span>
         <input className="property-name" key={node.id + node.name} aria-label="Layer name" defaultValue={node.name} onBlur={event => { const name = event.currentTarget.value.trim(); if (name) patch({ name }); else event.currentTarget.value = node.name }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
-        <div className="property-pair"><NumberField label="X" value={node.x} onChange={x => patch({ x })} /><NumberField label="Y" value={node.y} onChange={y => patch({ y })} /></div>
-        <div className="property-pair"><NumberField label="Width" value={node.width} min={.01} onChange={width => patch({ width })} /><NumberField label="Height" value={node.height} min={.01} onChange={height => patch({ height })} /></div>
+        <div className="property-pair"><NumberField binding={binding('x', 'X')} label="X" value={node.x} onChange={x => patch({ x })} /><NumberField binding={binding('y', 'Y')} label="Y" value={node.y} onChange={y => patch({ y })} /></div>
+        <div className="property-pair"><NumberField binding={binding('width', 'Width')} label="Width" value={node.width} min={.01} onChange={width => patch({ width })} /><NumberField binding={binding('height', 'Height')} label="Height" value={node.height} min={.01} onChange={height => patch({ height })} /></div>
         <div className="property-pair"><NumberField label="Rotation" value={node.rotation} onChange={rotation => patch({ rotation })} /><NumberField label="Opacity %" value={node.style.opacity * 100} min={0} max={100} onChange={opacity => style({ opacity: opacity / 100 })} /></div>
-        {'cornerRadius' in node && <NumberField label="Radius" value={node.cornerRadius} min={0} onChange={cornerRadius => patch({ cornerRadius })} />}
+        {'cornerRadius' in node && <NumberField binding={binding('cornerRadius', 'Radius')} label="Radius" value={node.cornerRadius} min={0} onChange={cornerRadius => patch({ cornerRadius })} />}
         <button className="text-action" onClick={() => controller.fit(getWorldBounds(state, node.id))}>Focus element <ChevronRight size={12} /></button>
       </div>
       <div className="inspector-section">
         <span className="section-caption">APPEARANCE</span>
         <div className="property-heading"><span>Fill</span><button className="quiet-button paint-toggle" aria-label="Toggle fill" aria-pressed={node.style.fill !== null} onClick={() => style({ fill: node.style.fill === null ? '#81adec' : null })}>{node.style.fill === null ? '+' : '−'}</button></div>
-        {node.style.fill !== null && <ColorField label="Fill" value={node.style.fill} onChange={fill => style({ fill })} />}
+        {node.style.fill !== null && <ColorField binding={binding('fill', 'Fill', true)} label="Fill" value={node.style.fill} onChange={fill => style({ fill })} />}
         <div className="property-heading"><span>Stroke</span><button className="quiet-button paint-toggle" aria-label="Toggle stroke" aria-pressed={node.style.stroke !== null} onClick={() => style({ stroke: node.style.stroke ? null : { color: '#080808', width: 1, dash: [] } })}>{node.style.stroke ? '−' : '+'}</button></div>
-        {node.style.stroke && <><ColorField label="Stroke" value={node.style.stroke.color} onChange={color => style({ stroke: { ...node.style.stroke!, color } })} /><NumberField label="Stroke width" value={node.style.stroke.width} min={0} step={.5} onChange={width => style({ stroke: { ...node.style.stroke!, width } })} /></>}
+        {node.style.stroke && <><ColorField binding={binding('stroke', 'Stroke', true)} label="Stroke" value={node.style.stroke.color} onChange={color => style({ stroke: { ...node.style.stroke!, color } })} /><NumberField label="Stroke width" value={node.style.stroke.width} min={0} step={.5} onChange={width => style({ stroke: { ...node.style.stroke!, width } })} /></>}
         <div className="property-heading"><span>Shadow</span><button className="quiet-button paint-toggle" aria-label="Toggle shadow" aria-pressed={node.style.shadow !== null} onClick={() => style({ shadow: node.style.shadow ? null : { color: '#08080833', x: 0, y: 4, blur: 16 } })}>{node.style.shadow ? '−' : '+'}</button></div>
         {node.style.shadow && <><ColorField label="Shadow" value={node.style.shadow.color} onChange={color => style({ shadow: { ...node.style.shadow!, color } })} /><div className="property-pair"><NumberField label="Shadow X" value={node.style.shadow.x} onChange={x => style({ shadow: { ...node.style.shadow!, x } })} /><NumberField label="Shadow Y" value={node.style.shadow.y} onChange={y => style({ shadow: { ...node.style.shadow!, y } })} /></div><NumberField label="Blur" value={node.style.shadow.blur} min={0} onChange={blur => style({ shadow: { ...node.style.shadow!, blur } })} /></>}
       </div>
       <ShaderInspector key={node.id} paint={node.style.shader ?? null} onChange={shader => style({ shader })} target={node.type === 'image' ? 'Image effect' : 'Layer fill'} image={node.type === 'image' ? node.src : undefined} onBrowse={onOpenShaders} />
       {node.type === 'text' && <div className="inspector-section"><span className="section-caption">TYPOGRAPHY</span>
         <textarea className="property-textarea" key={node.id + node.text} aria-label="Text content" defaultValue={node.text} onBlur={event => store.update(node.id, 'text', { text: event.currentTarget.value })} />
-        <div className="property-pair"><NumberField label="Font size" value={node.fontSize} min={1} onChange={fontSize => store.update(node.id, 'text', { fontSize })} /><NumberField label="Weight" value={node.fontWeight} min={1} max={1000} step={100} onChange={fontWeight => store.update(node.id, 'text', { fontWeight })} /></div>
-        <div className="property-pair"><NumberField label="Line height" value={node.lineHeight} min={.1} step={.1} onChange={lineHeight => store.update(node.id, 'text', { lineHeight })} /><NumberField label="Tracking" value={node.letterSpacing} step={.1} onChange={letterSpacing => store.update(node.id, 'text', { letterSpacing })} /></div>
+        <label className="property-label">Font family<input className="property-input" key={node.id + node.fontFamily} aria-label="Font family" defaultValue={node.fontFamily} onBlur={event => { const fontFamily = event.currentTarget.value.trim(); if (fontFamily && fontFamily !== node.fontFamily) store.update(node.id, 'text', { fontFamily }); else event.currentTarget.value = node.fontFamily }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>{binding('fontFamily', 'Font family')}
+        <div className="property-pair"><NumberField binding={binding('fontSize', 'Font size')} label="Font size" value={node.fontSize} min={1} onChange={fontSize => store.update(node.id, 'text', { fontSize })} /><NumberField binding={binding('fontWeight', 'Weight')} label="Weight" value={node.fontWeight} min={1} max={1000} step={100} onChange={fontWeight => store.update(node.id, 'text', { fontWeight })} /></div>
+        <div className="property-pair"><NumberField binding={binding('lineHeight', 'Line height')} label="Line height" value={node.lineHeight} min={.1} step={.1} onChange={lineHeight => store.update(node.id, 'text', { lineHeight })} /><NumberField binding={binding('letterSpacing', 'Tracking')} label="Tracking" value={node.letterSpacing} step={.1} onChange={letterSpacing => store.update(node.id, 'text', { letterSpacing })} /></div>
         <label className="property-select">Align<select aria-label="Text alignment" value={node.textAlign} onChange={event => store.update(node.id, 'text', { textAlign: event.currentTarget.value as typeof node.textAlign })}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
       </div>}
       {node.type === 'path' && <div className="inspector-section"><span className="section-caption">VECTOR PATH</span><textarea className="property-textarea property-mono" key={node.id + node.d} aria-label="SVG path data" defaultValue={node.d} onBlur={event => store.update(node.id, 'path', { d: event.currentTarget.value })} /></div>}

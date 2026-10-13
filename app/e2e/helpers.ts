@@ -13,9 +13,9 @@ export interface CameraTransform {
 /**
  * Wait for canvas viewport, grid, rulers, and world elements to be mounted and ready.
  */
-export async function waitForCanvasReady(page: Page) {
+export async function waitForCanvasReady(page: Page, resetStorage = true) {
   // Clear any persisted localStorage to guarantee clean seed state
-  await page.addInitScript(() => {
+  if (resetStorage) await page.addInitScript(() => {
     localStorage.clear()
   })
 

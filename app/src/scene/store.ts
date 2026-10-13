@@ -1,3 +1,5 @@
+import { detachEditedBindings, resolveTokenBindings, supportsTokenProperty, tokenVariable, validateTokens } from '../tokens/model.ts'
+import type { DesignToken, TokenInput, TokenProperty } from '../tokens/types.ts'
 import { createElement, freezeElement, validateElement } from './elements.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
 import { CommandHistory, equalValue } from './history.ts'
@@ -9,7 +11,7 @@ const EMPTY = Object.freeze([]) as readonly string[]
 
 /** Framework-independent immutable scene graph. Sibling arrays are the paint order. */
 export class SceneStore {
-  private state: SceneSnapshot = Object.freeze({ version: 1, backgroundShader: null, elements: Object.freeze({}), rootIds: EMPTY, selection: EMPTY })
+  private state: SceneSnapshot = Object.freeze({ version: 1, tokens: Object.freeze([]), backgroundShader: null, elements: Object.freeze({}), rootIds: EMPTY, selection: EMPTY })
   private listeners = new Set<Listener>()
   private batchDepth = 0
   private pending = false
@@ -145,7 +147,8 @@ export class SceneStore {
   }
 
   add<T extends ElementType>(type: T, input: ElementInput<T> = {}, index?: number): ElementOf<T> {
-    const node = createElement(type, input)
+    const node = freezeElement(resolveTokenBindings(createElement(type, input), this.state.tokens))
+    validateElement(node)
     if (Object.hasOwn(this.state.elements, node.id)) throw new Error(`Duplicate element: ${node.id}`)
     if (['__proto__', 'prototype', 'constructor'].includes(node.id)) throw new Error('Reserved element ID')
     this.requireFrame(node.parentId)
@@ -163,10 +166,11 @@ export class SceneStore {
     const node = this.require(id)
     if (node.type !== type) throw new Error('Element type mismatch')
     if (this.isLocked(id)) throw new Error('Element is locked')
-    for (const key of ['id', 'type', 'children', 'parentId', 'zIndex']) {
+    for (const key of ['id', 'type', 'children', 'parentId', 'zIndex', 'tokenBindings']) {
       if (Object.hasOwn(patch, key)) throw new Error(`Use structural actions to change ${key}`)
     }
-    const updated = { ...node, ...patch, style: { ...node.style, ...patch.style } } as SceneElement
+    const tokenBindings = detachEditedBindings(node.tokenBindings, patch as Record<string, unknown>, node)
+    const updated = { ...node, ...patch, ...(tokenBindings ? { tokenBindings } : {}), style: { ...node.style, ...patch.style } } as SceneElement
     validateElement(updated)
     if (equalValue(node, updated)) return
     const label = patch.style ? 'Style' : ['x', 'y', 'width', 'height', 'rotation'].some(key => Object.hasOwn(patch, key)) ? 'Transform' : 'Edit'
@@ -247,23 +251,102 @@ export class SceneStore {
     this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, this.state.selection.filter(selected => Object.hasOwn(elements, selected)), `Delete ${node.name}`)
   }
 
+  addToken(input: TokenInput): DesignToken {
+    return this.addTokens([input])[0]
+  }
+
+  /** Clipboard and integrations can insert a whole theme atomically. */
+  addTokens(inputs: readonly TokenInput[]): readonly DesignToken[] {
+    if (!inputs.length) return []
+    const tokens = inputs.map(input => ({ ...input, id: input.id ?? crypto.randomUUID() }) as DesignToken)
+    this.setTokens([...this.state.tokens, ...tokens], tokens.length === 1 ? `Add ${tokens[0].name} token` : 'Paste tokens')
+    return this.state.tokens.slice(-tokens.length)
+  }
+
+  updateToken(id: string, patch: { name?: string; value?: string | number }): void {
+    const token = this.state.tokens.find(candidate => candidate.id === id)
+    if (!token) throw new Error('Unknown token')
+    const next = { ...token, ...patch } as DesignToken
+    if (equalValue(token, next)) return
+    this.setTokens(this.state.tokens.map(candidate => candidate.id === id ? next : candidate), `Edit ${token.name} token`)
+  }
+
+  duplicateToken(id: string): DesignToken {
+    const token = this.state.tokens.find(candidate => candidate.id === id)
+    if (!token) throw new Error('Unknown token')
+    let name = `${token.name}-copy`, index = 2
+    while (this.state.tokens.some(candidate => tokenVariable(candidate) === tokenVariable({ ...token, name }))) name = `${token.name}-copy-${index++}`
+    return this.addToken({ ...token, id: crypto.randomUUID(), name })
+  }
+
+  removeTokens(ids: readonly string[]): void {
+    const removed = new Set(ids)
+    if (!this.state.tokens.some(token => removed.has(token.id))) return
+    const elements = { ...this.state.elements }
+    for (const node of Object.values(elements)) {
+      if (!Object.values(node.tokenBindings ?? {}).some(id => removed.has(id))) continue
+      const tokenBindings = { ...node.tokenBindings }
+      for (const property of Object.keys(tokenBindings) as TokenProperty[]) if (removed.has(tokenBindings[property]!)) delete tokenBindings[property]
+      // Values were already resolved; removing a token detaches, retaining its appearance.
+      elements[node.id] = freezeElement({ ...node, tokenBindings })
+    }
+    this.publish(Object.freeze({ ...this.state, tokens: validateTokens(this.state.tokens.filter(token => !removed.has(token.id))), elements: Object.freeze(elements) }), 'Delete tokens')
+  }
+
+  bindToken(id: string, property: TokenProperty, tokenId: string): void {
+    const node = this.require(id)
+    if (this.isLocked(id)) throw new Error('Element is locked')
+    if (!supportsTokenProperty(node, property)) throw new Error('Unsupported token property')
+    if (node.tokenBindings?.[property] === tokenId) return
+    const next = resolveTokenBindings({ ...node, tokenBindings: { ...node.tokenBindings, [property]: tokenId } }, this.state.tokens)
+    validateElement(next)
+    this.commit({ ...this.state.elements, [id]: freezeElement(next) }, this.state.rootIds, this.state.selection, `Bind ${property} token`)
+  }
+
+  detachToken(id: string, property: TokenProperty): void {
+    const node = this.require(id)
+    if (this.isLocked(id)) throw new Error('Element is locked')
+    if (!node.tokenBindings?.[property]) return
+    const tokenBindings = { ...node.tokenBindings }
+    delete tokenBindings[property]
+    this.commit({ ...this.state.elements, [id]: freezeElement({ ...node, tokenBindings }) }, this.state.rootIds, this.state.selection, `Detach ${property} token`)
+  }
+
+  private setTokens(input: readonly DesignToken[], label: string): void {
+    const tokens = validateTokens(input)
+    const tokenLookup = new Map(tokens.map(token => [token.id, token]))
+    let elements = this.state.elements
+    for (const node of Object.values(elements)) {
+      const next = resolveTokenBindings(node, tokenLookup)
+      if (next === node) continue
+      validateElement(next)
+      if (elements === this.state.elements) elements = { ...elements }
+      ;(elements as Record<string, SceneElement>)[node.id] = freezeElement(next)
+    }
+    this.publish(Object.freeze({ ...this.state, tokens, elements: Object.freeze(elements) }), label)
+  }
+
   setBackgroundShader(paint: ShaderPaint | null): void {
     if (paint !== null) validateShader(paint)
     if (equalValue(this.state.backgroundShader, paint)) return
     this.publish(Object.freeze({ ...this.state, backgroundShader: paint ? freezeShader(paint) : null }), 'Style canvas background')
   }
 
-  toJSON(): SceneDocument { return { version: 1, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
+  toJSON(): SceneDocument { return { version: 1, tokens: this.state.tokens, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
 
   /** Validate the whole document before replacing state; invalid imports are atomic. */
   load(document: SceneDocument): void {
     if (document.version !== 1 || !document.elements || !Array.isArray(document.rootIds)) throw new Error('Unsupported scene document')
     if (document.backgroundShader !== undefined && document.backgroundShader !== null) validateShader(document.backgroundShader)
+    const tokens = validateTokens(document.tokens ?? [])
+    const tokenLookup = new Map(tokens.map(token => [token.id, token]))
     const elements: Record<string, SceneElement> = {}
     for (const [id, node] of Object.entries(document.elements)) {
       if (id !== node.id || ['__proto__', 'prototype', 'constructor'].includes(id)) throw new Error('Invalid element ID')
       validateElement(node)
-      elements[id] = freezeElement(node)
+      const resolved = resolveTokenBindings(node, tokenLookup)
+      validateElement(resolved)
+      elements[id] = freezeElement(resolved)
     }
     const visited = new Set<string>()
     const visit = (id: string, parentId: string | null, index: number) => {
@@ -275,9 +358,6 @@ export class SceneStore {
     }
     document.rootIds.forEach((id, i) => visit(id, null, i))
     if (visited.size !== Object.keys(elements).length) throw new Error('Unreachable scene elements')
-    this.batch(() => {
-      this.commit(elements, document.rootIds, EMPTY)
-      this.setBackgroundShader(document.backgroundShader ?? null)
-    }, 'Load artwork')
+    this.publish(Object.freeze({ version: 1, tokens, elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
   }
 }

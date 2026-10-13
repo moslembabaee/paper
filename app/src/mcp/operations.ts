@@ -48,7 +48,7 @@ export function collectElements(state: SceneSnapshot, ids = state.rootIds): Scen
 
 export function readCanvas(project: PaperProject, ids?: readonly string[]) {
   const store = projectStore(project)
-  return { name: project.name, version: project.version, viewport: project.viewport, grid: project.grid, gridSize: GRID_SIZE, rootIds: project.scene.rootIds, backgroundShader: project.scene.backgroundShader ?? null, elements: collectElements(store.getSnapshot(), ids) }
+  return { name: project.name, version: project.version, viewport: project.viewport, grid: project.grid, gridSize: GRID_SIZE, rootIds: project.scene.rootIds, tokens: store.getSnapshot().tokens, backgroundShader: project.scene.backgroundShader ?? null, elements: collectElements(store.getSnapshot(), ids) }
 }
 
 export function mutateCanvas(project: PaperProject, name: string, args: ToolArguments): { project: PaperProject; element: SceneElement } {
@@ -109,10 +109,12 @@ export function exportCanvas(project: PaperProject, args: ToolArguments): { mime
     let opacity = node.style.opacity
     let parent = node.parentId
     while (parent !== null) { opacity *= state.elements[parent].style.opacity; parent = state.elements[parent].parentId }
-    elements[id] = { ...node, parentId: null, zIndex: index, x: a * node.width / 2 + c * node.height / 2 + e - node.width / 2, y: b * node.width / 2 + d * node.height / 2 + f - node.height / 2, rotation: Math.atan2(b, a) * 180 / Math.PI, visible: store.isVisible(id), style: { ...node.style, opacity } } as SceneElement
+    const tokenBindings = { ...node.tokenBindings }
+    delete tokenBindings.x; delete tokenBindings.y
+    elements[id] = { ...node, ...(node.tokenBindings ? { tokenBindings } : {}), parentId: null, zIndex: index, x: a * node.width / 2 + c * node.height / 2 + e - node.width / 2, y: b * node.width / 2 + d * node.height / 2 + f - node.height / 2, rotation: Math.atan2(b, a) * 180 / Math.PI, visible: store.isVisible(id), style: { ...node.style, opacity } } as SceneElement
   })
   const exported = new SceneStore()
-  exported.load({ version: 1, elements, rootIds: roots, backgroundShader: ids ? null : state.backgroundShader })
+  exported.load({ version: 1, tokens: state.tokens, elements, rootIds: roots, backgroundShader: ids ? null : state.backgroundShader })
   const result = createProject(exported, `${project.name}${ids ? ' selection' : ''}`.slice(0, 200), project.viewport, project.grid)
   return { mimeType: 'application/json', content: JSON.stringify(result, null, 2), elementIds: roots }
 }
