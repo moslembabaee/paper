@@ -74,8 +74,8 @@ function TailwindBlock({ node, tokens, parent }: { node: SceneElement; tokens: r
   )
 }
 
-function ReactBlock({ node, tokens, parent }: { node: SceneElement; tokens: readonly DesignToken[]; parent?: SceneElement }) {
-  const code = buildReactComponent(node, tokens, parent)
+function ReactBlock({ node, tokens, parent, elements }: { node: SceneElement; tokens: readonly DesignToken[]; parent?: SceneElement; elements: Readonly<Record<string, SceneElement>> }) {
+  const code = buildReactComponent(node, tokens, parent, elements)
   return (
     <div className="dev-code-block">
       <div className="dev-code-header">
@@ -293,7 +293,7 @@ export function DevModeInspector({ store, onExit }: { store: SceneStore; onExit:
             <TailwindBlock node={node} tokens={state.tokens} parent={parent} />
           </div>
           <div className="inspector-section">
-            <ReactBlock node={node} tokens={state.tokens} parent={parent} />
+            <ReactBlock node={node} tokens={state.tokens} parent={parent} elements={state.elements} />
           </div>
         </>
       )}

@@ -8,6 +8,9 @@ import type { ShaderPaint } from '../shaders/types.ts'
 import type { BooleanCompound, BooleanOperation, ElementInput, ElementOf, ElementPatch, ElementType, PathElement, SceneDocument, SceneElement, SceneSnapshot, VectorElement } from './types.ts'
 import { computeBoolean, isVector, refreshBooleanElement, transformedSource } from './booleanGeometry.ts'
 import { serializePath } from './pathGeometry.ts'
+import { canMask, validateMaskGraph } from './maskGeometry.ts'
+import { getWorldBounds } from './geometry.ts'
+import { unionBounds } from '../canvas/math.ts'
 import { FIXED_SIZING, invalidateLayoutTextMetrics, reflowAutoLayout } from './autoLayout.ts'
 import { componentRoot, recordComponentEdit, recordComponentTokenEdit, subtree, synchronizeComponents, validateComponentGraph } from './components.ts'
 import { EMPTY_PROTOTYPE, DEFAULT_TRANSITION, prunePrototype, validatePrototype } from '../prototype/model.ts'
@@ -98,6 +101,7 @@ export class SceneStore {
       let elements = reflowAutoLayout(next.elements, next.rootIds)
       elements = synchronizeComponents(elements, resolveTokens(next.tokens, next.styleLibrary.activeThemeId), before.elements, next.styleLibrary)
       elements = reflowAutoLayout(elements, next.rootIds)
+      validateMaskGraph(elements)
       if (elements !== next.elements) next = Object.freeze({ ...next, elements: Object.freeze(elements) })
       if (next.prototype) {
         const prototype = prunePrototype(next.prototype, elements)
@@ -198,7 +202,7 @@ export class SceneStore {
     const node = this.require(id)
     if (node.type !== type) throw new Error('Element type mismatch')
     if (this.isLocked(id)) throw new Error('Element is locked')
-    for (const key of ['component', 'id', 'type', 'children', 'parentId', 'zIndex', 'tokenBindings', 'sharedStyleBindings', 'boolean']) {
+    for (const key of ['mask', 'component', 'id', 'type', 'children', 'parentId', 'zIndex', 'tokenBindings', 'sharedStyleBindings', 'boolean']) {
       if (Object.hasOwn(patch, key)) throw new Error(`Use structural actions to change ${key}`)
     }
     if (node.type === 'path' && node.boolean && ['d', 'viewBox', 'fillRule', 'nodes'].some(key => Object.hasOwn(patch, key))) throw new Error('Flatten the compound before editing its merged outline')
@@ -380,9 +384,75 @@ export class SceneStore {
     const nodes = [...new Set(ids)].map(id => this.state.elements[id])
     if (nodes.some(node => node?.component || (node && componentRoot(this.state.elements, node.id)?.component?.kind === 'instance'))) return 'Detach the component before combining its layers.'
     if (nodes.some(node => !node || !isVector(node))) return 'Select rectangles, ellipses, or vector paths.'
+    if (nodes.some(node => node.mask)) return 'Release the mask before combining its source.'
     if (nodes.some(node => this.isLocked(node.id) || !this.isVisible(node.id))) return 'Choose visible, unlocked shapes.'
     if (nodes.some(node => node.parentId !== nodes[0].parentId)) return 'Choose shapes in the same frame.'
     return null
+  }
+
+  maskSelectionReason(ids = this.state.selection): string | null {
+    if (this.history.getSnapshot().active) return 'Finish the active edit first.'
+    const nodes = [...new Set(ids)].map(id => this.state.elements[id])
+    if (nodes.length < 2 || nodes.some(node => !node)) return 'Select a mask shape and at least one content layer.'
+    if (nodes.some(node => this.isLocked(node.id) || !this.isVisible(node.id))) return 'Choose visible, unlocked layers.'
+    if (nodes.some(node => componentRoot(this.state.elements, node.id) || subtree(this.state.elements, node.id).some(child => child.component))) return 'Detach the component before grouping its layers.'
+    if (nodes.some(node => node.parentId !== nodes[0].parentId)) return 'Choose layers in the same frame.'
+    if (nodes.some(node => node.mask)) return 'Release the existing mask before regrouping its source.'
+    if (!canMask([...nodes].sort((a, b) => b.zIndex - a.zIndex)[0])) return 'The top selected layer must be a vector shape or frame.'
+    return null
+  }
+
+  /** Group atomically in parent space; every child keeps its editable geometry. */
+  maskSelection(ids = this.state.selection): SceneElement {
+    const reason = this.maskSelectionReason(ids)
+    if (reason) throw new Error(reason)
+    const nodes = [...new Set(ids)].map(id => this.require(id)).sort((a, b) => a.zIndex - b.zIndex)
+    const source = nodes.at(-1)!, parentId = source.parentId
+    const bounds = unionBounds(nodes.map(node => getWorldBounds({ ...this.state, elements: { ...this.state.elements, [node.id]: { ...node, parentId: null } } }, node.id)))!
+    const group = createElement('frame', { name: 'Mask group', parentId, ...bounds, clipContent: false, style: { fill: null } })
+    const elements = { ...this.state.elements, [group.id]: group }
+    for (const node of nodes) {
+      const patch = { x: node.x - bounds.x, y: node.y - bounds.y }
+      elements[node.id] = freezeElement({ ...node, ...patch, tokenBindings: detachEditedBindings(node.tokenBindings, patch, node), parentId: group.id,
+        ...(node.id === source.id ? { mask: { enabled: true, showOutline: false } } : {}),
+      })
+    }
+    this.ordered(elements, group.id, nodes.map(node => node.id))
+    const selected = new Set(ids), siblings = this.getChildren(parentId)
+    const next = siblings.filter(id => !selected.has(id))
+    next.splice(siblings.slice(0, source.zIndex).filter(id => !selected.has(id)).length, 0, group.id)
+    this.ordered(elements, parentId, next)
+    this.commit(elements, parentId === null ? next : this.state.rootIds, [group.id], 'Create vector mask')
+    return this.state.elements[group.id]
+  }
+
+  /** Null releases the role; false temporarily reveals the original layers. */
+  setMask(id: string, enabled: boolean | null): void {
+    const node = this.require(id)
+    if (this.history.getSnapshot().active) throw new Error('Finish the active edit first')
+    if (!canMask(node)) throw new Error('Only vector shapes and frames can be masks')
+    if (this.isLocked(id)) throw new Error('Unlock the mask source first')
+    this.requireEditableStructure(id)
+    const elements = { ...this.state.elements }
+    if (enabled !== null && node.parentId !== null) {
+      for (const siblingId of this.getChildren(node.parentId)) {
+        if (siblingId !== id && elements[siblingId].mask) {
+          if (this.isLocked(siblingId)) throw new Error('Unlock the existing mask source first')
+          this.requireEditableStructure(siblingId)
+          elements[siblingId] = freezeElement({ ...elements[siblingId], mask: undefined })
+        }
+      }
+    }
+    elements[id] = freezeElement({ ...node, mask: enabled === null ? undefined : { enabled, showOutline: node.mask?.showOutline ?? false } })
+    this.commit(elements, this.state.rootIds, this.state.selection, enabled === null ? 'Release vector mask' : enabled ? 'Enable vector mask' : 'Disable vector mask')
+  }
+
+  setMaskOutline(id: string, showOutline: boolean): void {
+    const node = this.require(id)
+    if (!node.mask) throw new Error('Select a mask source')
+    if (this.history.getSnapshot().active) throw new Error('Finish the active edit first')
+    this.requireEditableStructure(id)
+    this.commit({ ...this.state.elements, [id]: freezeElement({ ...node, mask: { ...node.mask, showOutline } }) }, this.state.rootIds, this.state.selection, 'Toggle mask outline')
   }
 
   /** Compute before publishing so errors leave the entire selection untouched. */
@@ -437,7 +507,7 @@ export class SceneStore {
   updateBooleanOperand(id: string, operandId: string, patch: ElementPatch<'rectangle' | 'ellipse' | 'path'>): void {
     const node = this.requireCompound(id), operand = node.boolean.operands.find(source => source.id === operandId)
     if (!operand) throw new Error('Unknown boolean source')
-    for (const key of ['component', 'id', 'type', 'children', 'parentId', 'zIndex', 'boolean', 'tokenBindings', 'sharedStyleBindings', 'visible', 'locked']) if (Object.hasOwn(patch, key)) throw new Error(`Cannot change source ${key}`)
+    for (const key of ['mask', 'component', 'id', 'type', 'children', 'parentId', 'zIndex', 'boolean', 'tokenBindings', 'sharedStyleBindings', 'visible', 'locked']) if (Object.hasOwn(patch, key)) throw new Error(`Cannot change source ${key}`)
     if (operand.type === 'path' && operand.boolean && ['d', 'viewBox', 'fillRule', 'nodes'].some(key => Object.hasOwn(patch, key))) throw new Error('Release the compound to edit a nested operation')
     const updated = { ...operand, ...patch, ...(operand.tokenBindings ? { tokenBindings: detachEditedBindings(operand.tokenBindings, patch as Record<string, unknown>, operand) } : {}), style: { ...operand.style, ...patch.style } } as VectorElement
     if (updated.type === 'path') {
@@ -459,6 +529,7 @@ export class SceneStore {
   /** Release sources at the compound's current position, scale and rotation. */
   releaseBoolean(id: string): readonly string[] {
     const node = this.requireCompound(id), [vx, vy, vw, vh] = node.viewBox
+    if (node.mask) throw new Error('Release the mask before releasing its boolean sources')
     const sx = node.width / vw, sy = node.height / vh, angle = node.rotation * Math.PI / 180
     const cos = Math.cos(angle), sin = Math.sin(angle)
     const elements = { ...this.state.elements }, released: string[] = []
@@ -780,6 +851,7 @@ export class SceneStore {
     }
     document.rootIds.forEach((id, i) => visit(id, null, i))
     if (visited.size !== Object.keys(elements).length) throw new Error('Unreachable scene elements')
+    validateMaskGraph(elements)
     validateComponentGraph(elements, resolvedTokens, styleLibrary)
     const prototype = document.prototype === undefined ? undefined : validatePrototype(document.prototype, elements)
     this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(prototype ? { prototype } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')

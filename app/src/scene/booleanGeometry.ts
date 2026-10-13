@@ -207,6 +207,14 @@ function contains(shape: Shape, p: Point): boolean {
   }
   return shape.fillRule === 'evenodd' ? Math.abs(winding) % 2 === 1 : winding !== 0
 }
+
+const hitShapes = new WeakMap<VectorElement, Shape>()
+/** Cache winding spans on immutable nodes; pointer moves do no path parsing. */
+export function vectorContainsPoint(node: VectorElement, parentPoint: Point): boolean {
+  let shape = hitShapes.get(node)
+  if (!shape) { shape = shapeFor(node); hitShapes.set(node, shape) }
+  return contains(shape, parentPoint)
+}
 function combinedInside(shapes: Shape[], operation: BooleanOperation, p: Point): boolean {
   if (operation === 'union') return shapes.some(shape => contains(shape, p))
   if (operation === 'intersect') return shapes.every(shape => contains(shape, p))
@@ -302,6 +310,12 @@ export function transformedSource(source: VectorElement, compound: Extract<Vecto
     return point(compound.x + compound.width / 2 + cos * x - sin * y, compound.y + compound.height / 2 + sin * x + cos * y)
   }
   const curves = shape.curves.map(c => c.map(map) as unknown as Curve)
+  const d = sourcePathData(curves)
+  const raw = boundsOf(curves, true), bounds = { ...raw, width: Math.max(.01, raw.width), height: Math.max(.01, raw.height) }
+  return { d: d.trim(), bounds, viewBox: [bounds.x, bounds.y, bounds.width, bounds.height] }
+}
+
+function sourcePathData(curves: readonly Curve[]): string {
   // Keep original contour order and winding, including open paths' implicit closure.
   let d = '', cursor: Point | undefined, start: Point | undefined
   for (const c of curves) {
@@ -311,6 +325,10 @@ export function transformedSource(source: VectorElement, compound: Extract<Vecto
     if (start && distance(cursor, start) < 1e-8) { d += ' Z'; cursor = undefined }
   }
   if (cursor) d += ' Z'
-  const raw = boundsOf(curves, true), bounds = { ...raw, width: Math.max(.01, raw.width), height: Math.max(.01, raw.height) }
-  return { d: d.trim(), bounds, viewBox: [bounds.x, bounds.y, bounds.width, bounds.height] }
+  return d.trim()
+}
+
+/** Fill outline in parent coordinates, preserving source winding and subpaths. */
+export function vectorPathData(node: VectorElement): string {
+  return sourcePathData(shapeFor(node).curves)
 }

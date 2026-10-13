@@ -5,6 +5,7 @@ import type { SceneStore } from './store'
 import type { SceneElement } from './types'
 import { useScene } from './useScene'
 import { ShapeShader } from '../shaders/ShapeShader'
+import { frameMask, maskPathData, maskFillRule } from './maskGeometry'
 import './scene.css'
 
 interface NodeProps { store: SceneStore; id: string; interactive: boolean; inheritedLocked?: boolean; presentationRoot?: boolean; presentation?: boolean }
@@ -37,6 +38,8 @@ function Paint({ node }: { node: SceneElement }) {
 const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLocked = false, presentationRoot = false, presentation = false }: NodeProps) {
   const effectId = useId().replace(/:/g, "")
   const node = useScene(store, state => state.elements[id])
+  const mask = useScene(store, state => { const frame = state.elements[id]; return frame?.type === 'frame' ? frameMask(state.elements, frame) : undefined })
+  const maskSelected = useScene(store, state => !!mask && state.selection.includes(mask.id))
   const selected = useScene(store, state => state.selection.includes(id))
   const effects = node?.style.effects
   const effectMarkup = useMemo(() => effects ? effectFilterMarkup(effects, effectId) : '', [effects, effectId])
@@ -52,7 +55,7 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
   const frameStyle: CSSProperties | undefined = isFrame ? {
     background: node.style.fill ?? undefined, borderRadius: node.cornerRadius,
     overflow: node.clipContent && !presentationRoot ? 'hidden' : 'visible',
-    boxShadow: !hasEffects && node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : undefined,
+    boxShadow: !hasEffects && node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : node.style.fill === null ? 'none' : undefined,
   } : undefined
   return <div className={`scene-node ${isFrame ? 'scene-frame' : ''} ${selected ? 'is-selected' : ''}`} style={style} data-element-id={id} data-element-type={node.type} data-component-kind={node.component?.kind} data-component-master={node.component?.kind === 'instance' ? node.component.masterId : undefined} data-boolean-operation={node.type === 'path' ? node.boolean?.operation : undefined} aria-label={node.name}>
     {isFrame && node.parentId === null && !presentation && <div className="artboard-label">{node.name}<span>{node.width} × {node.height}</span></div>}
@@ -60,7 +63,9 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
     <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity, filter: hasEffects ? `url(#${effectId})` : undefined }}>
       {node.style.shader && <ShapeShader node={node} />}
       <Paint node={node} />
-      {isFrame && node.children.map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} presentation={presentation} />)}
+      {isFrame && mask && <svg width="0" height="0" className="scene-mask-defs" aria-hidden="true"><defs><clipPath id={`${effectId}-mask`} clipPathUnits="userSpaceOnUse"><path d={maskPathData(mask)} clipRule={maskFillRule(mask)} /></clipPath></defs></svg>}
+      {isFrame && <div className="scene-children" data-mask-source={mask?.id} style={{ clipPath: mask ? `url(#${effectId}-mask)` : undefined }}>{node.children.filter(childId => childId !== mask?.id).map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} presentation={presentation} />)}</div>}
+      {isFrame && mask && !presentation && (mask.mask?.showOutline || maskSelected) && <svg className="scene-mask-outline" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true"><path d={maskPathData(mask)} fill="none" stroke="#81adec" strokeWidth="1" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" /></svg>}
       {isFrame && node.style.stroke && <div className="scene-frame-border" style={{ border: `${node.style.stroke.width}px ${node.style.stroke.dash.length ? 'dashed' : 'solid'} ${node.style.stroke.color}`, borderRadius: node.cornerRadius }} />}
     </div>
   </div>

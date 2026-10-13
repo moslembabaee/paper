@@ -3,6 +3,7 @@ import type { Bounds } from '../canvas/types.ts'
 import { unionBounds } from '../canvas/math.ts'
 import { getWorldBounds, getWorldMatrix } from '../scene/geometry.ts'
 import { selectionRoots } from '../scene/selectionGeometry.ts'
+import { frameMask, maskPathData, maskFillRule } from '../scene/maskGeometry.ts'
 import type { SceneElement, SceneSnapshot, TextElement } from '../scene/types.ts'
 
 export interface ExportOptions {
@@ -53,7 +54,7 @@ export function exportBounds(state: SceneSnapshot, scope: ExportOptions['scope']
     const effectPadding = (node.style.effects ?? []).filter(effect => effect.enabled && effect.type !== 'inner-shadow').reduce((sum, effect) => sum + effect.blur * 2 + (effect.type === 'layer-blur' ? 0 : Math.abs(effect.x) + Math.abs(effect.y) + Math.abs(effect.spread)), 0)
     const padding = crop ? 0 : Math.max(effectPadding, Math.max(node.style.stroke?.width ?? 0, shadow ? shadow.blur * 2 + Math.abs(shadow.x) + Math.abs(shadow.y) : 0))
     bounds.push({ x: b.x - padding, y: b.y - padding, width: b.width + padding * 2, height: b.height + padding * 2 })
-    if (node.type === 'frame' && !node.clipContent && !crop) node.children.forEach(child => visit(child, false))
+    if (node.type === 'frame' && !node.clipContent && !frameMask(state.elements, node) && !crop) node.children.forEach(child => visit(child, false))
   }
   roots.forEach(id => visit(id, scope === 'selection' && state.elements[id].type === 'frame'))
   return unionBounds(bounds)
@@ -122,8 +123,11 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
       content += `<g ${clip(maskContent)}><image href="${xml(shaderSrc)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="none"/></g>`
     }
     if (node.type === 'frame') {
+      const mask = frameMask(state.elements, node)
       if (!shaderSrc) content += `<g fill="${xml(fill ?? 'none')}">${rect(node)}</g>`
-      content += `<g ${node.clipContent ? clip(rect(node)) : ''}>${node.children.map(child => render(child)).join('')}</g>`
+      const children = node.children.filter(child => child !== mask?.id).map(child => render(child)).join('')
+      const masked = mask ? `<g ${clip(`<path d="${xml(maskPathData(mask))}" clip-rule="${maskFillRule(mask)}"/>`)}>${children}</g>` : children
+      content += `<g ${node.clipContent ? clip(rect(node)) : ''}>${masked}</g>`
       content += `<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`
     } else if (node.type === 'text') {
       content += `<g ${clip(rect(node))} ${strokeAttrs}>${textMarkup(node, shaderSrc ? 'none' : fill ?? 'none', assets.measureText, assets.textBaseline)}</g>`
@@ -140,9 +144,15 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
   const content = exportRoots(state, options.scope).map(id => {
     let output = render(id, true)
     let parent = state.elements[id].parentId
+    let branch = id
     while (parent) {
       const frame = state.elements[parent]
-      if (frame.type === 'frame' && frame.clipContent) output = `<g ${clip(`<g transform="${matrix(getWorldMatrix(state, parent))}">${rect(frame)}</g>`)}>${output}</g>`
+      if (frame.type === 'frame') {
+        if (frame.clipContent) output = `<g ${clip(`<g transform="${matrix(getWorldMatrix(state, parent))}">${rect(frame)}</g>`)}>${output}</g>`
+        const mask = frameMask(state.elements, frame)
+        if (mask && branch !== mask.id) output = `<g ${clip(`<path transform="${matrix(getWorldMatrix(state, parent))}" d="${xml(maskPathData(mask))}" clip-rule="${maskFillRule(mask)}"/>`)}>${output}</g>`
+      }
+      branch = parent
       parent = frame.parentId
     }
     return output

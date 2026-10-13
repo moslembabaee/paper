@@ -1,4 +1,5 @@
 import { effectsCSS, effectFilterMarkup } from './effects.ts'
+import { frameMask, maskPathData, maskFillRule } from '../scene/maskGeometry.ts'
 import type { SceneElement, TextElement } from '../scene/types.ts'
 import { boundToken, tokenClass, tokenVariable } from './model.ts'
 import type { DesignToken, TokenProperty } from './types.ts'
@@ -228,7 +229,7 @@ export function elementToComponentName(node: SceneElement): string {
   return `${/^[a-zA-Z]/.test(name) ? '' : 'Paper'}${name[0].toUpperCase()}${name.slice(1)}`
 }
 
-export function buildReactComponent(node: SceneElement, tokens: readonly DesignToken[] = [], parent?: SceneElement): string {
+export function buildReactComponent(node: SceneElement, tokens: readonly DesignToken[] = [], parent?: SceneElement, elements?: Readonly<Record<string, SceneElement>>): string {
   const name = elementToComponentName(node)
   const tw = buildTailwindClasses(node, tokens, parent)
   const parentLayout = parent?.type === 'frame' ? parent.layout : null
@@ -261,6 +262,12 @@ export function buildReactComponent(node: SceneElement, tokens: readonly DesignT
   }
 
   if (node.type === 'frame') {
+    const mask = elements ? frameMask(elements, node) : undefined
+    if (mask) {
+      const layout = node.layout
+      const clipLayoutStyle = layout ? `, display: 'flex', flexDirection: '${layout.direction === 'horizontal' ? 'row' : 'column'}', gap: ${layout.gap}, padding: '${layout.padding.top}px ${layout.padding.right}px ${layout.padding.bottom}px ${layout.padding.left}px', boxSizing: 'border-box', justifyContent: '${{ start: 'flex-start', center: 'center', end: 'flex-end', 'space-between': 'space-between' }[layout.justify]}', alignItems: '${{ start: 'flex-start', center: 'center', end: 'flex-end' }[layout.align]}'` : ''
+      return `import { useId } from 'react'\n\nexport function ${name}({ children }: { children?: React.ReactNode }) {\n  const clipId = useId()\n  return (\n    <div\n      className="${tw}"${styleAttribute}\n    >\n      <svg width="0" height="0" aria-hidden="true" style={{ position: 'absolute' }}>\n        <defs><clipPath id={clipId} clipPathUnits="userSpaceOnUse">\n          <path d={${JSON.stringify(maskPathData(mask))}} clipRule="${maskFillRule(mask)}" />\n        </clipPath></defs>\n      </svg>\n      <div style={{ position: 'absolute', inset: 0, clipPath: \`url(#\${clipId})\`${clipLayoutStyle} }}>\n        {children}\n      </div>\n    </div>\n  )\n}`
+    }
     return `export function ${name}({ children }: { children?: React.ReactNode }) {\n  return (\n    <div\n      className="${tw}"${styleAttribute}\n    >\n      {children}\n    </div>\n  )\n}`
   }
 

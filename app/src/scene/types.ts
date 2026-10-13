@@ -37,6 +37,8 @@ export interface ElementStyle {
 }
 
 export interface BaseElement extends ElementGeometry {
+  /** A vector or frame can clip its siblings without consuming its geometry. */
+  readonly mask?: VectorMask
   /** Materialized symbols stay compatible with every renderer and export format. */
   readonly component?: ComponentLink
   /** Absent in legacy documents: both axes are fixed. */
@@ -51,6 +53,12 @@ export interface BaseElement extends ElementGeometry {
   readonly visible: boolean
   readonly locked: boolean
   readonly style: ElementStyle
+}
+
+export interface VectorMask {
+  readonly enabled: boolean
+  /** Editor-only outline, omitted from exports. */
+  readonly showOutline: boolean
 }
 
 export interface FrameElement extends BaseElement {
@@ -132,7 +140,7 @@ export type SceneElement = FrameElement | RectangleElement | EllipseElement | Pa
 export type ElementType = SceneElement['type']
 export type ElementOf<T extends ElementType> = Extract<SceneElement, { type: T }>
 export type ElementInput<T extends ElementType> = Partial<Omit<ElementOf<T>, 'component' | 'type' | 'children' | 'zIndex' | 'style'>> & { readonly style?: Partial<ElementStyle> }
-export type ElementPatch<T extends ElementType> = T extends ElementType ? Partial<Omit<ElementOf<T>, 'component' | 'type' | 'id' | 'parentId' | 'children' | 'zIndex' | 'boolean' | 'style'>> & { readonly style?: Partial<ElementStyle> } : never
+export type ElementPatch<T extends ElementType> = T extends ElementType ? Partial<Omit<ElementOf<T>, 'mask' | 'component' | 'type' | 'id' | 'parentId' | 'children' | 'zIndex' | 'boolean' | 'style'>> & { readonly style?: Partial<ElementStyle> } : never
 
 type OverrideProperties<T extends ElementType> = T extends ElementType ? Omit<ElementPatch<T>, 'style' | 'tokenBindings' | 'sharedStyleBindings'> : never
 export interface ComponentOverrides {

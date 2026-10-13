@@ -76,7 +76,7 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
       if (assignedWidth === undefined && sizing.width === 'hug') width = size(Math.max(0, ...node.text.split('\n').map(line => textWidth(line, node))))
       if (assignedHeight === undefined && sizing.height === 'hug') height = textHeight(node, width)
     } else if (node.type === 'frame') {
-      const children = node.children.filter(child => input[child].visible)
+      const children = node.children.filter(child => input[child].visible && !(node.layout && input[child].mask?.enabled))
       const natural = children.map(child => measure(child))
       const layout = node.layout
       if (!layout) {
@@ -115,6 +115,12 @@ export function reflowAutoLayout(input: Readonly<Record<string, SceneElement>>, 
           cursor += (horizontal ? box.width : box.height) + gap
           return result
         })
+      }
+    }
+    if (node.type === 'frame' && node.layout) {
+      for (const id of node.children) {
+        const child = input[id]
+        if (child.visible && child.mask?.enabled) placed.push({ id, x: child.x, y: child.y, box: measure(id) })
       }
     }
     const result = { width: size(width), height: size(height), children: placed }

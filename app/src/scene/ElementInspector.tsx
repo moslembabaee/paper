@@ -13,6 +13,7 @@ import { useRangeHistory } from './useRangeHistory'
 import { ShaderInspector } from '../shaders/ShaderInspector'
 import { ArrangeBar } from './ArrangeBar'
 import { BooleanBar } from './BooleanBar'
+import { MaskInspector } from './MaskInspector'
 import { AutoLayoutInspector } from './AutoLayoutInspector'
 import { ComponentInspector } from './ComponentPanel'
 import { componentRoot } from './components'
@@ -53,6 +54,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
     <div className="panel-heading"><span>{node ? node.type === 'frame' ? 'Frame' : node.type[0].toUpperCase() + node.type.slice(1) : state.selection.length > 1 ? `${state.selection.length} layers` : 'Canvas'}</span>{state.selection.length ? <button className="quiet-button" aria-label="Deselect elements" onClick={() => store.select([])}><X size={14} /></button> : <Circle size={11} />}</div>
     <ArrangeBar store={store} controller={controller} />
     <BooleanBar key={state.selection.join(':')} store={store} />
+    <MaskInspector key={`mask-${state.selection.join(':')}`} store={store} />
     {node ? <>
       <ComponentInspector key={`component-${node.id}`} store={store} controller={controller} node={node} />
       <div className="inspector-section">

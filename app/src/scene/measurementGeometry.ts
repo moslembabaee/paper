@@ -1,5 +1,5 @@
 import type { Bounds, Point } from '../canvas/types.ts'
-import { getWorldMatrix } from './geometry.ts'
+import { frameMask, shapeContainsWorldPoint } from './maskGeometry.ts'
 import type { SceneSnapshot } from './types.ts'
 
 export interface DistanceGuide {
@@ -36,25 +36,21 @@ export function measureBounds(selected: Bounds, target: Bounds): DistanceGuide[]
   return guides
 }
 
-function contains(state: SceneSnapshot, id: string, world: Point): boolean {
-  const node = state.elements[id], [a, b, c, d, e, f] = getWorldMatrix(state, id)
-  const det = a * d - b * c, dx = world.x - e, dy = world.y - f
-  const x = (d * dx - c * dy) / det, y = (-b * dx + a * dy) / det
-  return x >= 0 && y >= 0 && x <= node.width && y <= node.height
-}
-
 /** Hit-test in paint order, including locked layers, rotated frames and clip boundaries. */
-export function measurementHit(state: SceneSnapshot, point: Point): string | null {
-  const visit = (ids: readonly string[]): string | null => {
+export function measurementHit(state: SceneSnapshot, point: Point, selectable = false): string | null {
+  const visit = (ids: readonly string[], inheritedLocked = false): string | null => {
     for (let i = ids.length - 1; i >= 0; i--) {
       const node = state.elements[ids[i]]
-      if (!node.visible) continue
-      const inside = contains(state, node.id, point)
+      const locked = inheritedLocked || node.locked
+      if (!node.visible || (selectable && locked)) continue
+      const inside = shapeContainsWorldPoint(state, node, point)
+      const mask = node.type === 'frame' ? frameMask(state.elements, node) : undefined
+      const inMask = !mask || shapeContainsWorldPoint(state, mask, point)
       if (node.type === 'frame' && (inside || !node.clipContent)) {
-        const child = visit(node.children)
+        const child = inMask ? visit(node.children.filter(id => id !== mask?.id), locked) : null
         if (child) return child
       }
-      if (inside) return node.id
+      if (inside && (inMask || node.style.fill || node.style.shader || node.style.stroke)) return node.id
     }
     return null
   }

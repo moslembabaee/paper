@@ -12,6 +12,7 @@ import type { ElementGeometry } from './types'
 import { useScene } from './useScene'
 import './selection.css'
 import { MeasurementHUD } from './MeasurementHUD'
+import { measurementHit } from './measurementGeometry'
 
 type HandleId = ResizeHandle | 'rotate'
 const HANDLES: readonly { id: ResizeHandle; x: number; y: number; angle: number }[] = [
@@ -144,12 +145,8 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       const initial = store.getSnapshot()
       const initialSelection = initial.selection
       const handle = target.closest<HTMLElement>('[data-handle]')?.dataset.handle as HandleId | undefined
-      // The box can sit above another selectable layer, especially inside frames.
-      const sceneHit = target.closest<HTMLElement>('[data-element-id]') ?? (target.closest('.sel-box') && !handle
-        ? document.elementsFromPoint(event.clientX, event.clientY).map(element => element.closest<HTMLElement>('[data-element-id]')).find(element => element !== null)
-        : null)
-      const nodeId = sceneHit?.dataset.elementId
       const point = worldPoint(event)
+      const nodeId = handle ? null : measurementHit(initial, point, true)
       const gesture: Gesture = { pointerId: event.pointerId, start: point, screenStart: { x: event.clientX, y: event.clientY }, initialSelection, targets: [], origins: [], moved: false, cursor: 'move' }
       if (handle) {
         const bounds = selectionBox(initial, initial.selection)

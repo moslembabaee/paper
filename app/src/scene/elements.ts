@@ -31,6 +31,7 @@ export function freezeElement(element: SceneElement): SceneElement {
   const tokenBindings = element.tokenBindings ? Object.freeze({ ...element.tokenBindings }) : undefined
   element = { ...element, ...(tokenBindings ? { tokenBindings } : {}), ...(element.sharedStyleBindings ? { sharedStyleBindings: Object.freeze({ ...element.sharedStyleBindings }) } : {}) }
   if (element.component) element = { ...element, component: freezeComponent(element.component) }
+  if (element.mask) element = { ...element, mask: Object.freeze({ ...element.mask }) }
   if (element.sizing) element = { ...element, sizing: Object.freeze({ ...element.sizing }) }
   if (element.type === 'frame' && element.layout) element = { ...element, layout: Object.freeze({ ...element.layout, padding: Object.freeze({ ...element.layout.padding }) }) }
   const style = Object.freeze({
@@ -53,6 +54,7 @@ export function freezeElement(element: SceneElement): SceneElement {
 }
 
 export function validateElement(element: SceneElement, depth = 0): void {
+  if (element.mask !== undefined && (!element.mask || !['frame', 'rectangle', 'ellipse', 'path'].includes(element.type) || typeof element.mask.enabled !== 'boolean' || typeof element.mask.showOutline !== 'boolean')) throw new Error('Invalid vector mask')
   if (element.component !== undefined) validateComponent(element.component)
   if (depth > 16) throw new Error('Boolean compounds may be nested up to 16 levels')
   if (typeof element.id !== 'string' || !element.id || typeof element.name !== 'string' || !element.name || (element.parentId !== null && typeof element.parentId !== 'string') || !['frame', 'rectangle', 'ellipse', 'path', 'text', 'image'].includes(element.type)) throw new Error('Invalid element identity')

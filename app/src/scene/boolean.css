@@ -1,4 +1,6 @@
 .boolean-section { padding: 16px; }
+.boolean-layer-source .layer-select { color: var(--paper-text-secondary); }
+.boolean-layer-label { margin-left: auto; padding-right: 4px; color: var(--paper-text-muted); font: 8px var(--font-mono); }
 .boolean-heading { display: flex; align-items: baseline; justify-content: space-between; }
 .boolean-heading > span:last-child { color: var(--paper-text-muted); font: 9px var(--font-mono); }
 .boolean-toolbar { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 4px; border: 1px solid var(--paper-border); border-radius: 6px; background: var(--paper-surface); }

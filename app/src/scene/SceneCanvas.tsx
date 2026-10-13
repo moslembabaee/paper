@@ -13,6 +13,7 @@ import { AgentOverlay } from '../mcp/AgentOverlay'
 import type { AgentActivity } from '../mcp/protocol'
 import { ShaderSurface } from '../shaders/ShaderSurface'
 import { useArrangeShortcuts } from './useArrangeShortcuts'
+import { measurementHit } from './measurementGeometry'
 
 export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity, prototypeOverlay }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null; prototypeOverlay?: ReactNode }) {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -37,8 +38,9 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
     }
     const doubleClick = (event: MouseEvent) => {
       if (panMode || penMode || editingId || viewport.dataset.space === 'true' || viewport.dataset.panning === 'true' || (event.target as Element).closest('.viewport-ui')) return
-      const hit = document.elementsFromPoint(event.clientX, event.clientY).map(e => e.closest<HTMLElement>('[data-element-id]')).find(Boolean)
-      enter(hit?.dataset.elementId)
+      const rect = viewport.getBoundingClientRect()
+      const hit = measurementHit(store.getSnapshot(), controller.screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top }), true)
+      enter(hit ?? undefined)
     }
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || (event.target as Element).closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return
@@ -51,7 +53,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
       if (node?.type !== 'path' || node.boolean || store.isLocked(editingId) || !store.isVisible(editingId) || state.selection.length !== 1 || state.selection[0] !== editingId) setEditingId(null)
     })
     return () => { unsubscribe(); viewport.removeEventListener('dblclick', doubleClick); document.removeEventListener('keydown', keydown) }
-  }, [store, panMode, penMode, editingId, isPrototype])
+  }, [store, controller, panMode, penMode, editingId, isPrototype])
   const elements = useScene(store, state => state.elements)
   const rootIds = useScene(store, state => state.rootIds)
   const backgroundShader = useScene(store, state => state.backgroundShader)
