@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-EVOLVE-1791891669-3",
+  "current_task_id": "T-EVOLVE-1791896553-1",
   "tasks": [
     {
       "id": "T-ISSUE-1",
@@ -289,6 +289,37 @@
       "retry_count": 4,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "completed_at": "2026-10-13T13:02:07.157658"
+    },
+    {
+      "id": "T-EVOLVE-1791896553-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive Prototyping Engine with Connection Wires and Transition Animations",
+      "description": "Implement an interactive prototyping mode allowing designers to connect frames with interaction wires. Support interaction triggers (On Click, On Hover, Drag, After Delay), navigation actions (Navigate to, Open Overlay, Scroll to), and transition animations (Instant, Dissolve, Smart Animate, Slide In/Out with configurable easing curves). Provide an embedded presentation player with device mockup framing and interactive preview playback.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 49,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-13T15:26:55.143851"
+    },
+    {
+      "id": "T-EVOLVE-1791896553-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Non-Destructive Boolean Operations and Vector Shape Masking Engine",
+      "description": "Add non-destructive boolean geometry operations (Union, Subtract, Intersect, Exclude) on overlapping vector shapes while preserving child sub-paths and parametric editability. Implement vector shape masking and clipping paths allowing arbitrary vector paths or frames to act as clip masks for nested layers, complete with interactive canvas hit-testing and toggleable mask indicators in the layer hierarchy.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T-EVOLVE-1791896553-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Real-Time Multiplayer Presence and Collaborative Canvas Cursors",
+      "description": "Implement real-time collaboration primitives including multi-user live cursor broadcasting, presence status chips, remote layer selection bounding boxes, and user viewport follow mode. Ensure optimistic UI updates with smooth cursor position interpolation and conflict-free state synchronization across active canvas sessions.",
+      "assigned_agent": "claude",
+      "status": "pending",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
     }
   ]
 }

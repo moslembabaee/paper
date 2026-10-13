@@ -10,6 +10,8 @@ import { computeBoolean, isVector, refreshBooleanElement, transformedSource } fr
 import { serializePath } from './pathGeometry.ts'
 import { FIXED_SIZING, invalidateLayoutTextMetrics, reflowAutoLayout } from './autoLayout.ts'
 import { componentRoot, recordComponentEdit, recordComponentTokenEdit, subtree, synchronizeComponents, validateComponentGraph } from './components.ts'
+import { EMPTY_PROTOTYPE, DEFAULT_TRANSITION, prunePrototype, validatePrototype } from '../prototype/model.ts'
+import type { PrototypeDocument, PrototypeInteraction } from '../prototype/types.ts'
 
 type Listener = () => void
 const EMPTY = Object.freeze([]) as readonly string[]
@@ -97,6 +99,10 @@ export class SceneStore {
       elements = synchronizeComponents(elements, resolveTokens(next.tokens, next.styleLibrary.activeThemeId), before.elements, next.styleLibrary)
       elements = reflowAutoLayout(elements, next.rootIds)
       if (elements !== next.elements) next = Object.freeze({ ...next, elements: Object.freeze(elements) })
+      if (next.prototype) {
+        const prototype = prunePrototype(next.prototype, elements)
+        if (prototype !== next.prototype) next = Object.freeze({ ...next, prototype })
+      }
       const selection = next.selection.filter(id => {
         let node: SceneElement | undefined = Object.hasOwn(elements, id) ? elements[id] : undefined
         if (!node) return false
@@ -718,7 +724,29 @@ export class SceneStore {
     this.publish(Object.freeze({ ...this.state, backgroundShader: paint ? freezeShader(paint) : null }), 'Style canvas background')
   }
 
-  toJSON(): SceneDocument { return { version: 1, tokens: this.state.tokens, styleLibrary: this.state.styleLibrary, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
+  setPrototype(value: PrototypeDocument, label = 'Edit prototype'): void {
+    const prototype = validatePrototype(value, this.state.elements)
+    if (!equalValue(this.state.prototype ?? EMPTY_PROTOTYPE, prototype)) this.publish(Object.freeze({ ...this.state, prototype }), label)
+  }
+
+  connectPrototype(sourceId: string, targetId: string): PrototypeInteraction {
+    const value = this.state.prototype ?? EMPTY_PROTOTYPE
+    const interaction: PrototypeInteraction = { id: crypto.randomUUID(), sourceId, targetId, trigger: 'click', action: 'navigate', delay: 800, transition: DEFAULT_TRANSITION }
+    this.setPrototype({ ...value, interactions: [...value.interactions, interaction] }, 'Connect prototype')
+    return this.state.prototype!.interactions.at(-1)!
+  }
+
+  updateInteraction(id: string, patch: Partial<Omit<PrototypeInteraction, 'id' | 'sourceId'>>): void {
+    const value = this.state.prototype ?? EMPTY_PROTOTYPE
+    this.setPrototype({ ...value, interactions: value.interactions.map(item => item.id === id ? { ...item, ...patch } : item) }, 'Edit interaction')
+  }
+
+  removeInteraction(id: string): void {
+    const value = this.state.prototype ?? EMPTY_PROTOTYPE
+    this.setPrototype({ ...value, interactions: value.interactions.filter(item => item.id !== id) }, 'Remove interaction')
+  }
+
+  toJSON(): SceneDocument { return { version: 1, tokens: this.state.tokens, styleLibrary: this.state.styleLibrary, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.prototype ? { prototype: this.state.prototype } : {}), ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
 
   /** Font loading changes text metrics without creating a user edit. */
   refreshLayout(): void {
@@ -753,6 +781,7 @@ export class SceneStore {
     document.rootIds.forEach((id, i) => visit(id, null, i))
     if (visited.size !== Object.keys(elements).length) throw new Error('Unreachable scene elements')
     validateComponentGraph(elements, resolvedTokens, styleLibrary)
-    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
+    const prototype = document.prototype === undefined ? undefined : validatePrototype(document.prototype, elements)
+    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(prototype ? { prototype } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
   }
 }

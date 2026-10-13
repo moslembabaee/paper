@@ -24,7 +24,7 @@ export function equalValue(a: unknown, b: unknown): boolean {
 }
 
 function sameDocument(a: SceneSnapshot, b: SceneSnapshot): boolean {
-  return equalValue(a.styleLibrary, b.styleLibrary) && equalValue(a.tokens, b.tokens) && equalValue(a.elements, b.elements) && equalValue(a.rootIds, b.rootIds) && equalValue(a.backgroundShader, b.backgroundShader)
+  return equalValue(a.prototype, b.prototype) && equalValue(a.styleLibrary, b.styleLibrary) && equalValue(a.tokens, b.tokens) && equalValue(a.elements, b.elements) && equalValue(a.rootIds, b.rootIds) && equalValue(a.backgroundShader, b.backgroundShader)
 }
 
 /** Reversible command with shared, frozen scene branches; no serialization per frame. */

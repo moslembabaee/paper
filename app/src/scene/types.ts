@@ -1,6 +1,7 @@
 import type { DesignToken, LayerEffect, SharedStyleBindings, StyleLibrary, TokenBindings, TokenProperty } from '../tokens/types.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { PathNodes } from './pathGeometry.ts'
+import type { PrototypeDocument } from '../prototype/types.ts'
 
 /** Coordinates are relative to the parent frame. Rotation is in degrees. */
 export interface ElementGeometry {
@@ -152,6 +153,7 @@ export type ComponentLink = { readonly kind: 'master' } | {
 
 export interface SceneDocument {
   readonly version: 1
+  readonly prototype?: PrototypeDocument
   /** Absent in legacy documents. */
   readonly tokens?: readonly DesignToken[]
   readonly styleLibrary?: StyleLibrary

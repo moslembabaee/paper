@@ -1,5 +1,17 @@
 # React + TypeScript + Vite
 
+## Interactive prototyping
+
+Toggle **Prototype** in the header to author connection wires directly on the canvas. Select a frame or layer and drag the connector handle to a target frame, or use **Add interaction** in the prototype inspector. Press Enter or Space on a connection wire to select it, or Backspace/Delete to remove it.
+
+Prototypes support four interaction triggers (**On Click**, **On Hover**, **Drag**, and **After Delay** with configurable timing), three navigation actions (**Navigate to**, **Open Overlay** with backdrop dismissal, and **Scroll to** target elements), and five transitions (**Instant**, **Dissolve**, **Smart Animate**, and **Slide In** / **Slide Out** across all four directions). Transitions include standard curves and editable cubic Bezier control handles with a live SVG curve preview. Smart Animate pairs visible layers by type and hierarchy to smoothly interpolate transforms, rotation, fills, corner radii, and text colors.
+
+Click **Play** to launch the embedded presentation player. Choose device mockup framing (**Canvas / No device**, **Phone**, **Tablet**, or **Desktop**), inspect interaction hotspots, navigate back through the screen history, pause or restart playback, and test scrollable artboard content. Interaction wires and prototype settings serialize into native project files and share the editor's undo/redo history.
+
+Scroll-to interactions reveal content on both axes while respecting nested clipping. Pausing preserves the remaining time for After Delay interactions; restarting resets playback, scrolling, and delay timers. The player honors reduced-motion preferences.
+
+Run `npm test` for prototype model and history regressions, and `npx playwright test e2e/prototype.spec.ts` for end-to-end authoring and presentation playback.
+
 ## Design tokens and shared styles
 
 Open **Theme / Tokens** in the document sidebar to create named tokens, organize colors with palette names, and save shared color styles, typography presets, and ordered effect stacks. Capture a preset from the selected layer, apply it to the selection, or bind it in the inspector. Editing a shared value updates every bound layer, including component instances and retained Boolean sources. Manual edits detach the affected preset; explicit detach and deletion retain the current appearance. All library edits participate in undo/redo and native project saves.
