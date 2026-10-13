@@ -19,16 +19,16 @@ function ImageSource({ value, onChange }: { value: string; onChange: (value: str
   }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />{error && <span className="shader-image-error" role="alert">{error}</span>}</label>
 }
 
-export function ShaderInspector({ paint, onChange, target, image }: { paint: ShaderPaint | null; onChange: (paint: ShaderPaint | null) => void; target: string; image?: string }) {
+export function ShaderInspector({ paint, onChange, target, image, showPicker = true, allowRemove = true, onBrowse }: { paint: ShaderPaint | null; onChange: (paint: ShaderPaint | null) => void; target: string; image?: string; showPicker?: boolean; allowRemove?: boolean; onBrowse?: () => void }) {
   const definition: ShaderDefinition | undefined = paint ? shaderCatalog[paint.kind] : undefined
   const params = paint?.params as Readonly<Record<string, ShaderValue>> | undefined
   const parameter = (key: string, value: ShaderValue) => { if (paint) onChange(updateShaderParameter(paint, key, value)) }
   const motion = (changes: Partial<ShaderMotion>) => { if (paint) onChange({ ...paint, ...changes }) }
   return <div className="inspector-section shader-section">
-    <div className="shader-heading"><span className="section-caption">PAPER SHADERS</span><span className="shader-engine-mark">FX / 07</span></div>
-    <label className="property-select">Effect<select aria-label="Paper shader effect" value={paint?.kind ?? ''} onChange={event => onChange(event.currentTarget.value ? createShader(event.currentTarget.value as ShaderKind, image) : null)}>
+    <div className="shader-heading"><span className="section-caption">PAPER SHADERS</span>{onBrowse ? <button type="button" className="quiet-button" aria-label="Browse shader library" title="Browse shader library (S)" onClick={onBrowse} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--paper-accent-text)', padding: 0 }}><Sparkles size={11} />Catalog</button> : <span className="shader-engine-mark">FX / 07</span>}</div>
+    {showPicker && <label className="property-select">Effect<select aria-label="Paper shader effect" value={paint?.kind ?? ''} onChange={event => onChange(event.currentTarget.value ? createShader(event.currentTarget.value as ShaderKind, image) : null)}>
       <option value="">None</option>{shaderKinds.map(kind => <option key={kind} value={kind}>{shaderCatalog[kind].label}</option>)}
-    </select></label>
+    </select></label>}
     {paint && definition && params ? <>
       <div className="shader-target"><i />{target}</div><p className="shader-description">{definition.description}</p>
       {definition.controls.map(control => {
@@ -46,7 +46,7 @@ export function ShaderInspector({ paint, onChange, target, image }: { paint: Sha
       <div className="shader-divider" /><span className="section-caption">MOTION & POSITION</span>
       <div className="shader-mode" role="group" aria-label="Shader playback"><button aria-pressed={paint.animated} onClick={() => motion({ animated: true })}><Play size={10} />Animated</button><button aria-pressed={!paint.animated} onClick={() => motion({ animated: false })}><Pause size={10} />Static</button></div>
       {motionControls.filter(control => control.key !== 'speed' || paint.animated).map(control => <Slider key={control.key} control={control as Extract<ShaderControl, { type: 'number' }>} value={paint[control.key as keyof Omit<ShaderMotion, 'animated'>]} onChange={value => motion({ [control.key]: value })} />)}
-      <div className="shader-actions"><button onClick={() => onChange(createShader(paint.kind, image))}>Reset parameters</button><button onClick={() => onChange(null)}>Remove effect</button></div>
+      <div className="shader-actions"><button onClick={() => onChange(createShader(paint.kind, image))}>Reset parameters</button>{allowRemove && <button onClick={() => onChange(null)}>Remove effect</button>}</div>
     </> : <p className="shader-description"><Sparkles size={11} aria-hidden="true" /> Add texture, color and a little motion.</p>}
   </div>
 }

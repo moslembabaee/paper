@@ -1,0 +1,15 @@
+.pen-overlay { position:absolute; inset:var(--ruler-size) 0 0 var(--ruler-size); z-index:3; touch-action:none; user-select:none; overflow:hidden; cursor:crosshair; }
+.pen-overlay.is-path-edit { cursor:default; }
+.pen-geometry { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+.pen-preview { stroke:#81adec; stroke-width:1.5; fill:none; pointer-events:none; }
+.pen-handle-line { stroke:#81adec; stroke-width:1; pointer-events:none; }
+.pen-anchor, .pen-control { stroke:#516b94; stroke-width:1; fill:#edebe1; cursor:move; }
+.pen-anchor.is-active { fill:#81adec; }
+.pen-anchor:hover, .pen-control:hover { stroke:#080808; fill:#81adec; }
+.pen-help { position:absolute; bottom:54px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:12px; width:max-content; max-width:calc(100% - 32px); padding:10px 12px; border:1px solid var(--paper-border); border-radius:8px; background:var(--paper-surface); box-shadow:0 8px 32px #08080812; font-size:10px; color:var(--paper-text-muted); cursor:default; }
+.pen-help > span:nth-child(2) { max-width:320px; }
+.pen-tool-label { font:10px var(--font-mono); letter-spacing:1px; color:var(--paper-text); }
+.pen-help button { border:1px solid var(--paper-border); border-radius:4px; padding:5px 8px; background:var(--paper-surface); color:var(--paper-text); cursor:pointer; white-space:nowrap; }
+.pen-help button[aria-pressed='true'] { background:var(--paper-accent-soft); }
+.pen-help kbd { margin-left:8px; color:var(--paper-text-muted); }
+.canvas-viewport[data-space='true'] .pen-overlay, .canvas-viewport[data-pan-mode='true'] .pen-overlay { pointer-events:none; }

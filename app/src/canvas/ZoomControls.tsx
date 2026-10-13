@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Maximize, Minus, Plus } from 'lucide-react'
+import { Check, Maximize, Minus, Plus } from 'lucide-react'
 import { MAX_ZOOM, MIN_ZOOM } from './math'
 import type { Bounds } from './types'
 import type { ViewportController } from './ViewportController'
+import { getPixelSnap, subscribePixelSnap, togglePixelSnap } from '../scene/pixelSnap'
 
 interface ZoomControlsProps {
   controller: ViewportController
@@ -13,10 +14,13 @@ const PRESETS = [10, 25, 50, 75, 100, 150, 200, 400, 800, 1600, 3200]
 
 export function ZoomControls({ controller, contentBounds }: ZoomControlsProps) {
   const [open, setOpen] = useState(false)
+  const [pixelSnap, setPixelSnapState] = useState(getPixelSnap)
   const outputRef = useRef<HTMLSpanElement>(null)
   const minusRef = useRef<HTMLButtonElement>(null)
   const plusRef = useRef<HTMLButtonElement>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => subscribePixelSnap(setPixelSnapState), [])
 
   useEffect(() => controller.subscribe(({ camera }) => {
     if (outputRef.current) outputRef.current.textContent = `${Math.round(camera.zoom * 100)}%`
@@ -42,6 +46,14 @@ export function ZoomControls({ controller, contentBounds }: ZoomControlsProps) {
           {PRESETS.map((percent) => (
             <button key={percent} onClick={() => { controller.zoomTo(percent / 100); setOpen(false) }}>{percent}%</button>
           ))}
+          <div className="zoom-menu-rule" />
+          <button data-testid="zoom-pixel-snap" aria-pressed={pixelSnap} onClick={() => { togglePixelSnap(); setOpen(false) }}>
+            <span>Pixel snapping</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {pixelSnap && <Check size={12} />}
+              <kbd>⌘⇧'</kbd>
+            </span>
+          </button>
         </div>
       )}
       <button className="viewport-icon-button" data-testid="zoom-out" ref={minusRef} aria-label="Zoom out" title="Zoom out (−)" onClick={() => controller.zoomBy(1 / 1.25)}><Minus size={15} /></button>

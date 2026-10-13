@@ -131,18 +131,21 @@ export function useProjectIO({ store, controller, name, grid, onOpen, onImport, 
       const svg = data.getData('image/svg+xml')
       const html = data.getData('text/html')
       const text = data.getData('text/plain')
+      const figma = data.getData('application/x-figma') || data.getData('application/figma') || data.getData('application/x-figma+json')
       const file = [...data.files].find(file => file.type === 'image/svg+xml')
       if (file) { event.preventDefault(); void importFile(file); return }
-      if (!svg && !html && !/^\s*(?:<\?xml|<!--|<[a-z])/i.test(text)) return
+      if (!svg && !html && !text && !figma) return
       event.preventDefault()
       busy.current = true
       setImporting(true)
       try {
-        const document = await importClipboard({ svg, html, text })
+        const document = await importClipboard({ svg, html, text, figma })
         if (!document) throw new Error('Paste SVG or HTML markup. In Figma, use “Copy as SVG”.')
         insertImportedScene(store, document, center())
         values.current.onImport()
-        setMessage(document.rootIds.length === 1 && document.elements[document.rootIds[0]].type === 'image' ? 'SVG pasted as a scalable vector image.' : 'HTML pasted as editable layers.')
+        const label = figma || /data-buffer|<!--\(figma\)/i.test(html) ? 'Figma' : svg || /<svg[\s>]/i.test(text) ? 'SVG' : html || /^<[a-z]/i.test(text) ? 'HTML' : 'Text'
+        const summary = document.rootIds.length === 1 && document.elements[document.rootIds[0]].type === 'image' ? 'SVG pasted as a scalable vector image.' : `${label} pasted as editable layers.`
+        setMessage([summary, ...(document.warnings ?? [])].join(' '))
       } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not paste this artwork.') }
       finally { busy.current = false; setImporting(false) }
     }

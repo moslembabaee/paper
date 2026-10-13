@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-USER-PROFILE-WORKSPACE",
+  "current_task_id": "T-OFFICIAL-DOCS-FEATURE-PARITY",
   "tasks": [
     {
       "id": "T01-project-init",
@@ -175,9 +175,10 @@
       "title": "Implement Paper Specs for Native Vector Pen, Paste Figma/HTML, and Shaders Catalog",
       "description": "Implement missing features from official Paper specs (docs/official-specs): interactive Pen tool with Bezier curves, enhanced Figma clipboard paste parser, and interactive Shaders library browser with live parameter sliders.",
       "assigned_agent": "codex",
-      "status": "pending",
-      "retry_count": 0,
-      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+      "status": "completed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-13T04:49:12.245572"
     }
   ]
 }

@@ -1,10 +1,12 @@
-import { useCallback, useRef, useState } from 'react'
-import { Circle, Code2, Frame, Grid2X2, Hand, Image, Layers, MousePointer2, PenTool, Square, Type, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Circle, Code2, Frame, Grid2X2, Hand, Image, Layers, MousePointer2, PenTool, Sparkles, Square, Type, X } from 'lucide-react'
 import type { ElementType } from './scene/types'
 import { SceneCanvas } from './scene/SceneCanvas'
 import { LayerTree } from './scene/LayerTree'
 import { ElementInspector } from './scene/ElementInspector'
 import { DevModeInspector } from './scene/DevModeInspector'
+import { ShaderBrowser } from './shaders/ShaderBrowser'
+import { togglePixelSnap } from './scene/pixelSnap'
 import { HistoryControls } from './scene/HistoryControls'
 import { useProjectIO } from './io/useProjectIO'
 import { DocumentActions } from './io/DocumentActions'
@@ -45,7 +47,8 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
 }) {
   const { controller, store } = workspace
   const [name, setName] = useState(workspace.project?.name ?? 'Space to think')
-  const [tool, setTool] = useState<'select' | 'hand'>('select')
+  const [tool, setTool] = useState<'select' | 'hand' | 'pen'>('select')
+  const [shadersOpen, setShadersOpen] = useState(false)
   const [grid, setGrid] = useState(workspace.project?.grid ?? true)
   const [layersVisible, setLayersVisible] = useState(true)
   const [devMode, setDevMode] = useState(false)
@@ -92,6 +95,29 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
     setTool('select')
   }
 
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.repeat || (event.target as Element).closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === "'" || event.key === '"' || event.code === 'Quote')) {
+        event.preventDefault()
+        togglePixelSnap()
+        return
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      const key = event.key.toLowerCase()
+      if (key === 'p') { event.preventDefault(); setTool('pen') }
+      if (key === 'm' || key === 'v') { event.preventDefault(); setTool('select') }
+      if (key === 'h') { event.preventDefault(); setTool('hand') }
+      if (key === 's') { event.preventDefault(); setTool('select'); setShadersOpen(true) }
+      if (key === 'f') { event.preventDefault(); addElement('frame') }
+      if (key === 'r') { event.preventDefault(); addElement('rectangle') }
+      if (key === 'o') { event.preventDefault(); addElement('ellipse') }
+      if (key === 't') { event.preventDefault(); addElement('text') }
+    }
+    document.addEventListener('keydown', keydown)
+    return () => document.removeEventListener('keydown', keydown)
+  }, [])
+
   return <div className="paper-app">
     <header className="app-header">
       <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
@@ -106,18 +132,20 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
           <button className={`tool-button ${tool === 'select' ? 'active' : ''}`} data-testid="tool-select" aria-label="Selection tool" aria-pressed={tool === 'select'} title="Selection tool" onClick={() => setTool('select')}><MousePointer2 size={17} /></button>
           <button className={`tool-button ${tool === 'hand' ? 'active' : ''}`} data-testid="tool-hand" aria-label="Pan tool" aria-pressed={tool === 'hand'} title="Pan tool (or hold Space)" onClick={() => setTool('hand')}><Hand size={17} /></button>
           <span className="toolbar-divider" />
-          {creationTools.map(({ type, label, Icon }) => <button key={type} className="tool-button" data-testid={`tool-${type}`} aria-label={label} title={label} onClick={() => addElement(type)}><Icon size={16} /></button>)}
+          {creationTools.map(({ type, label, Icon }) => <button key={type} className={`tool-button ${type === 'path' && tool === 'pen' ? 'active' : ''}`} data-testid={`tool-${type}`} aria-label={label} aria-pressed={type === 'path' ? tool === 'pen' : undefined} title={type === 'path' ? 'Pen tool (P) · Click to draw, drag for curves' : label} onClick={() => type === 'path' ? setTool('pen') : addElement(type)}><Icon size={16} /></button>)}
           <span className="toolbar-divider" />
           <button className={`tool-button ${grid ? 'grid-active' : ''}`} data-testid="tool-grid" aria-label="Toggle engineering grid" aria-pressed={grid} title="120px engineering grid" onClick={() => setGrid(!grid)}><Grid2X2 size={16} /></button>
           <span className="toolbar-divider" />
+          <button className="tool-button" data-testid="tool-shaders" aria-label="Browse shaders" title="Shaders (S)" onClick={() => { setTool('select'); setShadersOpen(true) }}><Sparkles size={16} /></button>
           <HistoryControls store={store} />
         </div>
-        <SceneCanvas store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} />
+        <SceneCanvas store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
       </main>
-      <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} />
+      <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} onOpenShaders={() => { setTool('select'); setShadersOpen(true) }} />
       {devMode && <DevModeInspector store={store} onExit={() => setDevMode(false)} />}
     </div>
     <footer className="app-footer"><span><span className="footer-dot" />Paper / Infinite canvas</span><span>120 px grid<span className="footer-separator">/</span>Made to be yours.</span></footer>
+    {shadersOpen && <ShaderBrowser store={store} onClose={() => setShadersOpen(false)} />}
     {io.message && <div className="io-notice" role="status"><span>{io.message}</span><button className="quiet-button" aria-label="Dismiss notification" onClick={() => io.setMessage('')}><X size={14} /></button></div>}
   </div>
 }

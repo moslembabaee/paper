@@ -3,6 +3,9 @@ import { unionBounds } from '../canvas/math.ts'
 import { getWorldBounds } from '../scene/geometry.ts'
 import { SceneStore } from '../scene/store.ts'
 import type { SceneDocument, SceneElement } from '../scene/types.ts'
+import { importEditableSVG } from './svgImport.ts'
+import { importFigmaClipboard } from './figma.ts'
+import type { ImportedDocument } from './figma.ts'
 import { MAX_IMPORT_BYTES } from './project.ts'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -72,6 +75,8 @@ export function sanitizeSVG(source: string, nesting = 0): SanitizedSVG {
 
 export function importSVG(source: string, name = 'Pasted SVG'): SceneDocument {
   const svg = sanitizeSVG(source)
+  const editable = importEditableSVG(svg.source, svg.width, svg.height, name)
+  if (editable) return editable
   const store = new SceneStore()
   // Vector-backed image layers preserve paths, transforms, gradients and masks
   // from Figma without flattening the artwork to pixels.
@@ -80,15 +85,14 @@ export function importSVG(source: string, name = 'Pasted SVG'): SceneDocument {
 }
 
 const htmlTags = new Set('div span p h1 h2 h3 h4 h5 h6 section article header footer main aside nav ul ol li a button strong b em i small label img br'.split(' '))
-const htmlStyles = new Set('display position left top right bottom width height min-width min-height max-width max-height padding padding-top padding-right padding-bottom padding-left margin margin-top margin-right margin-bottom margin-left gap row-gap column-gap flex flex-direction flex-wrap align-items justify-content grid-template-columns grid-template-rows grid-column grid-row background background-color color border border-width border-style border-color border-radius opacity overflow font-family font-size font-weight font-style line-height letter-spacing text-align white-space box-sizing'.split(' '))
+const htmlStyles = new Set('display position left top right bottom width height min-width min-height max-width max-height padding padding-top padding-right padding-bottom padding-left margin margin-top margin-right margin-bottom margin-left gap row-gap column-gap flex flex-direction flex-wrap align-items justify-content grid-template-columns grid-template-rows grid-column grid-row background background-color color border border-width border-style border-color border-radius opacity overflow font-family font-size font-weight font-style line-height letter-spacing text-align white-space box-sizing object-fit visibility'.split(' '))
 
 /** Lay out an inert, sanitized fragment, then translate boxes into editable layers. */
 export async function importHTML(source: string): Promise<SceneDocument> {
   if (new TextEncoder().encode(source).length > MAX_IMPORT_BYTES) throw new Error('HTML fragments must be smaller than 16 MB.')
   const parsed = new DOMParser().parseFromString(source, 'text/html')
   const svg = parsed.querySelector('svg')
-  if (svg && !parsed.body.textContent?.trim()) return importSVG(new XMLSerializer().serializeToString(svg))
-  if (parsed.querySelector('[data-buffer], [data-metadata]') && /figma/i.test(source) && !parsed.body.textContent?.trim()) throw new Error('Figma’s private clipboard format is not supported. In Figma, use “Copy as SVG”, then paste here.')
+  if (svg && parsed.body.children.length === 1 && parsed.body.firstElementChild === svg) return importSVG(new XMLSerializer().serializeToString(svg))
   const sandbox = document.createElement('iframe')
   sandbox.setAttribute('sandbox', 'allow-same-origin')
   sandbox.setAttribute('aria-hidden', 'true')
@@ -106,8 +110,11 @@ export async function importHTML(source: string): Promise<SceneDocument> {
     const clone = (node: Node, depth: number): Node | null => {
       if (++count > 2000 || depth > 40) throw new Error('This HTML fragment is too complex to import.')
       if (node.nodeType === Node.TEXT_NODE) return doc.createTextNode(node.textContent ?? '')
-      if (!(node instanceof Element) || !htmlTags.has(node.localName)) return null
+      if (!(node instanceof Element)) return null
+      if (node.localName === 'svg') return doc.importNode(new DOMParser().parseFromString(sanitizeSVG(new XMLSerializer().serializeToString(node)).source, 'image/svg+xml').documentElement, true)
+      if (!htmlTags.has(node.localName)) return null
       const element = doc.createElement(node.localName)
+      for (const attr of ['layer-name', 'data-paper-locked', 'hidden']) { if (node.hasAttribute(attr)) element.setAttribute(attr, node.getAttribute(attr) ?? '') }
       const original = node as HTMLElement
       for (const property of original.style) {
         const value = original.style.getPropertyValue(property)
@@ -116,7 +123,7 @@ export async function importHTML(source: string): Promise<SceneDocument> {
       if (element.style.position === 'fixed' || element.style.position === 'sticky') element.style.position = 'absolute'
       if (node.localName === 'img') {
         const src = node.getAttribute('src') ?? ''
-        if (/^data:image\/(png|jpeg|webp|gif);base64,/i.test(src)) element.setAttribute('src', src)
+        if (/^(?:https?:\/\/|data:image\/(?:png|jpeg|webp|gif);base64,)/i.test(src)) element.setAttribute('src', src)
         element.setAttribute('alt', node.getAttribute('alt') ?? '')
         for (const attr of ['width', 'height']) { const value = node.getAttribute(attr); if (value && /^\d+$/.test(value)) element.setAttribute(attr, value) }
       }
@@ -126,25 +133,40 @@ export async function importHTML(source: string): Promise<SceneDocument> {
     for (const node of [...parsed.body.childNodes]) { const result = clone(node, 0); if (result) container.append(result) }
     if (!container.childNodes.length) throw new Error('No supported HTML elements found. Paste HTML markup or copy an SVG from Figma.')
     doc.body.append(container)
-    await Promise.all([...container.querySelectorAll('img')].map(img => img.decode().catch(() => undefined)))
+    await Promise.all([...container.querySelectorAll('img')].map(img => Promise.race([img.decode().catch(() => undefined), new Promise(resolve => setTimeout(resolve, 2500))])))
     const origin = container.getBoundingClientRect()
     const store = new SceneStore()
     const frame = store.add('frame', { name: 'Pasted HTML', width: Math.max(1, Math.min(16384, origin.width)), height: Math.max(1, Math.min(16384, container.scrollHeight)), clipContent: true, style: { fill: null } })
     const view = doc.defaultView!
     const transparent = (color: string) => color === 'transparent' || color === 'rgba(0, 0, 0, 0)'
-    const visit = (element: HTMLElement) => {
+    const visit = (element: HTMLElement, parentId: string, parentBox: DOMRect) => {
       const style = view.getComputedStyle(element)
-      if (style.display === 'none' || style.visibility === 'hidden') return
       const box = element.getBoundingClientRect()
-      const geometry = { parentId: frame.id, x: box.x - origin.x, y: box.y - origin.y, width: Math.max(1, box.width), height: Math.max(1, box.height) }
+      const geometry = { parentId, x: box.x - parentBox.x, y: box.y - parentBox.y, width: Math.max(1, box.width || parseFloat(style.width) || 1), height: Math.max(1, box.height || parseFloat(style.height) || 1) }
       const radius = parseFloat(style.borderRadius) || 0
       const borderWidth = parseFloat(style.borderTopWidth) || 0
-      let opacity = parseFloat(style.opacity)
-      let parent = element.parentElement
-      while (parent && parent !== container) { opacity *= parseFloat(view.getComputedStyle(parent).opacity); parent = parent.parentElement }
-      const paint = { fill: transparent(style.backgroundColor) ? null : style.backgroundColor, opacity: Math.max(0, Math.min(1, opacity)), stroke: borderWidth > 0 ? { color: style.borderTopColor, width: borderWidth, dash: style.borderTopStyle === 'dashed' ? [borderWidth * 3, borderWidth * 3] : [] } : null }
-      if (paint.fill || paint.stroke) store.add('rectangle', { ...geometry, name: `${element.localName} background`, cornerRadius: radius, style: paint })
-      if (element.localName === 'img' && element.getAttribute('src')) store.add('image', { ...geometry, name: 'Pasted image', src: element.getAttribute('src')!, alt: element.getAttribute('alt') ?? '', fit: 'contain', cornerRadius: radius, style: { fill: null, opacity: paint.opacity } })
+      const opacity = Math.max(0, Math.min(1, parseFloat(style.opacity) || 0))
+      const paint = { fill: transparent(style.backgroundColor) ? null : style.backgroundColor, opacity, stroke: borderWidth > 0 ? { color: style.borderTopColor, width: borderWidth, dash: style.borderTopStyle === 'dashed' ? [borderWidth * 3, borderWidth * 3] : [] } : null }
+      const name = element.getAttribute('layer-name')?.trim() || element.localName
+      const flags = { visible: style.display !== 'none' && style.visibility !== 'hidden' && !element.hasAttribute('hidden'), locked: element.hasAttribute('data-paper-locked') }
+      if (element.localName === 'img') {
+        if (element.getAttribute('src')) store.add('image', { ...geometry, ...flags, name, src: element.getAttribute('src')!, alt: element.getAttribute('alt') ?? '', fit: style.objectFit === 'cover' ? 'cover' : 'contain', cornerRadius: radius, style: { ...paint, fill: null } })
+        return
+      }
+      if (element.localName === 'svg') {
+        const document = importSVG(new XMLSerializer().serializeToString(element), name)
+        const copy = (id: string, parentId: string, root: boolean) => {
+          const node = document.elements[id]
+          const { id: oldId, type, parentId: oldParent, zIndex, ...input } = node
+          void oldId; void oldParent; void zIndex
+          if ('children' in input) delete (input as { children?: readonly string[] }).children
+          const next = store.add(type, { ...input, parentId, ...(root ? { ...geometry, parentId, ...flags, name } : {}) })
+          if (node.type === 'frame') for (const child of node.children) copy(child, next.id, false)
+        }
+        for (const rootId of document.rootIds) copy(rootId, parentId, true)
+        return
+      }
+      const containerNode = store.add('frame', { ...geometry, ...flags, name, clipContent: style.overflow === 'hidden' || style.overflow === 'clip', cornerRadius: radius, style: paint })
       for (const child of [...element.childNodes]) {
         if (child.nodeType === Node.TEXT_NODE && child.textContent?.trim()) {
           const range = doc.createRange()
@@ -152,11 +174,16 @@ export async function importHTML(source: string): Promise<SceneDocument> {
           const rect = range.getBoundingClientRect()
           const size = parseFloat(style.fontSize) || 16
           const lineHeight = style.lineHeight === 'normal' ? 1.2 : (parseFloat(style.lineHeight) || size * 1.2) / size
-          store.add('text', { parentId: frame.id, name: child.textContent.trim().slice(0, 40), x: rect.x - origin.x, y: rect.y - origin.y - Math.max(0, (size * lineHeight - rect.height) / 2), width: Math.max(1, rect.width + 1), height: Math.max(rect.height, size * lineHeight), text: style.whiteSpace.startsWith('pre') ? child.textContent : child.textContent.replace(/\s+/g, ' ').trim(), fontFamily: style.fontFamily, fontSize: size, fontWeight: parseInt(style.fontWeight) || 400, lineHeight, letterSpacing: parseFloat(style.letterSpacing) || 0, textAlign: style.textAlign === 'center' || style.textAlign === 'right' ? style.textAlign : 'left', style: { fill: style.color, opacity: paint.opacity } })
-        } else if (child.nodeType === Node.ELEMENT_NODE) visit(child as HTMLElement)
+          store.add('text', { parentId: containerNode.id, name: child.textContent.trim().slice(0, 40), x: rect.x - box.x, y: rect.y - box.y - Math.max(0, (size * lineHeight - rect.height) / 2), width: Math.max(1, rect.width + 1), height: Math.max(rect.height, size * lineHeight), text: style.whiteSpace.startsWith('pre') ? child.textContent : child.textContent.replace(/\s+/g, ' ').trim(), fontFamily: style.fontFamily, fontSize: size, fontWeight: parseInt(style.fontWeight) || 400, lineHeight, letterSpacing: parseFloat(style.letterSpacing) || 0, textAlign: style.textAlign === 'center' || style.textAlign === 'right' ? style.textAlign : 'left', style: { fill: style.color } })
+        } else if (child.nodeType === Node.ELEMENT_NODE) visit(child as HTMLElement, containerNode.id, box)
       }
     }
-    visit(container)
+    for (const child of [...container.childNodes]) {
+      if (child.nodeType === Node.ELEMENT_NODE) visit(child as HTMLElement, frame.id, origin)
+      else if (child.textContent?.trim()) {
+        const wrapper = doc.createElement('span'); child.replaceWith(wrapper); wrapper.append(child); visit(wrapper, frame.id, origin)
+      }
+    }
     if (store.getChildren(frame.id).length === 0) throw new Error('The pasted HTML has no visible content.')
     return store.toJSON()
   } finally { sandbox.remove() }
@@ -181,15 +208,35 @@ export function insertImportedScene(store: SceneStore, document: SceneDocument, 
   return roots
 }
 
-export async function importClipboard(data: { svg?: string; html?: string; text?: string }): Promise<SceneDocument | null> {
+export async function importClipboard(data: { svg?: string; html?: string; text?: string; figma?: string }): Promise<ImportedDocument | null> {
+  for (const value of Object.values(data)) if (value && new TextEncoder().encode(value).length > MAX_IMPORT_BYTES) throw new Error('Clipboard content must be smaller than 16 MB.')
   const text = data.svg || data.text?.trim() || ''
   if (/^(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(text)) return importSVG(text)
+  let figmaError: Error | null = null
+  if (data.figma || (data.html && /data-buffer|<!--\(figma\)/i.test(data.html))) {
+    try { return await importFigmaClipboard(data.figma || data.html!) }
+    catch (error) { figmaError = error instanceof Error ? error : new Error('Could not decode the Figma clipboard.') }
+  }
   if (data.html) {
     const parsed = new DOMParser().parseFromString(data.html, 'text/html')
-    const svg = parsed.querySelector('svg')
-    if (svg) return importSVG(new XMLSerializer().serializeToString(svg))
-    return importHTML(data.html)
+    if (figmaError) {
+      // SVG fallback is used only when the native clipboard cannot be translated.
+      const svg = parsed.querySelector('svg')
+      if (svg) return { ...importSVG(new XMLSerializer().serializeToString(svg), 'Figma SVG'), warnings: [figmaError.message] }
+      if (!parsed.body.textContent?.trim()) throw figmaError
+      parsed.querySelectorAll('[data-buffer], [data-metadata]').forEach(element => element.remove())
+    }
+    return importHTML(parsed.body.innerHTML)
   }
+  if (figmaError) throw figmaError
   if (/^<[a-z][\s\S]*>/i.test(text)) return importHTML(text)
+  if (/^[[{]/.test(text)) {
+    try { const value = JSON.parse(text); if (value?.nodes || value?.nodeChanges || value?.document || Array.isArray(value)) return importFigmaClipboard(text) } catch { /* Ordinary text is retained as text. */ }
+  }
+  if (text) {
+    const store = new SceneStore()
+    store.add('text', { name: 'Pasted text', text, width: 320, height: Math.max(40, text.split('\n').length * 24), fontSize: 20, letterSpacing: 0 })
+    return store.toJSON()
+  }
   return null
 }
