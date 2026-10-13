@@ -1,12 +1,13 @@
 import type { SceneDocument, SceneElement, SceneSnapshot } from '../scene/types.ts'
 import { getWorldBounds } from '../scene/geometry.ts'
 import type { BezierCurve, Easing, PrototypeDocument, PrototypeInteraction, PrototypeTransition } from './types.ts'
+import { DEFAULT_SPRING, springCSS, springDuration, springProgress, validateSpring } from './spring.ts'
 
 export const TRIGGERS = { click: 'On Click', hover: 'On Hover', drag: 'Drag', delay: 'After Delay' } as const
 export const ACTIONS = { navigate: 'Navigate to', overlay: 'Open Overlay', scroll: 'Scroll to' } as const
 export const TRANSITIONS = { instant: 'Instant', dissolve: 'Dissolve', smart: 'Smart Animate', 'slide-in': 'Slide In', 'slide-out': 'Slide Out' } as const
-export const EASINGS = { linear: 'Linear', 'ease-in': 'Ease in', 'ease-out': 'Ease out', 'ease-in-out': 'Ease in & out', custom: 'Custom curve' } as const
-export const CURVES: Readonly<Record<Exclude<Easing, 'custom'>, BezierCurve>> = {
+export const EASINGS = { linear: 'Linear', 'ease-in': 'Ease in', 'ease-out': 'Ease out', 'ease-in-out': 'Ease in & out', custom: 'Custom curve', spring: 'Spring · Physics' } as const
+export const CURVES: Readonly<Record<Exclude<Easing, 'custom' | 'spring'>, BezierCurve>> = {
   linear: [0, 0, 1, 1], 'ease-in': [.42, 0, 1, 1], 'ease-out': [0, 0, .16, 1], 'ease-in-out': [.65, 0, .35, 1],
 }
 export const EMPTY_PROTOTYPE: PrototypeDocument = Object.freeze({ startFrameId: null, device: 'none', interactions: Object.freeze([]) })
@@ -49,7 +50,8 @@ export function validatePrototype(value: PrototypeDocument | undefined, elements
     const t = item.transition
     if (!t || !Object.hasOwn(TRANSITIONS, t.kind) || !Object.hasOwn(EASINGS, t.easing) || !['left', 'right', 'up', 'down'].includes(t.direction) || !Number.isFinite(t.duration) || t.duration < 0 || t.duration > 10000 || !Array.isArray(t.curve) || t.curve.length !== 4 || !t.curve.every(Number.isFinite) || t.curve[0] < 0 || t.curve[0] > 1 || t.curve[2] < 0 || t.curve[2] > 1 || Math.abs(t.curve[1]) > 5 || Math.abs(t.curve[3]) > 5) throw new Error('Invalid prototype transition')
     ids.add(item.id)
-    return Object.freeze({ id: item.id, sourceId: item.sourceId, targetId: item.targetId, trigger: item.trigger, action: item.action, delay: item.delay, transition: Object.freeze({ kind: t.kind, duration: t.duration, easing: t.easing, direction: t.direction, curve: Object.freeze([...t.curve]) as BezierCurve }) })
+    const spring = t.spring === undefined ? (t.easing === 'spring' ? DEFAULT_SPRING : undefined) : validateSpring(t.spring)
+    return Object.freeze({ id: item.id, sourceId: item.sourceId, targetId: item.targetId, trigger: item.trigger, action: item.action, delay: item.delay, transition: Object.freeze({ kind: t.kind, duration: t.duration, easing: t.easing, direction: t.direction, curve: Object.freeze([...t.curve]) as BezierCurve, ...(spring ? { spring } : {}) }) })
   })
   return Object.freeze({ startFrameId: value.startFrameId, device: value.device, interactions: Object.freeze(interactions) })
 }
@@ -61,8 +63,10 @@ export function prunePrototype(value: PrototypeDocument, elements: SceneDocument
   return interactions.length === value.interactions.length && startFrameId === value.startFrameId ? value : Object.freeze({ ...value, startFrameId, interactions: Object.freeze(interactions) })
 }
 
-export function easingCurve(t: PrototypeTransition): BezierCurve { return t.easing === 'custom' ? t.curve : CURVES[t.easing] }
-export function easingCSS(t: PrototypeTransition): string { return `cubic-bezier(${easingCurve(t).join(',')})` }
+export function easingCurve(t: PrototypeTransition): BezierCurve { return t.easing === 'custom' ? t.curve : t.easing === 'spring' ? CURVES['ease-out'] : CURVES[t.easing] }
+export function transitionDuration(t: PrototypeTransition): number { return t.kind === 'instant' ? 0 : t.easing === 'spring' ? springDuration(t.spring) : t.duration }
+export function easingCSS(t: PrototypeTransition, duration = transitionDuration(t)): string { return t.easing === 'spring' ? springCSS(t.spring, duration) : `cubic-bezier(${easingCurve(t).join(',')})` }
+export function transitionProgress(progress: number, t: PrototypeTransition, duration = transitionDuration(t)): number { return t.easing === 'spring' ? springProgress(progress, t.spring, duration) : easeProgress(progress, easingCurve(t)) }
 
 /** Measure scrollable content in the presented frame's coordinates, respecting nested clips. */
 export function presentationExtent(state: SceneSnapshot, frameId: string): { width: number; height: number } {

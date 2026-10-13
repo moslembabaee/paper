@@ -55,6 +55,16 @@
 .prototype-bezier { display: flex; gap: 5px; margin-bottom: 12px; }
 .prototype-bezier label { min-width: 0; flex: 1; font: 9px var(--font-mono); color: var(--paper-text-muted); }
 .prototype-bezier input { display: block; padding: 6px 3px; margin-top: 6px; font: 10px var(--font-mono); }
+.prototype-spring-parameters { display: flex; gap: 8px; }
+.prototype-spring-parameters .prototype-field { flex: 1; min-width: 0; }
+.prototype-spring-parameters input { padding: 8px 5px; }
+.prototype-spring-track { position: relative; height: 38px; margin-top: 10px; overflow: hidden; border-top: 1px solid var(--paper-border); }
+.prototype-spring-track::before { content: ''; position: absolute; inset: 20px 20px auto; height: 1px; background: var(--paper-border-strong); }
+.prototype-spring-track > span { position: absolute; left: 20px; top: 16px; width: 8px; height: 8px; border-radius: 50%; background: #81adec; box-shadow: 0 0 0 4px #81adec18; }
+.prototype-spring-replay { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 8px; border: 0; border-radius: 3px; background: var(--paper-accent-soft); color: var(--paper-accent-text); cursor: pointer; font-size: 10px; }
+.prototype-spring-replay:hover { background: var(--paper-hover); }
+.prototype-spring-replay:focus-visible { outline: 1px solid var(--paper-accent-text); }
+.prototype-motion-hint { font-size: 10px; line-height: 1.7; }
 .prototype-footnote { display: flex; gap: 10px; align-items: flex-start; padding: 24px 16px; color: var(--paper-text-muted); font-size: 9px; line-height: 1.8; margin-top: auto; }
 .prototype-footnote svg { margin-top: 3px; flex-shrink: 0; }
 .prototype-player { width: min(1240px, calc(100vw - 64px)); height: min(880px, calc(100dvh - 64px)); max-width: none; max-height: none; padding: 0; border: 1px solid #333; border-radius: 12px; background: #222222; color: #edebe1; box-shadow: 0 32px 100px #0008; overflow: hidden; }

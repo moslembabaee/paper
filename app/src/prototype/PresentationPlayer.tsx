@@ -5,7 +5,7 @@ import { Dialog } from '../workspace/Dialog'
 import { SceneRenderer } from '../scene/SceneRenderer'
 import type { SceneStore } from '../scene/store'
 import { useScene } from '../scene/useScene'
-import { easingCSS, easingCurve, easeProgress, EMPTY_PROTOTYPE, isDescendant, isVisible, matchedLayers, presentationExtent, smartKeyframes, transitionFrames } from './model'
+import { easingCSS, EMPTY_PROTOTYPE, isDescendant, isVisible, matchedLayers, presentationExtent, smartKeyframes, transitionDuration, transitionFrames, transitionProgress } from './model'
 import type { PrototypeInteraction, PrototypeTransition } from './types'
 
 interface Playback { frameId: string; overlayId: string | null }
@@ -63,14 +63,14 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
         x: Math.max(0, Math.min(scroller.scrollWidth - scroller.clientWidth, start.x + (b.left - a.left) / scale)),
         y: Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight, start.y + (b.top - a.top) / scale)),
       }
-      const duration = transition.kind === 'instant' ? 0 : transition.duration
+      const duration = transitionDuration(transition)
       cancelAnimationFrame(scrollFrame.current)
       if (duration === 0) { scroller.scrollLeft = end.x; scroller.scrollTop = end.y; return }
       busy.current = true
       const startTime = performance.now()
       const tick = (now: number) => {
         const progress = Math.min(1, (now - startTime) / duration)
-        const eased = easeProgress(progress, easingCurve(transition))
+        const eased = transitionProgress(progress, transition, duration)
         scroller.scrollLeft = start.x + (end.x - start.x) * eased
         scroller.scrollTop = start.y + (end.y - start.y) * eased
         if (progress < 1) scrollFrame.current = requestAnimationFrame(tick)
@@ -98,7 +98,8 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
     if (previousScroll) { previousScroll.scrollTop = motion.scrollTop; previousScroll.scrollLeft = motion.scrollLeft }
     let active = true
     const animations: Animation[] = []
-    const options: KeyframeAnimationOptions = { duration: motion.transition.kind === 'instant' ? 0 : motion.transition.duration, easing: easingCSS(motion.transition), fill: 'both' }
+    const duration = transitionDuration(motion.transition)
+    const options: KeyframeAnimationOptions = { duration, easing: duration ? easingCSS(motion.transition, duration) : 'linear', fill: 'both' }
     const animate = (element: HTMLElement | null, keyframes: Keyframe[]) => { if (element) animations.push(element.animate(keyframes, options)) }
     const keyframes = transitionFrames(motion.transition)
     if (motion.transition.kind === 'smart' && motion.fromId && outgoing) {

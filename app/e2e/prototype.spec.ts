@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import { SceneStore } from '../src/scene/store'
 import { createProject } from '../src/io/project'
 import { DEFAULT_TRANSITION } from '../src/prototype/model'
+import { SPRING_PRESETS, springDuration } from '../src/prototype/spring'
 import type { InteractionTrigger, PrototypeInteraction, TransitionKind } from '../src/prototype/types'
 import { drag, waitForCanvasReady } from './helpers'
 
@@ -61,6 +62,86 @@ test('dragging a wire authors a persistent, undoable interaction and exposes tra
   await page.getByTestId('prototype-mode-toggle').click()
   await expect(page.locator('.prototype-wire')).toHaveCount(1)
   await expect(page.getByLabel('Presentation device')).toHaveValue('phone')
+})
+
+test('spring authoring previews motion, persists physics and restores previous settings with undo', async ({ page }) => {
+  await page.addInitScript(project => localStorage.setItem('paper.project.v1', JSON.stringify(project)), fixture())
+  await page.goto('/')
+  await page.getByTestId('prototype-mode-toggle').click()
+  await page.locator('.viewport-world [data-element-id="a-button"]').click()
+  await page.getByLabel('Transition animation').selectOption('smart')
+  await page.getByLabel('Transition easing').selectOption('spring')
+  await page.getByLabel('Spring preset').selectOption('bouncy')
+  await page.getByLabel('Spring stiffness').fill('220')
+  await expect(page.getByLabel('Spring preset')).toHaveValue('custom')
+  await expect(page.getByRole('img', { name: 'Spring response curve' })).toBeVisible()
+  await expect(page.getByLabel('Duration milliseconds')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Preview spring', exact: true }).click()
+  await expect.poll(() => page.locator('.prototype-spring-track > span').evaluate(node => node.getAnimations().length)).toBe(1)
+  await page.getByRole('button', { name: 'Undo', exact: true }).click()
+  await expect(page.getByLabel('Spring stiffness')).toHaveValue('180')
+  await page.getByRole('button', { name: 'Redo', exact: true }).click()
+  await expect(page.getByLabel('Spring stiffness')).toHaveValue('220')
+  await expect(page.getByRole('status').filter({ hasText: 'Saved locally' })).toBeVisible()
+  await page.reload()
+  await page.getByTestId('prototype-mode-toggle').click()
+  await page.locator('.viewport-world [data-element-id="a-button"]').click()
+  await expect(page.getByLabel('Transition easing')).toHaveValue('spring')
+  await expect(page.getByLabel('Spring stiffness')).toHaveValue('220')
+  await expect(page.getByLabel('Spring damping')).toHaveValue('12')
+  await expect(page.getByLabel('Spring mass')).toHaveValue('1')
+})
+
+for (const kind of ['smart', 'slide-in', 'slide-out'] as const) {
+  test(`spring ${kind} renders native motion and cleans up at rest`, async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    const project = fixture('click', kind)
+    const prototype = project.scene.prototype!
+    const springProject = { ...project, scene: { ...project.scene, prototype: { ...prototype, interactions: prototype.interactions.map(item => ({ ...item, transition: { ...item.transition, easing: 'spring', spring: SPRING_PRESETS.bouncy.spring } })) } } }
+    await page.addInitScript(value => localStorage.setItem('paper.project.v1', JSON.stringify(value)), springProject)
+    await page.goto('/')
+    await page.getByRole('button', { name: 'Present prototype', exact: true }).click()
+    const player = page.locator('.prototype-player')
+    await player.locator('[data-element-id="a-button"]').click()
+    await expect(page.getByTestId('prototype-display')).toHaveAttribute('data-frame-id', 'b')
+    const result = await player.evaluate((node, kind) => {
+      const animations = node.getAnimations({ subtree: true })
+      for (const animation of animations) { animation.pause(); animation.currentTime = 250 }
+      const subject = kind === 'smart' ? node.querySelector('[data-element-id="b-button"]')! : node.querySelectorAll('.prototype-layer')[kind === 'slide-out' ? 0 : 1]
+      const transform = getComputedStyle(subject).transform
+      return { count: animations.length, durations: animations.map(animation => animation.effect!.getTiming().duration), easings: animations.map(animation => animation.effect!.getTiming().easing), x: new DOMMatrixReadOnly(transform).m41, transform }
+    }, kind)
+    expect(result.count).toBeGreaterThan(0)
+    expect(result.durations.every(duration => duration === springDuration(SPRING_PRESETS.bouncy.spring))).toBe(true)
+    expect(result.easings.every(easing => easing?.startsWith('linear('))).toBe(true)
+    if (kind === 'slide-in') expect(result.x).toBeLessThan(-30)
+    if (kind === 'slide-out') expect(result.x).toBeLessThan(-420)
+    if (kind === 'smart') expect(result.transform).not.toBe('none')
+    await player.evaluate(node => node.getAnimations({ subtree: true }).forEach(animation => animation.finish()))
+    await expect(player.locator('.prototype-layer')).toHaveCount(1)
+    await expect.poll(() => player.evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0)
+    await player.getByRole('button', { name: 'Restart prototype' }).click()
+    await expect(page.getByTestId('prototype-display')).toHaveAttribute('data-frame-id', 'a')
+    expect(errors).toEqual([])
+  })
+}
+
+test('spring preview respects reduced motion and mobile presentation fits its viewport', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  const project = fixture('click', 'smart'), prototype = project.scene.prototype!
+  await page.addInitScript(value => localStorage.setItem('paper.project.v1', JSON.stringify(value)), { ...project, scene: { ...project.scene, prototype: { ...prototype, interactions: prototype.interactions.map(item => ({ ...item, transition: { ...item.transition, easing: 'spring', spring: SPRING_PRESETS.bouncy.spring } })) } } })
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Present prototype', exact: true }).click()
+  await page.locator('.prototype-player [data-element-id="a-button"]').click()
+  await expect(page.getByTestId('prototype-display')).toHaveAttribute('data-frame-id', 'b')
+  await expect(page.locator('.prototype-player .prototype-layer')).toHaveCount(1)
+  await expect.poll(() => page.locator('.prototype-player').evaluate(node => node.getAnimations({ subtree: true }).length)).toBe(0)
+  await page.setViewportSize({ width: 390, height: 844 })
+  const box = await page.locator('.prototype-player').boundingBox()
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(390)
+  await expect(page.getByRole('button', { name: 'Restart prototype' })).toBeVisible()
 })
 
 for (const kind of ['instant', 'dissolve', 'smart', 'slide-in', 'slide-out'] as const) {

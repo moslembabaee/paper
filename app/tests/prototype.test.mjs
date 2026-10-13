@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { SceneStore } from '../src/scene/store.ts'
 import { createProject, parseProject, serializeProject } from '../src/io/project.ts'
 import { CURVES, DEFAULT_TRANSITION, EMPTY_PROTOTYPE, easeProgress, frameFor, matchedLayers, presentationExtent, smartKeyframes, transitionFrames, validatePrototype } from '../src/prototype/model.ts'
+import { easingCSS, transitionDuration, transitionProgress } from '../src/prototype/model.ts'
+import { DEFAULT_SPRING, SPRING_PRESETS, SPRING_LIMITS, springCSS, springDuration, springProgress, springState } from '../src/prototype/spring.ts'
 
 function fixture() {
   const store = new SceneStore()
@@ -155,4 +157,75 @@ test('easing solves the cubic x coordinate and slides cover each direction', () 
     assert.match(outgoing.outgoing[1].transform, /100%/)
   }
   assert.equal(transitionFrames({ ...DEFAULT_TRANSITION, kind: 'instant' }).incoming[0].opacity, 1)
+})
+
+test('spring solutions obey the physical equation in all damping regimes', () => {
+  for (const spring of [SPRING_PRESETS.bouncy.spring, SPRING_PRESETS.gentle.spring, { stiffness: 100, damping: 40, mass: 1 }]) {
+    assert.deepEqual(springState(0, spring), { position: 0, velocity: 0 })
+    for (const time of [20, 80, 300, 700]) {
+      const current = springState(time, spring), before = springState(time - .01, spring), after = springState(time + .01, spring)
+      const measuredVelocity = (after.position - before.position) / .00002
+      const acceleration = (after.velocity - before.velocity) / .00002
+      assert.ok(Math.abs(measuredVelocity - current.velocity) < 1e-5)
+      assert.ok(Math.abs(spring.mass * acceleration + spring.damping * current.velocity + spring.stiffness * (current.position - 1)) < 1e-4)
+    }
+    const end = springState(springDuration(spring), spring)
+    assert.ok(Math.abs(end.position - 1) < .001)
+    assert.ok(Math.abs(end.velocity) < .01)
+  }
+  assert.ok(springState(250, SPRING_PRESETS.bouncy.spring).position > 1.1)
+  assert.ok(springState(250, SPRING_PRESETS.gentle.spring).position < 1)
+  assert.ok(springDuration({ ...DEFAULT_SPRING, mass: 3 }) > springDuration(DEFAULT_SPRING))
+})
+
+test('spring progress and browser easing share samples, overshoot and exact endpoints', () => {
+  const spring = SPRING_PRESETS.bouncy.spring
+  const transition = { ...DEFAULT_TRANSITION, kind: 'smart', easing: 'spring', spring }
+  const duration = transitionDuration(transition)
+  const samples = easingCSS(transition).slice(7, -1).split(',').map(Number)
+  assert.equal(easingCSS(transition), springCSS(spring))
+  assert.equal(samples[0], 0)
+  assert.equal(samples.at(-1), 1)
+  assert.ok(Math.max(...samples) > 1.1)
+  for (const index of [1, 10, 20, samples.length - 2]) {
+    assert.ok(Math.abs(samples[index] - transitionProgress(index / (samples.length - 1), transition, duration)) < 1e-6)
+  }
+  assert.equal(springProgress(-1, spring), 0)
+  assert.equal(springProgress(2, spring), 1)
+  assert.equal(transitionDuration({ ...transition, kind: 'instant' }), 0)
+  assert.equal(easingCSS({ ...transition, kind: 'instant' }), 'linear(0,1)')
+})
+
+test('spring settings are immutable, undoable and round-trip; malformed physics fail atomically', () => {
+  const store = fixture(), interaction = store.connectPrototype('button', 'b')
+  const transition = { ...DEFAULT_TRANSITION, easing: 'spring', spring: SPRING_PRESETS.bouncy.spring }
+  store.updateInteraction(interaction.id, { transition })
+  const before = store.getSnapshot()
+  assert.ok(Object.isFrozen(before.prototype.interactions[0].transition.spring))
+  const restored = parseProject(serializeProject(createProject(store, 'Spring study', { x: 0, y: 0, zoom: 1 }, true)))
+  assert.deepEqual(restored.scene.prototype, before.prototype)
+  store.undo()
+  assert.equal(store.getSnapshot().prototype.interactions[0].transition.easing, 'ease-out')
+  store.redo()
+  assert.equal(store.getSnapshot(), before)
+  const history = store.getHistorySnapshot()
+  for (const invalid of [null, {}, ...Object.entries(SPRING_LIMITS).flatMap(([key, [min, max]]) => [NaN, Infinity, min - .1, max + .1].map(value => ({ ...DEFAULT_SPRING, [key]: value })))]) {
+    assert.throws(() => store.updateInteraction(interaction.id, { transition: { ...transition, spring: invalid } }))
+    assert.equal(store.getSnapshot(), before)
+    assert.equal(store.getHistorySnapshot(), history)
+  }
+  store.updateInteraction(interaction.id, { transition: { ...DEFAULT_TRANSITION, easing: 'spring' } })
+  assert.deepEqual(store.getSnapshot().prototype.interactions[0].transition.spring, DEFAULT_SPRING)
+})
+
+test('extreme valid springs stay finite and terminate within the playback budget', () => {
+  for (const stiffness of SPRING_LIMITS.stiffness) for (const damping of SPRING_LIMITS.damping) for (const mass of SPRING_LIMITS.mass) {
+    const spring = { stiffness, damping, mass }, duration = springDuration(spring)
+    assert.ok(duration > 0 && duration <= 10000)
+    for (const time of [1, 10, 500, 5000, 10000]) {
+      const state = springState(time, spring)
+      assert.ok(Number.isFinite(state.position) && Number.isFinite(state.velocity))
+    }
+    assert.equal(springProgress(1, spring, duration), 1)
+  }
 })

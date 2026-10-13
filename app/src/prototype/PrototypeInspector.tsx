@@ -3,6 +3,7 @@ import type { SceneStore } from '../scene/store'
 import { useScene } from '../scene/useScene'
 import { ACTIONS, DEFAULT_TRANSITION, easingCurve, EASINGS, EMPTY_PROTOTYPE, frameFor, isDescendant, TRANSITIONS, TRIGGERS } from './model'
 import type { BezierCurve, DeviceFrame, Easing, InteractionTrigger, NavigationAction, PrototypeTransition, SlideDirection, TransitionKind } from './types'
+import { SpringControls } from './SpringControls'
 
 export function PrototypeInspector({ store, selectedId, onSelect, onPresent }: {
   store: SceneStore; selectedId: string | null; onSelect: (id: string | null) => void; onPresent: () => void
@@ -52,9 +53,9 @@ export function PrototypeInspector({ store, selectedId, onSelect, onPresent }: {
         <span className="section-caption">TRANSITION</span>
         <label className="prototype-field">Animation<select aria-label="Transition animation" value={t.kind} onChange={event => updateTransition({ kind: event.target.value as TransitionKind })}>{Object.entries(interaction.action === 'scroll' ? { instant: 'Instant', dissolve: 'Smooth scroll' } : TRANSITIONS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
         {t.kind !== 'instant' && <>
-          <Milliseconds label="Duration" value={t.duration} max={10000} onChange={duration => updateTransition({ duration })} />
+          {t.easing !== 'spring' && <Milliseconds label="Duration" value={t.duration} max={10000} onChange={duration => updateTransition({ duration })} />}
           <label className="prototype-field">Easing<select aria-label="Transition easing" value={t.easing} onChange={event => updateTransition({ easing: event.target.value as Easing })}>{Object.entries(EASINGS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-          <div className="prototype-curve"><svg viewBox="0 0 180 100" role="img" aria-label={`Easing curve ${curve.join(', ')}`}><path className="curve-grid" d="M10 10H170M10 50H170M10 90H170M10 10V90M90 10V90M170 10V90" /><path className="curve-control" d={`M10 90L${10 + curve[0] * 160} ${90 - curve[1] * 80}M170 10L${10 + curve[2] * 160} ${90 - curve[3] * 80}`} /><path className="curve-line" d={`M10 90C${10 + curve[0] * 160} ${90 - curve[1] * 80},${10 + curve[2] * 160} ${90 - curve[3] * 80},170 10`} /><circle cx="10" cy="90" r="3" /><circle cx="170" cy="10" r="3" /></svg><span>{curve.map(n => n.toFixed(2)).join(' / ')}</span></div>
+          {t.easing === 'spring' ? <SpringControls value={t.spring} onChange={spring => updateTransition({ spring })} /> : <div className="prototype-curve"><svg viewBox="0 0 180 100" role="img" aria-label={`Easing curve ${curve.join(', ')}`}><path className="curve-grid" d="M10 10H170M10 50H170M10 90H170M10 10V90M90 10V90M170 10V90" /><path className="curve-control" d={`M10 90L${10 + curve[0] * 160} ${90 - curve[1] * 80}M170 10L${10 + curve[2] * 160} ${90 - curve[3] * 80}`} /><path className="curve-line" d={`M10 90C${10 + curve[0] * 160} ${90 - curve[1] * 80},${10 + curve[2] * 160} ${90 - curve[3] * 80},170 10`} /><circle cx="10" cy="90" r="3" /><circle cx="170" cy="10" r="3" /></svg><span>{curve.map(n => n.toFixed(2)).join(' / ')}</span></div>}
           {t.easing === 'custom' && <div className="prototype-bezier">{t.curve.map((value, index) => <label key={index}>{['X₁', 'Y₁', 'X₂', 'Y₂'][index]}<input type="number" aria-label={`Bezier ${['x1', 'y1', 'x2', 'y2'][index]}`} value={value} step="0.05" min={index % 2 === 0 ? 0 : -5} max={index % 2 === 0 ? 1 : 5} onChange={event => {
             const next = event.currentTarget.valueAsNumber
             if (!Number.isFinite(next) || next < (index % 2 === 0 ? 0 : -5) || next > (index % 2 === 0 ? 1 : 5)) return
