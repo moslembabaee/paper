@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Circle, Code2, Frame, Grid2X2, Hand, Image, Layers, ListChecks, MousePointer2, PenTool, Sparkles, Square, Type, X } from 'lucide-react'
 import type { ElementType } from './scene/types'
+import { componentRoot } from './scene/components'
 import { SceneCanvas } from './scene/SceneCanvas'
 import { DocumentSidebar } from './tokens/DocumentSidebar'
 import { ElementInspector } from './scene/ElementInspector'
@@ -84,7 +85,9 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
   function addElement(type: ElementType) {
     const { elements, selection } = store.getSnapshot()
     const selected = selection.length === 1 ? elements[selection[0]] : undefined
-    const parentId = type === 'frame' ? null : selected?.type === 'frame' ? selected.id : selected?.parentId ?? null
+    let parentId = type === 'frame' ? null : selected?.type === 'frame' ? selected.id : selected?.parentId ?? null
+    const component = parentId ? componentRoot(elements, parentId) : undefined
+    if (component?.component?.kind === 'instance') parentId = component.parentId
     const parent = parentId ? elements[parentId] : undefined
     const snapshot = controller.getSnapshot()
     const center = controller.screenToWorld({ x: snapshot.size.width / 2, y: snapshot.size.height / 2 })
@@ -131,7 +134,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
       <div className="header-end"><span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!bridge.activity} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : 'MCP offline'}</span><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => setDevMode(!devMode)}><Code2 size={14} /><span>Dev</span></button><ProfileMenu profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
     </header>
     <div className="editor-layout" inert={changing}>
-      {layersVisible && <DocumentSidebar store={store} onHide={() => setLayersVisible(false)} />}
+      {layersVisible && <DocumentSidebar store={store} controller={controller} onHide={() => setLayersVisible(false)} />}
       <main className="canvas-stage">
         <div className="canvas-toolbar viewport-ui" role="toolbar" aria-label="Canvas tools">
           {!layersVisible && <button className="tool-button" title="Show layers" aria-label="Show layers" onClick={() => setLayersVisible(true)}><Layers size={17} /></button>}

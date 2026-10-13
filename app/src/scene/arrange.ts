@@ -88,7 +88,7 @@ export function resizeSelection(store: SceneStore, delta: Point): void {
 
 /** Reorder each sibling list together, preserving the relative order of selected layers. */
 export function orderSelection(store: SceneStore, order: LayerOrder): void {
-  const state = store.getSnapshot(), ids = arrangeableIds(store), selected = new Set(ids)
+  const state = store.getSnapshot(), ids = arrangeableIds(store).filter(id => { const node = state.elements[id]; return node.component?.kind !== 'instance' || node.component.instanceId === id }), selected = new Set(ids)
   const parents = new Set(ids.map(id => state.elements[id].parentId))
   store.batch(() => {
     for (const parent of parents) {

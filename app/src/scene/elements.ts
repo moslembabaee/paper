@@ -1,6 +1,7 @@
 import type { BooleanCompound, ElementInput, ElementOf, ElementType, SceneElement, VectorElement } from './types.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
 import { serializePath } from './pathGeometry.ts'
+import { freezeComponent, validateComponent } from './components.ts'
 
 const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectangle', ellipse: 'Ellipse', path: 'Vector path', text: 'Text', image: 'Image' }
 const frozenElements = new WeakSet<SceneElement>()
@@ -18,6 +19,7 @@ export function freezeElement(element: SceneElement): SceneElement {
   if (frozenElements.has(element)) return element
   const tokenBindings = element.tokenBindings ? Object.freeze({ ...element.tokenBindings }) : undefined
   element = { ...element, ...(tokenBindings ? { tokenBindings } : {}) }
+  if (element.component) element = { ...element, component: freezeComponent(element.component) }
   if (element.sizing) element = { ...element, sizing: Object.freeze({ ...element.sizing }) }
   if (element.type === 'frame' && element.layout) element = { ...element, layout: Object.freeze({ ...element.layout, padding: Object.freeze({ ...element.layout.padding }) }) }
   const style = Object.freeze({
@@ -39,6 +41,7 @@ export function freezeElement(element: SceneElement): SceneElement {
 }
 
 export function validateElement(element: SceneElement, depth = 0): void {
+  if (element.component !== undefined) validateComponent(element.component)
   if (depth > 16) throw new Error('Boolean compounds may be nested up to 16 levels')
   if (typeof element.id !== 'string' || !element.id || typeof element.name !== 'string' || !element.name || (element.parentId !== null && typeof element.parentId !== 'string') || !['frame', 'rectangle', 'ellipse', 'path', 'text', 'image'].includes(element.type)) throw new Error('Invalid element identity')
   for (const key of ['x', 'y', 'width', 'height', 'rotation', 'zIndex'] as const) {
@@ -86,6 +89,7 @@ export function validateElement(element: SceneElement, depth = 0): void {
 }
 
 export function createElement<T extends ElementType>(type: T, input: ElementInput<T> = {}): ElementOf<T> {
+  if (Object.hasOwn(input, 'component')) throw new Error('Components are managed by the store')
   if (Object.hasOwn(input, 'children') || Object.hasOwn(input, 'zIndex')) throw new Error('Children and order are managed by the store')
   const defaults: Record<ElementType, object> = {
     frame: { children: [], clipContent: true, cornerRadius: 0 },

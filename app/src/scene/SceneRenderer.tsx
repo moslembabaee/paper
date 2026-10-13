@@ -48,7 +48,7 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
     overflow: node.clipContent ? 'hidden' : 'visible',
     boxShadow: node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : undefined,
   } : undefined
-  return <div className={`scene-node ${isFrame ? 'scene-frame' : ''} ${selected ? 'is-selected' : ''}`} style={style} data-element-id={id} data-element-type={node.type} data-boolean-operation={node.type === 'path' ? node.boolean?.operation : undefined} aria-label={node.name}>
+  return <div className={`scene-node ${isFrame ? 'scene-frame' : ''} ${selected ? 'is-selected' : ''}`} style={style} data-element-id={id} data-element-type={node.type} data-component-kind={node.component?.kind} data-component-master={node.component?.kind === 'instance' ? node.component.masterId : undefined} data-boolean-operation={node.type === 'path' ? node.boolean?.operation : undefined} aria-label={node.name}>
     {isFrame && node.parentId === null && <div className="artboard-label">{node.name}<span>{node.width} × {node.height}</span></div>}
     <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity }}>
       {node.style.shader && <ShapeShader node={node} />}

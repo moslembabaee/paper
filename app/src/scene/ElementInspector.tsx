@@ -12,6 +12,8 @@ import { ShaderInspector } from '../shaders/ShaderInspector'
 import { ArrangeBar } from './ArrangeBar'
 import { BooleanBar } from './BooleanBar'
 import { AutoLayoutInspector } from './AutoLayoutInspector'
+import { ComponentInspector } from './ComponentPanel'
+import { componentRoot } from './components'
 
 function NumberField({ label, value, onChange, min, max, step = 1, binding, disabled = false }: { disabled?: boolean; binding?: ReactNode; label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
   return <div className="token-number-field"><label className="property-number"><span>{label}</span><input key={value} aria-label={label} disabled={disabled} type="number" defaultValue={Number(value.toFixed(3))} min={min} max={max} step={step} onBlur={(event) => {
@@ -32,11 +34,15 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
   const node = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
   const parent = node?.parentId ? state.elements[node.parentId] : undefined
   const managed = parent?.type === 'frame' && !!parent.layout
+  const instanceChild = node?.component?.kind === 'instance' && node.component.instanceId !== node.id
+  const component = node ? componentRoot(state.elements, node.id) : undefined
   const binding = (property: TokenProperty, label: string, color = false) => node ? <TokenSelector key={`${node.id}-${property}`} store={store} node={node} property={property} label={label} tokens={state.tokens} color={color} /> : null
   const patch = (changes: ElementPatch<ElementType>) => { if (node) store.update(node.id, node.type, changes) }
   const style = (changes: Partial<SceneElement['style']>) => patch({ style: changes })
   const parentOptions = Object.values(state.elements).filter(candidate => {
     if (candidate.type !== 'frame' || candidate.id === node?.id) return false
+    const destination = componentRoot(state.elements, candidate.id)
+    if (destination?.component?.kind === 'instance' || (component?.id === node?.id && destination)) return false
     let parent: SceneElement | undefined = candidate
     while (parent) { if (parent.id === node?.id) return false; parent = parent.parentId === null ? undefined : state.elements[parent.parentId] }
     return !store.isLocked(candidate.id)
@@ -46,6 +52,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
     <ArrangeBar store={store} controller={controller} />
     <BooleanBar key={state.selection.join(':')} store={store} />
     {node ? <>
+      <ComponentInspector key={`component-${node.id}`} store={store} controller={controller} node={node} />
       <div className="inspector-section">
         <span className="section-caption">SELECTION</span>
         <input className="property-name" key={node.id + node.name} aria-label="Layer name" defaultValue={node.name} onBlur={event => { const name = event.currentTarget.value.trim(); if (name) patch({ name }); else event.currentTarget.value = node.name }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
@@ -55,7 +62,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
         {'cornerRadius' in node && <NumberField binding={binding('cornerRadius', 'Radius')} label="Radius" value={node.cornerRadius} min={0} onChange={cornerRadius => patch({ cornerRadius })} />}
         <button className="text-action" onClick={() => controller.fit(getWorldBounds(state, node.id))}>Focus element <ChevronRight size={12} /></button>
       </div>
-      <AutoLayoutInspector key={node.id} node={node} parent={parent} store={store} />
+      <AutoLayoutInspector key={`layout-${node.id}`} node={node} parent={parent} store={store} />
       <div className="inspector-section">
         <span className="section-caption">APPEARANCE</span>
         <div className="property-heading"><span>Fill</span><button className="quiet-button paint-toggle" aria-label="Toggle fill" aria-pressed={node.style.fill !== null} onClick={() => style({ fill: node.style.fill === null ? '#81adec' : null })}>{node.style.fill === null ? '+' : '−'}</button></div>
@@ -65,7 +72,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
         <div className="property-heading"><span>Shadow</span><button className="quiet-button paint-toggle" aria-label="Toggle shadow" aria-pressed={node.style.shadow !== null} onClick={() => style({ shadow: node.style.shadow ? null : { color: '#08080833', x: 0, y: 4, blur: 16 } })}>{node.style.shadow ? '−' : '+'}</button></div>
         {node.style.shadow && <><ColorField label="Shadow" value={node.style.shadow.color} onChange={color => style({ shadow: { ...node.style.shadow!, color } })} /><div className="property-pair"><NumberField label="Shadow X" value={node.style.shadow.x} onChange={x => style({ shadow: { ...node.style.shadow!, x } })} /><NumberField label="Shadow Y" value={node.style.shadow.y} onChange={y => style({ shadow: { ...node.style.shadow!, y } })} /></div><NumberField label="Blur" value={node.style.shadow.blur} min={0} onChange={blur => style({ shadow: { ...node.style.shadow!, blur } })} /></>}
       </div>
-      <ShaderInspector key={node.id} paint={node.style.shader ?? null} onChange={shader => style({ shader })} target={node.type === 'image' ? 'Image effect' : 'Layer fill'} image={node.type === 'image' ? node.src : undefined} onBrowse={onOpenShaders} />
+      <ShaderInspector key={`shader-${node.id}`} paint={node.style.shader ?? null} onChange={shader => style({ shader })} target={node.type === 'image' ? 'Image effect' : 'Layer fill'} image={node.type === 'image' ? node.src : undefined} onBrowse={onOpenShaders} />
       {node.type === 'text' && <div className="inspector-section"><span className="section-caption">TYPOGRAPHY</span>
         <textarea className="property-textarea" key={node.id + node.text} aria-label="Text content" defaultValue={node.text} onBlur={event => store.update(node.id, 'text', { text: event.currentTarget.value })} />
         <label className="property-label">Font family<input className="property-input" key={node.id + node.fontFamily} aria-label="Font family" defaultValue={node.fontFamily} onBlur={event => { const fontFamily = event.currentTarget.value.trim(); if (fontFamily && fontFamily !== node.fontFamily) store.update(node.id, 'text', { fontFamily }); else event.currentTarget.value = node.fontFamily }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} /></label>{binding('fontFamily', 'Font family')}
@@ -76,9 +83,9 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
       {node.type === 'path' && <div className="inspector-section"><span className="section-caption">VECTOR PATH</span><textarea className="property-textarea property-mono" key={node.id + node.d} aria-label="SVG path data" readOnly={!!node.boolean} defaultValue={node.d} onBlur={event => { if (!node.boolean && event.currentTarget.value !== node.d) store.update(node.id, 'path', { d: event.currentTarget.value }) }} />{node.boolean && <p>Flatten the compound to edit its merged outline with the pen tool.</p>}</div>}
       {node.type === 'image' && <div className="inspector-section"><span className="section-caption">IMAGE</span><label className="property-label">Source<input className="property-input" key={node.id + node.src} aria-label="Image source" defaultValue={node.src} onBlur={event => store.update(node.id, 'image', { src: event.currentTarget.value })} /></label><label className="property-label">Alt text<input className="property-input" key={node.id + node.alt} aria-label="Image alt text" defaultValue={node.alt} onBlur={event => store.update(node.id, 'image', { alt: event.currentTarget.value })} /></label><label className="property-select">Fit<select aria-label="Image fit" value={node.fit} onChange={event => store.update(node.id, 'image', { fit: event.currentTarget.value as typeof node.fit })}><option value="contain">Contain</option><option value="cover">Cover</option><option value="fill">Fill</option></select></label></div>}
       <div className="inspector-section"><span className="section-caption">HIERARCHY</span>
-        <label className="property-select">Parent<select aria-label="Parent frame" value={node.parentId ?? ''} onChange={event => store.reparent(node.id, event.currentTarget.value || null)}><option value="">Canvas</option>{parentOptions.map(frame => <option key={frame.id} value={frame.id}>{frame.name}</option>)}</select></label>
+        <label className="property-select">Parent<select disabled={instanceChild} aria-label="Parent frame" value={node.parentId ?? ''} onChange={event => store.reparent(node.id, event.currentTarget.value || null)}><option value="">Canvas</option>{instanceChild && parent && <option value={parent.id}>{parent.name}</option>}{parentOptions.map(frame => <option key={frame.id} value={frame.id}>{frame.name}</option>)}</select></label>
         {node.type === 'frame' && <div className="setting-row"><span>Clip content</span><button className={`grid-switch ${node.clipContent ? 'on' : ''}`} role="switch" aria-checked={node.clipContent} aria-label="Clip frame content" onClick={() => store.update(node.id, 'frame', { clipContent: !node.clipContent })}><span /></button></div>}
-        <div className="element-actions"><button aria-label="Send backward" disabled={node.zIndex === 0} onClick={() => store.reorder(node.id, node.zIndex - 1)}><ArrowDown size={13} /></button><button aria-label="Bring forward" disabled={node.zIndex === store.getChildren(node.parentId).length - 1} onClick={() => store.reorder(node.id, node.zIndex + 1)}><ArrowUp size={13} /></button><button aria-label="Lock selected element" onClick={() => store.setLocked(node.id, true)}><LockKeyhole size={13} /></button><button aria-label="Delete selected element" onClick={() => store.remove(node.id)}><Trash2 size={13} /></button></div>
+        <div className="element-actions"><button aria-label="Send backward" disabled={instanceChild || node.zIndex === 0} onClick={() => store.reorder(node.id, node.zIndex - 1)}><ArrowDown size={13} /></button><button aria-label="Bring forward" disabled={instanceChild || node.zIndex === store.getChildren(node.parentId).length - 1} onClick={() => store.reorder(node.id, node.zIndex + 1)}><ArrowUp size={13} /></button><button aria-label="Lock selected element" onClick={() => store.setLocked(node.id, true)}><LockKeyhole size={13} /></button><button aria-label="Delete selected element" disabled={instanceChild} title={instanceChild ? 'Detach the instance to delete individual layers' : 'Delete layer'} onClick={() => store.remove(node.id)}><Trash2 size={13} /></button></div>
       </div>
     </> : <div className="inspector-section"><span className="section-caption">WORKING SPACE</span><h3>{state.selection.length > 1 ? 'Ideas, together.' : 'Beyond the edges.'}</h3><p>{state.selection.length > 1 ? 'Select a single layer to edit its properties.' : <>Select a layer to shape it.<br />Add something. Make it yours.</>}</p></div>}
     {state.selection.length === 0 && <ShaderInspector paint={state.backgroundShader ?? null} onChange={paint => store.setBackgroundShader(paint)} target="Canvas background" onBrowse={onOpenShaders} />}

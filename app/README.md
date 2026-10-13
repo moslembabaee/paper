@@ -24,6 +24,16 @@ Source token bindings remain live, including inside nested compounds. Deleting t
 
 Run `npm test` for geometry and store regressions, and `npx playwright test e2e/boolean.spec.ts` for toolbar workflows and comparisons with native browser path filling.
 
+## Reusable components
+
+Select a layer or frame and choose **Create component** in the inspector, or **Create from selection** in the sidebar's **Components** tab. Frames include all their child layers. Search the document library, use **+** to insert a linked instance, and choose **Go to master** to edit its source.
+
+Master edits synchronize geometry, appearance, text, layout and child structure across instances. Edit an instance's fill, stroke, opacity or text to keep a local override; stroke color and width inherit independently. Local token bindings affect only their property. Detaching a token keeps its current value. Moving or rotating an instance sets its own placement.
+
+**Reset overrides** on an instance restores the master's current values across its subtree; on a child layer it restores only that layer. **Detach instance** keeps the rendered appearance and releases the entire instance for independent editing. Deleting a master also detaches its surviving instances. Component actions and propagation share the editor's undo/redo history, and project files and local saves retain links and overrides.
+
+Nested components are not supported. Edit child structure and boolean sources in the master, or detach an instance first. Run `npm test` for store and persistence coverage, and `npx playwright test e2e/components.spec.ts` for the library, overrides, reset, detach and reload workflow.
+
 ## Vector node editing
 
 Double-click an unlocked vector path, or select it and press **Enter**, to edit its subpaths. Click an anchor to select it, **Shift-click** to select more, and drag to move anchors with their handles. Use arrows to nudge by one path unit, or Shift + arrows for ten. Cmd/Ctrl + A selects every anchor; Backspace/Delete removes selected anchors. **Done**, Enter, or Escape leaves editing; Escape during a drag restores its starting geometry.

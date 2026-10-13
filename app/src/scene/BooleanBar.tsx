@@ -44,7 +44,7 @@ export function BooleanBar({ store }: { store: SceneStore }) {
   const selected = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
   const compound = selected?.type === 'path' && selected.boolean ? selected : undefined
   if (state.selection.length < 2 && !compound) return null
-  const reason = compound ? store.isLocked(compound.id) ? 'Unlock the compound to edit its sources.' : null : store.booleanSelectionReason()
+  const reason = compound ? compound.component?.kind === 'instance' ? 'Detach the instance to edit its boolean sources.' : store.isLocked(compound.id) ? 'Unlock the compound to edit its sources.' : null : store.booleanSelectionReason()
   const disabled = !!reason || active
   const run = (work: () => unknown) => { try { work(); setError(''); return true } catch (cause) { setError(cause instanceof Error ? cause.message : 'The shapes could not be combined.'); return false } }
   return <div className="inspector-section boolean-section" data-testid="boolean-section">

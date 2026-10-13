@@ -1,0 +1,50 @@
+.component-section-heading { display: flex; align-items: center; justify-content: space-between; color: var(--paper-accent-text); }
+.component-section-heading .section-caption { margin-bottom: 0; }
+.component-identity { display: flex; align-items: center; gap: 10px; margin: 14px 0 12px; min-width: 0; }
+.component-mark { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; color: var(--paper-accent-text); border: 1px solid var(--paper-border-strong); border-radius: 6px; }
+.component-mark.is-master { background: var(--paper-accent-soft); border-color: transparent; }
+.component-mark.is-master svg { fill: var(--paper-accent-text); }
+.component-identity > div { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.component-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 500; }
+.component-identity span:not(.component-mark) { color: var(--paper-text-muted); font-size: 9px; }
+.component-action { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 32px; padding: 7px 9px; background: var(--paper-surface); border: 1px solid var(--paper-border-strong); border-radius: 4px; color: var(--paper-text-secondary); font-size: 10px; cursor: pointer; transition: background 120ms, border-color 120ms; }
+.component-action > svg:last-child:not(:first-child) { margin-left: auto; }
+.component-action:hover:not(:disabled) { background: var(--paper-hover); border-color: var(--paper-accent-text); }
+.component-action.primary { background: var(--paper-accent-soft); color: var(--paper-accent-text); border-color: transparent; }
+.component-action:disabled, .component-card-insert:disabled, .component-card-master:disabled { opacity: .4; cursor: default; }
+.component-actions { display: grid; gap: 6px; margin-top: 12px; }
+.component-section p, .component-library p { font-size: 10px; line-height: 1.65; color: var(--paper-text-muted); margin: 10px 0 0; }
+.component-section .component-error, .component-library .component-error { color: var(--paper-error); }
+.component-override-list { display: grid; gap: 10px; margin-top: 12px; padding: 10px; border: 1px solid var(--paper-border); border-radius: 4px; max-height: 168px; overflow-y: auto; }
+.component-override-list > div > span { display: block; font-size: 9px; color: var(--paper-text-secondary); margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.component-override-list > div > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.component-override-chip { padding: 3px 5px; background: var(--paper-accent-soft); color: var(--paper-accent-text); font: 8px var(--font-mono); border-radius: 3px; }
+.component-library { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.document-sidebar .sidebar-heading [role='tablist'] { gap: 4px; min-width: 0; }
+.document-sidebar .sidebar-heading [role='tab'] { gap: 3px; padding: 0 1px; }
+.component-library-intro { padding: 24px 14px 16px; }
+.component-library-intro h3 { margin: 12px 0 0; font-size: 13px; font-weight: 500; letter-spacing: -.025em; }
+.component-search { display: flex; align-items: center; gap: 7px; margin: 0 12px 16px; padding: 8px; border: 1px solid var(--paper-border); border-radius: 4px; color: var(--paper-text-muted); }
+.component-search:focus-within { border-color: var(--paper-accent-text); }
+.component-search input { flex: 1; min-width: 0; width: 100%; border: 0; background: transparent; color: var(--paper-text); font-size: 10px; outline: none; }
+.component-search > span { font: 9px var(--font-mono); }
+.component-library-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px; }
+.component-empty { padding: 18px 8px; }
+.component-empty-art { display: grid; place-items: center; height: 120px; margin-bottom: 20px; border: 1px solid var(--paper-border); border-radius: 5px; color: var(--paper-accent-text); background: linear-gradient(var(--paper-border) 1px, transparent 1px), linear-gradient(90deg, var(--paper-border) 1px, transparent 1px); background-size: 24px 24px; }
+.component-empty strong { display: block; font-size: 11px; font-weight: 500; line-height: 1.5; }
+.component-library-card { display: flex; align-items: center; gap: 4px; padding: 8px; border: 1px solid var(--paper-border); border-radius: 5px; margin-bottom: 8px; background: var(--paper-surface); }
+.component-library-card:hover { border-color: var(--paper-border-strong); }
+.component-card-master { display: flex; align-items: center; gap: 9px; flex: 1; min-width: 0; padding: 0; text-align: left; border: 0; background: transparent; cursor: pointer; }
+.component-card-swatch { display: grid; place-items: center; width: 36px; height: 42px; flex-shrink: 0; border: 1px solid var(--paper-border-strong); border-radius: 3px; color: #080808; }
+.component-card-swatch svg { padding: 2px; border-radius: 3px; background: #edebe1cc; }
+.component-card-master > span:last-child { display: grid; gap: 6px; min-width: 0; }
+.component-card-master strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--paper-text); font-size: 10px; font-weight: 500; }
+.component-card-master small { font-size: 8px; color: var(--paper-text-muted); white-space: nowrap; }
+.component-card-insert { display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 1px solid var(--paper-border); border-radius: 4px; background: transparent; color: var(--paper-accent-text); cursor: pointer; }
+.component-card-insert:hover:not(:disabled) { background: var(--paper-accent-soft); }
+.component-library-footer { padding: 16px 12px; border-top: 1px solid var(--paper-border); }
+.component-library-footer p { font-size: 9px; }
+.scene-layer-row.is-component .layer-select > svg { color: var(--paper-accent-text); }
+.scene-layer-row.is-master .layer-select > svg { fill: var(--paper-accent-soft); }
+.layer-instance-dot { width: 4px; height: 4px; flex-shrink: 0; background: var(--paper-accent-text); border-radius: 50%; }
+.component-action:focus-visible, .component-card-master:focus-visible, .component-card-insert:focus-visible { outline: 2px solid var(--paper-accent-text); outline-offset: 2px; }

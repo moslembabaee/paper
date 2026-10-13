@@ -1,4 +1,4 @@
-import type { DesignToken, TokenBindings } from '../tokens/types.ts'
+import type { DesignToken, TokenBindings, TokenProperty } from '../tokens/types.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { PathNodes } from './pathGeometry.ts'
 
@@ -35,6 +35,8 @@ export interface ElementStyle {
 }
 
 export interface BaseElement extends ElementGeometry {
+  /** Materialized symbols stay compatible with every renderer and export format. */
+  readonly component?: ComponentLink
   /** Absent in legacy documents: both axes are fixed. */
   readonly sizing?: ElementSizing
   readonly tokenBindings?: TokenBindings
@@ -126,8 +128,24 @@ export interface ImageElement extends BaseElement {
 export type SceneElement = FrameElement | RectangleElement | EllipseElement | PathElement | TextElement | ImageElement
 export type ElementType = SceneElement['type']
 export type ElementOf<T extends ElementType> = Extract<SceneElement, { type: T }>
-export type ElementInput<T extends ElementType> = Partial<Omit<ElementOf<T>, 'type' | 'children' | 'zIndex' | 'style'>> & { readonly style?: Partial<ElementStyle> }
-export type ElementPatch<T extends ElementType> = T extends ElementType ? Partial<Omit<ElementOf<T>, 'type' | 'id' | 'parentId' | 'children' | 'zIndex' | 'boolean' | 'style'>> & { readonly style?: Partial<ElementStyle> } : never
+export type ElementInput<T extends ElementType> = Partial<Omit<ElementOf<T>, 'component' | 'type' | 'children' | 'zIndex' | 'style'>> & { readonly style?: Partial<ElementStyle> }
+export type ElementPatch<T extends ElementType> = T extends ElementType ? Partial<Omit<ElementOf<T>, 'component' | 'type' | 'id' | 'parentId' | 'children' | 'zIndex' | 'boolean' | 'style'>> & { readonly style?: Partial<ElementStyle> } : never
+
+type OverrideProperties<T extends ElementType> = T extends ElementType ? Omit<ElementPatch<T>, 'style' | 'tokenBindings'> : never
+export interface ComponentOverrides {
+  readonly properties?: OverrideProperties<ElementType>
+  /** Stroke channels override independently; a color edit still inherits width. */
+  readonly style?: Partial<Omit<ElementStyle, 'stroke'>> & { readonly stroke?: Partial<Stroke> | null }
+  /** Only local bindings are stored. Null releases a binding while retaining its value. */
+  readonly tokenBindings?: Readonly<Partial<Record<TokenProperty, string | null>>>
+}
+export type ComponentLink = { readonly kind: 'master' } | {
+  readonly kind: 'instance'
+  readonly masterId: string
+  readonly sourceId: string
+  readonly instanceId: string
+  readonly overrides: ComponentOverrides
+}
 
 export interface SceneDocument {
   readonly version: 1
