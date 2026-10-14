@@ -6,7 +6,6 @@ const providers = { google: true, github: true }
 const gate = (page: Page) => page.getByRole('heading', { name: 'Paper — Space to think.' })
 
 async function studioServices(page: Page) {
-  await page.addInitScript(() => sessionStorage.setItem('paper.cloud.offered.login-designer', 'yes'))
   await page.route('**/api/projects', route => route.fulfill({ json: { projects: [] } }))
   await page.route('**/api/events?*', route => route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': connected\n\n' }))
 }

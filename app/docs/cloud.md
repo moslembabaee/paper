@@ -1,6 +1,6 @@
 # Self-hosted accounts, cloud sync, and remote MCP
 
-Paper checks `/api/auth/session` on startup before opening the studio. Signed-out visitors see a welcome screen with the configured Google and GitHub sign-in options and a persistent appearance preview. Failed checks offer a retry; static-only deployments need an auth API to open the studio. IndexedDB remains the primary local database, including during network outages in an open studio. The header shows your account name and avatar, with **Sign out** in the profile menu; signing out saves pending local edits and returns to the welcome screen.
+Paper checks `/api/auth/session` on startup before opening the studio. Signed-out visitors see a welcome screen with the configured Google and GitHub sign-in options and a persistent appearance preview. Failed checks offer a retry; static-only deployments need an auth API to open the studio. Projects belong to the authenticated account on the server. IndexedDB is a transparent offline cache for instant loading and durable edits during network outages in an open studio. The header shows your account name and avatar, with **Sign out** in the profile menu; signing out saves pending local edits and returns to the welcome screen.
 
 ## Deployment
 
@@ -29,11 +29,11 @@ The backend exchanges authorization codes with PKCE, binds single-use state to a
 
 ## Workspace and conflict handling
 
-Sign in from **Profile & account**. Paper offers to sync existing guest projects; choosing **Keep local for now** leaves them on the device. Return to account settings to upload later. Projects created while signed in automatically sync. Cached projects owned by another account are never uploaded to the current account.
+Paper silently assigns legacy unowned projects to the signed-in account and uploads them without migration dialogs. New projects belong to that account from creation. The header shows **Saving…**, **Saved to Cloud**, or an offline/session status. Cached projects and the last open canvas are scoped to their account; another account’s projects are never shown, adopted, or uploaded.
 
-Local edits save to IndexedDB first and upload after a debounce. Remote edits arrive through an account-scoped SSE stream and a periodic reconciliation. All project lists and documents come from the current session's account. A network outage retains pending local edits and resumes reconciliation on reconnect or focus.
+Edits save to IndexedDB first and automatically upload to `/api/projects/:id` after a debounce. Remote edits arrive through an account-scoped SSE stream and a periodic reconciliation. All project lists and documents come from the current session's account. A network outage retains pending local edits and resumes reconciliation on reconnect or focus.
 
-Writes compare an expected SHA-256 revision before replacement. On a conflict, the client deterministically chooses the later `updatedAt` timestamp, breaking exact ties with the lexicographically larger canonical document hash. Timestamps more than a minute ahead of server time are rejected. Concurrent edits resolve at the document level, so this is not a collaborative merge or CRDT; the losing document's edits are superseded. Canvas changes during a pending pull defer the pull, and IndexedDB updates compare the document in a transaction before replacing it.
+Writes compare an expected SHA-256 revision before replacement. On a conflict, the client deterministically chooses the later `updatedAt` timestamp, breaking exact ties with the lexicographically larger canonical document hash. Timestamps more than a minute ahead of server time are rejected. Concurrent edits resolve at the document level, so this is not a collaborative merge or CRDT; the losing document is retained as a separate recovery project in the same account and silently saved to the server. Canvas changes during a pending pull defer the pull, and IndexedDB updates compare the document in a transaction before replacing it.
 
 ## Remote agents
 

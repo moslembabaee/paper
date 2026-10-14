@@ -24,7 +24,7 @@ test('a host without auth fails closed with a retryable login gate', async ({ pa
   await expect(page.getByTestId('canvas-viewport')).toHaveCount(0)
 })
 
-test('migration, edits, headless pulls and remote token rotation work in the browser', async ({ page }) => {
+test('silent cloud saves, edits, headless pulls and remote token rotation work in the browser', async ({ page }) => {
   test.setTimeout(60000)
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -48,11 +48,9 @@ test('migration, edits, headless pulls and remote token rotation work in the bro
   await page.route('**/api/auth/token/regenerate', async route => { generated = true; await route.fulfill({ json: { token: `paper_remote-token-${++tokenNumber}`, user: { ...user, hasMcpToken: true, tokenRotatedAt: Date.now() } } }) })
   await page.route('**/api/auth/token', route => route.fulfill({ json: { token: `paper_remote-token-${tokenNumber}` } }))
   await page.goto('/')
-  const migration = page.getByRole('dialog', { name: 'Bring your projects along.' })
-  await expect(migration).toBeVisible()
-  await migration.getByRole('button', { name: 'Sync my projects' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect.poll(() => !!remote).toBe(true)
-  await expect(page.locator('.cloud-status')).toHaveText('Saved to cloud')
+  await expect(page.locator('.cloud-status')).toHaveText('Saved to Cloud')
   const local = await localRecords(page)
   expect(local[0].cloud?.owner).toBe(user.id)
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Synced study')
@@ -121,9 +119,7 @@ test('profile settings reveal, hide, copy, rotate and revoke server tokens witho
     await route.fulfill({ json: { user: profile } })
   })
   await page.goto('/')
-  const migration = page.getByRole('dialog', { name: 'Bring your projects along.' })
-  await expect(migration).toBeVisible()
-  await migration.getByRole('button', { name: 'Keep local for now' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   let settings = await openProfile(page)
   await expect(settings.getByRole('textbox', { name: 'Display name' })).toHaveValue(user.name)
   await expect(settings.getByText(user.email, { exact: true })).toBeVisible()
@@ -202,4 +198,49 @@ test('OAuth callback errors appear on the login gate and are decoded only once',
   await expect(page.getByRole('heading', { name: 'Paper — Space to think.' })).toBeVisible()
   await expect(page.getByRole('alert')).toContainText('Sign-in failed (100%)')
   await expect(page).not.toHaveURL(/auth_error/)
+})
+
+test('switching accounts restores only that account’s cached projects', async ({ page }) => {
+  let account = { ...user }
+  const projects = new Map<string, Map<string, { id: string; document: { name: string }; revision: string; updatedAt: number; createdAt: number }>>()
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.route('**/api/auth/session', route => route.fulfill({ json: { user: account, providers: { github: true } } }))
+  await page.route('**/api/events?*', route => route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' }))
+  const owned = (id: string) => {
+    if (!projects.has(id)) projects.set(id, new Map())
+    return projects.get(id)!
+  }
+  await page.route('**/api/projects', route => {
+    const records = owned(route.request().headers()['x-paper-account'])
+    return route.fulfill({ json: { projects: [...records.values()].map(({ id, revision }) => ({ id, revision })) } })
+  })
+  await page.route('**/api/projects/*', route => {
+    const records = owned(route.request().headers()['x-paper-account'])
+    const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()!)
+    if (route.request().method() === 'PUT') {
+      const input = route.request().postDataJSON()
+      records.set(id, { id, document: input.document, revision: `${id}-${input.updatedAt}`, updatedAt: input.updatedAt, createdAt: 1 })
+    }
+    return route.fulfill({ json: records.get(id) })
+  })
+  await page.goto('/')
+  await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('First account’s study')
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
+  const firstId = (await localRecords(page))[0].id
+  account = { ...user, id: 'second-account', name: 'Second Designer' }
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('Untitled')
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
+  await page.getByRole('button', { name: 'Switch project', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Your projects' })
+  await expect(dialog.getByText('First account’s study')).toHaveCount(0)
+  await expect(dialog.locator('.project-item')).toHaveCount(1)
+  expect(owned('second-account').has(firstId)).toBe(false)
+  expect((await localRecords(page)).find(record => record.id === firstId)?.cloud?.owner).toBe(user.id)
+  account = { ...user }
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('First account’s study')
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
+  expect(errors).toEqual([])
 })

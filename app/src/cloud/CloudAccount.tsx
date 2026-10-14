@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, Copy, Eye, EyeOff, KeyRound, RefreshCw, ShieldAlert, Terminal } from 'lucide-react'
 import type { useCloudAccount } from './useCloudAccount'
-import type { useCloudSync } from './useCloudSync'
-import { Dialog } from '../workspace/Dialog'
 
 export type CloudAccountState = ReturnType<typeof useCloudAccount>
 
@@ -161,34 +159,4 @@ export function AiAgentAccess({ account, disabled = false }: { account: CloudAcc
     </details>
     {(error || account.authNotice) && <p className="workspace-error" role="alert">{error || account.authNotice}</p>}
   </section>
-}
-
-export function MigrationDialog({ sync }: { sync: ReturnType<typeof useCloudSync> }) {
-  const [busy, setBusy] = useState(false)
-  return (
-    <Dialog className="profile-dialog workspace-surface cloud-migration" labelledBy="migration-title" onClose={() => sync.setMigrationOpen(false)} busy={busy}>
-      <div className="workspace-dialog-heading">
-        <div>
-          <span className="workspace-eyebrow">A SPACE THAT TRAVELS WITH YOU</span>
-          <h2 id="migration-title">Bring your projects along.</h2>
-          <p>{sync.offered.length} local {sync.offered.length === 1 ? 'project is' : 'projects are'} ready to sync to your account.</p>
-        </div>
-      </div>
-      <div className="profile-body">
-        <p className="profile-note">Your local copies stay here. Cloud copies let you pick up on another device and work with remote agents.</p>
-        {sync.error && <p className="workspace-error" role="alert">{sync.error}</p>}
-      </div>
-      <div className="workspace-dialog-footer">
-        <span>Always local first</span>
-        <div>
-          <button type="button" className="workspace-secondary" disabled={busy} onClick={() => sync.setMigrationOpen(false)}>
-            Keep local for now
-          </button>
-          <button type="button" className="workspace-primary" disabled={busy} onClick={() => { setBusy(true); void sync.uploadLocal().finally(() => setBusy(false)) }}>
-            {busy ? 'Preparing…' : 'Sync my projects'}
-          </button>
-        </div>
-      </div>
-    </Dialog>
-  )
 }

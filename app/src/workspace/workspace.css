@@ -117,7 +117,7 @@
 .project-create { display: flex; align-items: center; gap: 8px; padding: 16px 22px; width: 100%; background: transparent; border: 0; border-top: 1px solid var(--workspace-border); font-size: 11px; cursor: pointer; color: var(--workspace-blue); text-align: left; }
 .project-create:hover { background: var(--workspace-raised); }
 .project-create span { margin-left: auto; font-size: 9px; color: var(--workspace-muted); }
-.projects-local-note { display: flex; align-items: center; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--workspace-border); font-size: 9px; color: var(--workspace-muted); }
+.projects-sync-note { display: flex; align-items: center; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--workspace-border); font-size: 9px; color: var(--workspace-muted); }
 .project-name-form { padding: 18px 22px; border-top: 1px solid var(--workspace-border); }
 .project-name-form .workspace-field { margin: 0 0 12px; }
 .project-name-form > div { display: flex; justify-content: flex-end; gap: 8px; }

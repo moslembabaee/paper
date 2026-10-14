@@ -6,7 +6,6 @@ export async function mockStudioSession(page: Page) {
   let user: CloudUser = { id: 'studio-test', name: 'Paper Designer', email: 'designer@paper.test', avatar: '', provider: 'github', createdAt: 1, hasMcpToken: false }
   const projects = new Map<string, CloudProject>()
   let revision = 0
-  await page.addInitScript(() => sessionStorage.setItem('paper.cloud.offered.studio-test', 'yes'))
   await page.route('**/api/auth/session', route => route.fulfill({ json: { user, providers: { google: true, github: true } } }))
   await page.route('**/api/auth/profile', async route => {
     user = { ...user, ...route.request().postDataJSON() }

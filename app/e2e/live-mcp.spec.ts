@@ -75,7 +75,7 @@ test('BroadcastChannel mirrors agent and human edits across tabs, with active-pr
   await expect(peer.locator(`[data-element-id="${humanId}"]`)).toBeAttached()
   await peer.bringToFront()
   await peer.getByRole('button', { name: 'Switch project', exact: true }).click()
-  const projects = peer.getByRole('dialog', { name: 'Local projects', exact: true })
+  const projects = peer.getByRole('dialog', { name: 'Your projects', exact: true })
   await projects.getByRole('button', { name: 'New project', exact: false }).click()
   await projects.getByRole('textbox', { name: 'New project name' }).fill('Separate MCP canvas')
   await projects.getByRole('button', { name: 'Create project', exact: true }).click()

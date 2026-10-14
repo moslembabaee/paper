@@ -8,18 +8,16 @@ import { canonical, newer } from './model'
 import { api, ApiError } from './api'
 import type { AgentActivity } from '../mcp/protocol'
 
-export type SyncState = 'local' | 'pending' | 'syncing' | 'synced' | 'offline' | 'auth-required' | 'error'
+export type SyncState = 'pending' | 'syncing' | 'synced' | 'offline' | 'auth-required' | 'error'
 const labels: Record<SyncState, string> = {
-  local: 'Local only', pending: 'Changes pending', syncing: 'Syncing…', synced: 'Saved to cloud',
+  pending: 'Saving…', syncing: 'Saving…', synced: 'Saved to Cloud',
   offline: 'Offline · saved locally', 'auth-required': 'Sign in to sync', error: 'Sync needs attention',
 }
 
-/** IndexedDB's dirty records are the durable outbox. Canvas edits never await a network. */
+/** IndexedDB acts strictly as a transparent offline-first cache; canvas edits never await a network. */
 export function useCloudSync(manager: ReturnType<typeof useWorkspace>, io: ReturnType<typeof useProjectIO>, user: CloudUser | null, onSettings: (record: CloudProject) => void) {
-  const [state, setState] = useState<SyncState>('local')
-  const [offered, setOffered] = useState<LocalProject[]>([])
+  const [state, setState] = useState<SyncState>(user ? 'pending' : 'auth-required')
   const [activity, setActivity] = useState<AgentActivity | null>(null)
-  const [migrationOpen, setMigrationOpen] = useState(false)
   const [error, setError] = useState('')
   const current = useRef({ manager, io, user, onSettings })
   current.current = { manager, io, user, onSettings }
@@ -27,14 +25,12 @@ export function useCloudSync(manager: ReturnType<typeof useWorkspace>, io: Retur
   const activeId = manager.active?.record.id
 
   useEffect(() => {
-    if (!user || !manager.persistent) {
-      setOffered([]); setMigrationOpen(false); setState('local'); setError(''); return
-    }
+    if (!user) { setState('auth-required'); setError(''); return }
+    if (!manager.persistent) { setState('error'); setError('The offline cache is unavailable. Export a JSON copy to keep your edits.'); return }
+    setState(navigator.onLine ? 'pending' : 'offline')
     let stopped = false, running = false, again = false, authPaused = false, failures = 0
     let timer: ReturnType<typeof setTimeout> | undefined
     let request: AbortController | undefined
-    let offeredOnce = false
-    try { offeredOnce = sessionStorage.getItem(`paper.cloud.offered.${user.id}`) === 'yes' } catch { /* Optional preference */ }
     const owner = user.id
     const valid = () => !stopped && current.current.user?.id === owner
     const changed = (local: LocalProject, version: number) => local.id === current.current.manager.active?.record.id &&
@@ -53,7 +49,7 @@ export function useCloudSync(manager: ReturnType<typeof useWorkspace>, io: Retur
         createdAt: remote.createdAt, updatedAt: remote.updatedAt,
         cloud: { owner, projectId: remote.id, revision: remote.revision, syncedAt: remote.updatedAt, dirty: false },
       }
-      // A losing offline edit is kept as a guest recovery project in the same transaction.
+      // A losing offline edit is kept as a recovery project in the same transaction.
       if (!await current.current.manager.acceptCloud(record, local?.document, differs && !!local?.cloud?.dirty)) { again = true; return }
       if (!valid()) return
       if (local && changed(local, version)) { again = true; return }
@@ -90,18 +86,25 @@ export function useCloudSync(manager: ReturnType<typeof useWorkspace>, io: Retur
         const version = current.current.io.getEditVersion()
         const locals = await listLocalProjects()
         if (!valid()) return
+        // Silently claim legacy unowned projects; another account's cache is never adopted.
+        for (const record of locals) {
+          if (!valid()) return
+          if (!record.cloud) {
+            const adopted: LocalProject = {
+              ...record,
+              cloud: { owner, projectId: record.id, revision: null, syncedAt: 0, dirty: true },
+            }
+            if (!await current.current.manager.acceptCloud(adopted, record.document)) again = true
+          }
+        }
+        if (!valid()) return
+        const updatedLocals = await listLocalProjects()
         // A clean tab follows durable changes from another tab, including offline edits.
-        const active = locals.find(record => record.id === current.current.manager.active?.record.id)
+        const active = updatedLocals.find(record => record.id === current.current.manager.active?.record.id)
         if (active?.cloud?.owner === owner && !changed(active, version) && canonical(current.current.io.getProject()) !== canonical(active.document)) {
           if (!current.current.io.applyRemoteProject(active.document, version)) again = true
         }
-        const guests = locals.filter(record => !record.cloud)
-        setOffered(guests)
-        if (!offeredOnce && guests.length) {
-          setMigrationOpen(true); offeredOnce = true
-          try { sessionStorage.setItem(`paper.cloud.offered.${owner}`, 'yes') } catch { /* Optional preference */ }
-        }
-        const known = locals.filter(record => record.cloud?.owner === owner)
+        const known = updatedLocals.filter(record => record.cloud?.owner === owner)
         if (known.some(record => record.cloud?.dirty)) setState('syncing')
         const { projects: remoteList } = await api<{ projects: Pick<CloudProject, 'id' | 'revision'>[] }>('/projects', options)
         if (!valid()) return
@@ -145,7 +148,7 @@ export function useCloudSync(manager: ReturnType<typeof useWorkspace>, io: Retur
         const owned = (await listLocalProjects()).filter(record => record.cloud?.owner === owner)
         const open = owned.find(record => record.id === current.current.manager.active?.record.id)
         const pending = owned.some(record => record.cloud?.dirty) || (!!open && current.current.io.hasPendingEdits())
-        setState(!open ? 'local' : pending ? 'pending' : 'synced')
+        setState(!open || pending ? 'pending' : 'synced')
         setError(''); failures = 0
         if (pending) again = true
       } catch (failure) {
@@ -200,19 +203,5 @@ export function useCloudSync(manager: ReturnType<typeof useWorkspace>, io: Retur
 
   useEffect(() => { if (!activity) return; const timeout = setTimeout(() => setActivity(null), Math.max(0, activity.until - Date.now())); return () => clearTimeout(timeout) }, [activity])
   const retry = useCallback(() => kick.current(), [])
-  const uploadLocal = useCallback(async () => {
-    const { user, manager, io } = current.current
-    if (!user) return
-    try {
-      await io.persistProject()
-      for (const record of await listLocalProjects()) {
-        if (current.current.user?.id !== user.id) return
-        if (record.cloud) continue
-        record.cloud = { owner: user.id, projectId: record.id, revision: null, syncedAt: 0, dirty: true }
-        await manager.acceptCloud(record, record.document)
-      }
-      setMigrationOpen(false); setOffered([]); kick.current()
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'Could not prepare projects for upload') }
-  }, [])
-  return { state, status: labels[state], retry, offered, migrationOpen, setMigrationOpen, uploadLocal, activity, error }
+  return { state, status: labels[state], retry, activity, error }
 }

@@ -24,6 +24,7 @@ async function records(page: Page): Promise<LocalProject[]> {
 async function setup(page: Page) {
   const server = {
     remote: undefined as CloudProject | undefined,
+    extra: new Map<string, CloudProject>(),
     puts: 0, lists: 0, unauthorized: false,
     hold: undefined as Promise<void> | undefined,
     conflict: undefined as CloudProject | undefined,
@@ -40,9 +41,17 @@ async function setup(page: Page) {
   await page.route('**/api/auth/session', route => route.fulfill({ json: { user, providers: { google: false, github: true } } }))
   await page.route('**/api/projects', route => {
     server.lists++
-    return route.fulfill(server.unauthorized ? { status: 401, json: { error: 'Expired' } } : { json: { projects: server.remote ? [{ id: server.remote.id, revision: server.remote.revision }] : [] } })
+    return route.fulfill(server.unauthorized ? { status: 401, json: { error: 'Expired' } } : { json: { projects: [...(server.remote ? [server.remote] : []), ...server.extra.values()].map(({ id, revision }) => ({ id, revision })) } })
   })
   await page.route('**/api/projects/*', async route => {
+    const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()!)
+    if (server.remote && id !== server.remote.id) {
+      if (route.request().method() === 'PUT') {
+        const input = route.request().postDataJSON()
+        server.extra.set(id, { id, document: input.document, revision: `recovery-${++server.puts}`, updatedAt: input.updatedAt, createdAt: 1 })
+      }
+      await route.fulfill({ json: server.extra.get(id) }); return
+    }
     if (route.request().method() !== 'PUT') { await route.fulfill({ json: server.remote }); return }
     server.puts++
     const input = route.request().postDataJSON()
@@ -57,10 +66,8 @@ async function setup(page: Page) {
     await route.fulfill({ json: server.remote })
   })
   await page.goto('/')
-  const migration = page.getByRole('dialog', { name: 'Bring your projects along.' })
-  await expect(migration).toBeVisible()
-  await migration.getByRole('button', { name: 'Sync my projects' }).click()
-  await expect(page.getByTestId('sync-status')).toHaveText('Saved to cloud')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
   return { server, errors }
 }
 
@@ -84,7 +91,7 @@ test('offline edits survive reload and reconnect without a cloud write loop', as
   await expect(page.getByTestId('sync-status')).toHaveText('Sign in to sync')
   server.unauthorized = false
   await page.getByRole('button', { name: 'Retry cloud sync' }).click()
-  await expect(page.getByTestId('sync-status')).toHaveText('Saved to cloud')
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
   expect(server.remote?.document.name).toBe('Offline exploration')
   expect(server.remote?.document.scene.rootIds).toHaveLength(1)
   expect((await records(page))[0].cloud?.dirty).toBe(false)
@@ -112,10 +119,10 @@ test('edits made during an upload remain queued and selection does not resave', 
   await expect.poll(async () => (await records(page))[0].document.name).toBe('Newer live edit')
   release()
   await expect.poll(() => server.remote?.document.name).toBe('Newer live edit')
-  await expect(page.getByTestId('sync-status')).toHaveText('Saved to cloud')
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
   await page.getByRole('button', { name: 'Add rectangle', exact: true }).click()
   await expect.poll(() => server.remote?.document.scene.rootIds.length).toBe(1)
-  await expect(page.getByTestId('sync-status')).toHaveText('Saved to cloud')
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
   await page.waitForTimeout(600)
   const puts = server.puts, updatedAt = (await records(page))[0].updatedAt
   await page.getByRole('button', { name: 'Deselect elements', exact: true }).click()
@@ -131,11 +138,14 @@ test('409 resolution keeps the remote winner and an IndexedDB recovery copy', as
   server.conflict = { ...server.remote!, document: { ...server.remote!.document, name: 'Remote winner' }, revision: 'remote-winner', updatedAt: Date.now() + 10_000 }
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Losing local edit')
   await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('Remote winner')
-  await expect(page.getByTestId('sync-status')).toHaveText('Saved to cloud')
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
   const saved = await records(page)
   expect(saved).toHaveLength(2)
-  expect(saved.find(record => !record.cloud)?.document.name).toBe('Losing local edit (conflict copy)')
-  expect(saved.find(record => record.cloud)?.cloud?.dirty).toBe(false)
+  const recovery = saved.find(record => record.document.name.endsWith('(conflict copy)'))!
+  expect(recovery.document.name).toBe('Losing local edit (conflict copy)')
+  expect(recovery.cloud?.owner).toBe(user.id)
+  expect(server.extra.get(recovery.cloud!.projectId)?.document.name).toBe(recovery.document.name)
+  expect(saved.every(record => record.cloud?.dirty === false)).toBe(true)
   expect(errors).toEqual([])
 })
 
@@ -144,7 +154,7 @@ test('409 resolution retries the newer local document using the server revision'
   server.conflict = { ...server.remote!, document: { ...server.remote!.document, name: 'Older remote' }, revision: 'older-remote', updatedAt: 1 }
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Local winner')
   await expect.poll(() => server.remote?.document.name).toBe('Local winner')
-  await expect(page.getByTestId('sync-status')).toHaveText('Saved to cloud')
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
   expect((await records(page))[0].cloud?.dirty).toBe(false)
   expect(errors).toEqual([])
 })

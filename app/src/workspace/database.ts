@@ -81,26 +81,39 @@ export function localProject(document: PaperProject): LocalProject {
   return { id: crypto.randomUUID(), name: document.name, createdAt: now, updatedAt: now, document }
 }
 
-/** Migration and initial creation share one transaction, including in Strict Mode. */
-export async function initializeProjects(seed: PaperProject): Promise<{ projects: ProjectSummary[]; active: LocalProject; created: boolean }> {
+/** Restore the account's cache and claim legacy unowned records atomically, including in Strict Mode. */
+export async function initializeProjects(seed: PaperProject, owner?: string): Promise<{ projects: ProjectSummary[]; active: LocalProject; created: boolean }> {
   const db = await database()
   const transaction = db.transaction(['projects', 'settings'], 'readwrite')
   const done = completed(transaction)
   const projects = transaction.objectStore('projects')
   const settings = transaction.objectStore('settings')
-  const [records, activeId] = await Promise.all([
+  const activeKey = owner ? `activeProject:${owner}` : 'activeProject'
+  const [cached, activeId, legacyActiveId] = await Promise.all([
     result(projects.getAll() as IDBRequest<LocalProject[]>),
+    result(settings.get(activeKey) as IDBRequest<string | undefined>),
     result(settings.get('activeProject') as IDBRequest<string | undefined>),
   ])
+  const records = cached.filter(record => !owner || !record.cloud || record.cloud.owner === owner)
+  if (owner) {
+    for (const record of records) {
+      if (record.cloud) continue
+      record.cloud = { owner, projectId: record.id, revision: null, syncedAt: 0, dirty: true }
+      projects.put(record)
+    }
+  }
   const created = !records.length
   if (created) {
-    const first = localProject(seed)
+    // A different account gets a blank canvas, never the previous account's legacy seed.
+    const document: PaperProject = cached.length ? { ...seed, name: 'Untitled', scene: { version: 1, elements: {}, rootIds: [] }, viewport: { x: 0, y: 0, zoom: 1 } } : seed
+    const first = localProject(document)
+    if (owner) first.cloud = { owner, projectId: first.id, revision: null, syncedAt: 0, dirty: true }
     projects.put(first)
     records.push(first)
   }
   records.sort((a, b) => b.updatedAt - a.updatedAt)
-  const active = records.find(record => record.id === activeId) ?? records[0]
-  settings.put(active.id, 'activeProject')
+  const active = records.find(record => record.id === (activeId ?? legacyActiveId)) ?? records[0]
+  settings.put(active.id, activeKey)
   await done
   return { projects: records.map(projectSummary), active, created }
 }
@@ -117,16 +130,16 @@ export async function writeProject(record: LocalProject, activate = false): Prom
   const transaction = db.transaction(activate ? ['projects', 'settings'] : ['projects'], 'readwrite')
   const done = completed(transaction)
   transaction.objectStore('projects').put(record)
-  if (activate) transaction.objectStore('settings').put(record.id, 'activeProject')
+  if (activate) transaction.objectStore('settings').put(record.id, record.cloud ? `activeProject:${record.cloud.owner}` : 'activeProject')
   await done
   notifyChange(record.id, 'local')
 }
 
-export async function activateProject(id: string): Promise<void> {
+export async function activateProject(id: string, owner?: string): Promise<void> {
   const db = await database()
   const transaction = db.transaction('settings', 'readwrite')
   const done = completed(transaction)
-  transaction.objectStore('settings').put(id, 'activeProject')
+  transaction.objectStore('settings').put(id, owner ? `activeProject:${owner}` : 'activeProject')
   await done
 }
 
@@ -167,7 +180,9 @@ export async function updateLocalProject(id: string, update: (current: LocalProj
           if (preserveConflict && request.result) {
             const previous = request.result
             const name = `${previous.name.slice(0, 175)} (conflict copy)`
-            store.put({ ...localProject({ ...previous.document, name }), name })
+            const recovery = localProject({ ...previous.document, name })
+            if (previous.cloud) recovery.cloud = { owner: previous.cloud.owner, projectId: recovery.id, revision: null, syncedAt: 0, dirty: true }
+            store.put(recovery)
           }
           store.put(next)
         }

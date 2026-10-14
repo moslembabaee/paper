@@ -26,7 +26,7 @@ function editorWorkspace(record: LocalProject): EditorWorkspace {
   return { record, project, store, controller: new ViewportController(project.viewport), initialCamera: project.viewport }
 }
 
-export function useWorkspace() {
+export function useWorkspace(owner?: string) {
   const [initial] = useState(createWorkspace)
   const [active, setActive] = useState<EditorWorkspace | null>(null)
   const [projects, setProjects] = useState<ProjectSummary[]>([])
@@ -43,29 +43,34 @@ export function useWorkspace() {
   }, [])
 
   useEffect(() => subscribeProjectChanges(() => {
-    void listLocalProjects().then(records => setProjects(records.map(projectSummary).sort((a, b) => b.updatedAt - a.updatedAt))).catch(() => {})
-  }), [])
+    void listLocalProjects().then(records => setProjects(records.filter(record => !owner || record.cloud?.owner === owner).map(projectSummary).sort((a, b) => b.updatedAt - a.updatedAt))).catch(() => {})
+  }), [owner])
 
   useEffect(() => {
     let cancelled = false
     const seed = initial.project ?? createProject(initial.store, 'Space to think', initial.controller.getSnapshot().camera, true)
-    initialization.current ??= initializeProjects(seed)
+    initialization.current ??= initializeProjects(seed, owner)
     void initialization.current.then(async restored => {
       const room = roomFromHash(window.location.hash)
-      if (room && room !== restored.active.id) {
+      if (room && room !== restored.active.id && room !== restored.active.cloud?.projectId) {
         let shared: LocalProject
-        try { shared = await readProject(room) }
+        try {
+          try { shared = await readProject(owner ? `${owner}_${room}` : room) }
+          catch { shared = await readProject(room) }
+          if (owner && shared.cloud?.owner !== owner) throw new Error('This canvas belongs to another account.')
+        }
         catch {
           const document = createProject(new SceneStore(), 'Shared canvas', { x: 0, y: 0, zoom: 1 }, true)
-          shared = { ...localProject(document), id: room }
+          shared = { ...localProject(document), id: owner ? `${owner}_${room}` : room }
+          if (owner) shared.cloud = { owner, projectId: room, revision: null, syncedAt: 0, dirty: true }
           await writeProject(shared)
         }
         if (cancelled) return
-        await activateProject(room)
-        restored = { ...restored, active: shared, created: false, projects: [...restored.projects.filter(project => project.id !== room), projectSummary(shared)] }
+        await activateProject(shared.id, owner)
+        restored = { ...restored, active: shared, created: false, projects: [...restored.projects.filter(project => project.id !== shared.id), projectSummary(shared)] }
       }
       if (cancelled) return
-      const workspace = restored.created && !initial.project
+      const workspace = restored.created && !initial.project && canonical(restored.active.document) === canonical(seed)
         ? { record: restored.active, project: seed, store: initial.store, controller: initial.controller, initialCamera: undefined }
         : editorWorkspace(restored.active)
       records.current.set(restored.active.id, restored.active)
@@ -82,13 +87,14 @@ export function useWorkspace() {
       setError(`${reason instanceof Error ? reason.message : 'IndexedDB is unavailable.'} Changes are in memory; save a JSON copy before closing Paper.`)
     })
     return () => { cancelled = true }
-  }, [initial])
+  }, [initial, owner])
 
   const save = useCallback(async (id: string, document: PaperProject) => {
     if (!persistent) throw new Error('Local storage is unavailable. Save a JSON copy before closing Paper.')
     let changed = false
     const record = await updateLocalProject(id, previous => {
       if (!previous) throw new Error('The open project could not be found.')
+      if (owner && previous.cloud?.owner !== owner) throw new Error('This project belongs to another account.')
       changed = canonical(previous.document) !== canonical(document)
       if (!changed) return previous
       return { ...previous, document, name: document.name, updatedAt: Date.now(), ...(previous.cloud ? { cloud: { ...previous.cloud, dirty: true } } : {}) }
@@ -96,38 +102,42 @@ export function useWorkspace() {
     if (!record) return
     records.current.set(id, record)
     if (changed) updateSummary(projectSummary(record))
-  }, [persistent, updateSummary])
+  }, [persistent, updateSummary, owner])
 
   const open = useCallback(async (id: string) => {
     const record = await readProject(id)
+    if (owner && record.cloud?.owner !== owner) throw new Error('This project belongs to another account.')
     const workspace = editorWorkspace(record)
-    await activateProject(id)
+    await activateProject(id, owner)
     records.current.set(id, record)
     setActive(workspace)
-  }, [])
+  }, [owner])
 
   const create = useCallback(async (name: string, grid: boolean, cloudOwner?: string) => {
     const document = createProject(new SceneStore(), name, { x: 0, y: 0, zoom: 1 }, grid)
     const record = localProject(document)
-    if (cloudOwner) record.cloud = { owner: cloudOwner, projectId: record.id, revision: null, syncedAt: 0, dirty: true }
+    const account = owner ?? cloudOwner
+    if (account) record.cloud = { owner: account, projectId: record.id, revision: null, syncedAt: 0, dirty: true }
     await writeProject(record, true)
     records.current.set(record.id, record)
     updateSummary(projectSummary(record))
     setActive(editorWorkspace(record))
-  }, [updateSummary])
+  }, [updateSummary, owner])
 
   const rename = useCallback(async (id: string, name: string) => {
     const record = await updateLocalProject(id, previous => {
       if (!previous) throw new Error('This project could not be found.')
+      if (owner && previous.cloud?.owner !== owner) throw new Error('This project belongs to another account.')
       return { ...previous, name, updatedAt: Date.now(), document: { ...previous.document, name }, ...(previous.cloud ? { cloud: { ...previous.cloud, dirty: true } } : {}) }
     })
     if (!record) return
     records.current.set(id, record)
     updateSummary(projectSummary(record))
-  }, [updateSummary])
+  }, [updateSummary, owner])
 
   const acceptCloud = useCallback(async (record: LocalProject, expected?: PaperProject, preserveConflict = false) => {
     const accepted = await updateLocalProject(record.id, previous => {
+      if (owner && (record.cloud?.owner !== owner || (previous?.cloud && previous.cloud.owner !== owner))) return undefined
       if (expected && (!previous || canonical(previous.document) !== canonical(expected))) return undefined
       return record
     }, 'cloud', preserveConflict)
@@ -135,7 +145,7 @@ export function useWorkspace() {
     records.current.set(record.id, accepted)
     updateSummary(projectSummary(accepted))
     return true
-  }, [updateSummary])
+  }, [updateSummary, owner])
 
   return { active, projects, persistent, error, save, open, create, rename, acceptCloud }
 }

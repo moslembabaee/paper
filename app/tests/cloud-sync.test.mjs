@@ -7,14 +7,15 @@ import { canonical, newer } from '../src/cloud/model.ts'
 import { ApiError } from '../src/cloud/api.ts'
 
 // Run the actual hook with deterministic effects and timers, without browser sockets.
-async function harness({ guest = false, guestProject = false } = {}) {
+async function harness({ guest = false, guestProject = false, foreignProject = false } = {}) {
   const states = [], cleanups = [], timers = new Map(), listeners = new Set()
   let timerId = 0, version = 0, dirty = false
   let live = { format: 'paper', version: 1, name: 'Study', grid: true, viewport: { x: 0, y: 0, zoom: 1 }, scene: { version: 1, elements: {}, rootIds: [] } }
   const initial = { id: 'project', name: live.name, document: live, createdAt: 1, updatedAt: 1, cloud: { owner: 'account', projectId: 'project', revision: null, dirty: true, syncedAt: 0 } }
   if (guestProject) delete initial.cloud
+  if (foreignProject) initial.cloud.owner = 'other-account'
   const records = new Map([['project', initial]])
-  const network = { remote: null, lists: 0, puts: 0, hold: null, conflict: null, error: null }
+  const network = { remote: null, extra: new Map(), lists: 0, puts: 0, hold: null, conflict: null, error: null }
   const browser = new EventTarget(), document = new EventTarget(), navigator = { onLine: true }
   document.hidden = false
   const current = () => structuredClone(records.get('project'))
@@ -36,15 +37,24 @@ async function harness({ guest = false, guestProject = false } = {}) {
     persistent: true,
     active: { record: initial, store: { applyRemote: scene => { live = { ...live, scene } } }, controller: { setCamera: viewport => { live = { ...live, viewport } } } },
     acceptCloud: async (record, expected, preserve) => {
-      if (expected && canonical(current().document) !== canonical(expected)) return false
-      if (preserve) records.set('recovery', { ...current(), id: 'recovery', cloud: undefined })
+      if (expected && canonical(records.get(record.id)?.document) !== canonical(expected)) return false
+      if (preserve) records.set('recovery', { ...current(), id: 'recovery', cloud: { owner: 'account', projectId: 'recovery', revision: null, syncedAt: 0, dirty: true } })
       records.set(record.id, structuredClone(record)); return true
     },
   }
   const api = async (path, options = {}) => {
     if (options.signal?.aborted) throw new Error('Aborted')
     if (network.error) throw network.error
-    if (path === '/projects') { network.lists++; return { projects: network.remote ? [{ id: 'project', revision: network.remote.revision }] : [] } }
+    if (path === '/projects') { network.lists++; return { projects: [...(network.remote ? [network.remote] : []), ...network.extra.values()].map(({ id, revision }) => ({ id, revision })) } }
+    const id = path.split('/').pop()
+    if (id !== 'project') {
+      if (options.method !== 'PUT') return structuredClone(network.extra.get(id))
+      network.puts++
+      const body = JSON.parse(options.body)
+      const remote = { id, revision: `revision-${network.puts}`, document: body.document, updatedAt: body.updatedAt, createdAt: 1 }
+      network.extra.set(id, remote)
+      return structuredClone(remote)
+    }
     if (options.method !== 'PUT') return structuredClone(network.remote)
     network.puts++
     const body = JSON.parse(options.body), hold = network.hold
@@ -61,11 +71,11 @@ async function harness({ guest = false, guestProject = false } = {}) {
       useRef: value => ({ current: value }), useCallback: callback => callback,
       useEffect: effect => { const cleanup = effect(); if (cleanup) cleanups.push(cleanup) },
     },
-    '../workspace/database': { listLocalProjects: async () => structuredClone([...records.values()]), readProject: async () => current(), subscribeProjectChanges: callback => { listeners.add(callback); return () => listeners.delete(callback) } },
+    '../workspace/database': { listLocalProjects: async () => structuredClone([...records.values()]), readProject: async id => structuredClone(records.get(id)), subscribeProjectChanges: callback => { listeners.add(callback); return () => listeners.delete(callback) } },
     './model': { canonical, newer }, './api': { api, ApiError },
   }
   const globals = {
-    window: browser, document, navigator, sessionStorage: { getItem: () => 'yes' }, EventSource: class extends EventTarget { close() {} },
+    window: browser, document, navigator, EventSource: class extends EventTarget { close() {} },
     // Crypto's worker-pool completion is unrelated to sync ordering. Keep the real hash deterministic.
     crypto: { subtle: { digest: async (_algorithm, data) => createHash('sha256').update(data).digest() } },
     setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { callback, delay }); return id },
@@ -102,7 +112,7 @@ test('successful sync becomes idle and guest mode never calls cloud APIs', async
   assert.equal(h.states[0], 'synced'); assert.equal(h.network.puts, 1)
   assert.equal(h.records.get('project').cloud.dirty, false); h.dispose()
   const guest = await harness({ guest: true }); await guest.drain()
-  assert.equal(guest.states[0], 'local'); assert.equal(guest.network.lists, 0); assert.equal(guest.network.puts, 0); guest.dispose()
+  assert.equal(guest.states[0], 'auth-required'); assert.equal(guest.network.lists, 0); assert.equal(guest.network.puts, 0); guest.dispose()
 })
 
 test('edits during a delayed PUT stay queued and upload the newer document', async () => {
@@ -162,11 +172,21 @@ test('a clean tab hydrates another tab’s acknowledged document and becomes idl
   assert.equal(h.states[0], 'synced'); h.dispose()
 })
 
-test('a signed-in guest project remains local and edits do not create a sync loop', async () => {
+test('legacy unowned projects silently save to the authenticated account and become idle', async () => {
   const h = await harness({ guestProject: true }); await h.drain()
-  h.edit('Local study'); await h.io.persistProject(); await h.drain()
-  assert.equal(h.states[0], 'local'); assert.equal(h.network.puts, 0)
-  assert.equal(h.records.get('project').cloud, undefined); h.dispose()
+  assert.equal(h.network.puts, 1)
+  assert.equal(h.records.get('project').cloud.owner, 'account')
+  h.edit('Cloud study'); await h.io.persistProject(); await h.drain()
+  assert.equal(h.states[0], 'synced'); assert.equal(h.network.puts, 2)
+  assert.equal(h.network.remote.document.name, 'Cloud study')
+  assert.equal(h.records.get('project').cloud.dirty, false); h.dispose()
+})
+
+test('another account’s cached projects are never adopted or uploaded', async () => {
+  const h = await harness({ foreignProject: true }); await h.drain()
+  assert.equal(h.network.puts, 0)
+  assert.equal(h.records.get('project').cloud.owner, 'other-account')
+  assert.notEqual(h.states[0], 'synced'); h.dispose()
 })
 
 test('unavailable cloud backs off and cleanup cancels queued retries', async () => {

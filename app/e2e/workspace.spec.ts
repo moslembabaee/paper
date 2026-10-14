@@ -5,7 +5,7 @@ import { waitForViewportSettled } from './helpers'
 
 async function openProjects(page: Page) {
   await page.getByRole('button', { name: 'Switch project', exact: true }).click()
-  return page.getByRole('dialog', { name: 'Local projects', exact: true })
+  return page.getByRole('dialog', { name: 'Your projects', exact: true })
 }
 
 async function openProfile(page: Page) {
