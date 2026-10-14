@@ -9,6 +9,7 @@
 .presence-signal[data-live='true'] { background: #81adec; box-shadow: 0 0 0 3px #81adec15; }
 .presence-signal[data-status='unavailable'] { background: #df96ac; }
 .presence-signal[data-status='offline'] { background: var(--paper-text-muted); }
+.presence-signal[data-status='solo'] { background: var(--paper-text-muted); opacity: .45; }
 .presence-count { font: 10px var(--font-mono); font-variant-numeric: tabular-nums; }
 .presence-avatars { display: flex; padding-left: 3px; }
 .presence-avatar { display: inline-flex; justify-content: center; align-items: center; flex-shrink: 0; width: 27px; height: 27px; border-radius: 50%; color: #080808; font: 500 9px var(--font-sans); }
@@ -22,6 +23,7 @@
 .presence-connection[data-live='true'] { color: var(--paper-accent-text); }
 .presence-connection[data-status='unavailable'] { color: #df96ac; }
 .presence-connection[data-status='offline'] { color: var(--paper-text-muted); }
+.presence-connection[data-status='solo'] { color: var(--paper-text-muted); }
 .presence-description { margin: 16px 0 18px; font-size: 12px; line-height: 1.65; color: var(--paper-text-secondary); }
 .presence-person { display: flex; align-items: center; gap: 9px; padding: 9px 0; }
 .presence-person-info { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
@@ -36,11 +38,16 @@
 .presence-empty { display: flex; align-items: center; gap: 9px; padding: 13px 0 19px; font-size: 10px; color: var(--paper-text-muted); }
 .presence-empty-cross { display: grid; place-items: center; width: 27px; height: 27px; border: 1px dashed var(--paper-border-strong); border-radius: 50%; font-size: 15px; }
 .presence-invite { padding-top: 16px; margin-top: 10px; border-top: 1px solid var(--paper-border); }
+.presence-invite-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+.presence-invite-actions { display: flex; align-items: center; gap: 6px; }
+.presence-action-btn { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 7px; border: 1px solid var(--paper-border); border-radius: 4px; background: var(--paper-surface); color: var(--paper-text-secondary); font: 500 9px var(--font-sans); cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.presence-action-btn:hover { background: var(--paper-hover); color: var(--paper-text); border-color: var(--paper-border-strong); }
 .presence-invite label { font: 8px var(--font-mono); letter-spacing: .07em; color: var(--paper-text-muted); }
-.presence-invite > div { display: flex; align-items: center; margin: 9px 0; border: 1px solid var(--paper-border); border-radius: 5px; overflow: hidden; }
-.presence-invite input { min-width: 0; flex: 1; padding: 9px; border: 0; background: var(--paper-background); color: var(--paper-text-secondary); font: 10px var(--font-mono); }
-.presence-invite button { display: grid; place-items: center; width: 33px; align-self: stretch; background: var(--paper-hover); color: var(--paper-text); border: 0; border-left: 1px solid var(--paper-border); cursor: pointer; }
+.presence-invite-field { display: flex; align-items: center; margin: 9px 0; border: 1px solid var(--paper-border); border-radius: 5px; overflow: hidden; }
+.presence-invite-field input { min-width: 0; flex: 1; padding: 9px; border: 0; background: var(--paper-background); color: var(--paper-text-secondary); font: 10px var(--font-mono); }
+.presence-invite-field button { display: grid; place-items: center; width: 33px; align-self: stretch; background: var(--paper-hover); color: var(--paper-text); border: 0; border-left: 1px solid var(--paper-border); cursor: pointer; }
 .presence-invite small, .presence-error { font-size: 9px; color: var(--paper-text-muted); line-height: 1.5; }
+
 .presence-retry { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 1px solid var(--paper-border); border-radius: 6px; background: var(--paper-surface); color: var(--paper-text-secondary); cursor: pointer; transition: all 0.15s ease; }
 .presence-retry:hover { border-color: #81adec; color: #81adec; background: var(--paper-hover); }
 .presence-unavailable-banner { display: flex; flex-direction: column; gap: 8px; padding: 10px; margin-top: 10px; margin-bottom: 6px; border: 1px solid #df96ac40; border-radius: 6px; background: #df96ac10; }

@@ -27,6 +27,7 @@ import { PrototypeInspector } from './prototype/PrototypeInspector'
 import { PresentationPlayer } from './prototype/PresentationPlayer'
 import { useCollaboration } from './collaboration/useCollaboration'
 import { PresenceBar } from './collaboration/PresenceBar'
+import { roomFromHash } from './collaboration/room'
 import { useComments } from './comments/useComments'
 import { CommentOverlay } from './comments/CommentOverlay'
 import { CommentsSidebar } from './comments/CommentsSidebar'
@@ -83,7 +84,21 @@ function Editor({ workspace, manager, profile, onProfileSave, account }: {
 
   const cloud = useCloudSync(manager, io, account.user, remote => { setName(remote.document.name); setGrid(remote.document.grid) })
   const bridge = useLiveBridge({ projectId: workspace.record.id, store, documentSync: false, getProject: io.getProject, onSettings: project => { setName(project.name); setGrid(project.grid) } })
-  const collaboration = useCollaboration(workspace.record.id, store, controller, profile.name)
+  const projectRoom = workspace.record.cloud?.projectId ?? workspace.record.id
+  const [activeRoom, setActiveRoom] = useState(() => roomFromHash(window.location.hash))
+  const roomId = activeRoom ?? projectRoom
+
+  useEffect(() => {
+    const onHashChange = () => setActiveRoom(roomFromHash(window.location.hash))
+    window.addEventListener('hashchange', onHashChange)
+    return () => window.removeEventListener('hashchange', onHashChange)
+  }, [])
+
+  const activateCollaboration = useCallback(() => {
+    setActiveRoom(roomId)
+  }, [roomId])
+
+  const collaboration = useCollaboration(roomId, store, controller, profile.name, activeRoom !== null)
   const comments = useComments(workspace.record.id, store, controller, profile.name)
   const { setOpen: setCommentsOpen, setDraft: setCommentDraft, setActiveId: setCommentActiveId } = comments
   const startComment = useCallback(() => { setTool('comment'); setCommentsOpen(true); setCommentDraft(null); setCommentActiveId(null); setPrototypeMode(false) }, [setCommentsOpen, setCommentDraft, setCommentActiveId])
@@ -96,8 +111,10 @@ function Editor({ workspace, manager, profile, onProfileSave, account }: {
     setChanging(true)
     controller.stop()
     try {
-      await io.persistProject(); await action()
+      await io.persistProject()
+      // Clear the invitation before mounting the next editor, so it opens solo.
       if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search)
+      await action()
     }
     finally { transition.current = false; setChanging(false) }
   }
@@ -166,7 +183,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account }: {
     <header className="app-header">
       <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
       <ProjectSwitcher name={name} activeId={workspace.record.id} projects={manager.projects.map(project => project.id === workspace.record.id ? { ...project, name: name.trim() || 'Untitled' } : project)} workspaceName={profile.workspaceName} persistent={manager.persistent} disabled={changing || io.importing} open={projectsOpen} onToggle={setProjectsOpen} onNameChange={setName} onSwitch={id => changeProject(() => manager.open(id))} onCreate={next => changeProject(() => manager.create(next, profile.defaultGrid, account.user?.id))} onRename={renameProject} sync={<SyncStatus state={cloud.state} status={cloud.status} localStatus={io.status} persistent={manager.persistent} error={cloud.error} onRetry={cloud.retry} />} />
-      <div className="header-end">{collaboration && <PresenceBar session={collaboration} />}<span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!(bridge.activity || cloud.activity)} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity || cloud.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : account.user?.hasMcpToken && cloud.state === 'synced' ? 'MCP ready' : 'MCP offline'}</span><ThemeSwitcher /><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => { setDevMode(!devMode); setPrototypeMode(false); setTool('select') }}><Code2 size={14} /><span>Dev</span></button><button className={`prototype-mode-toggle ${prototypeMode ? 'active' : ''}`} data-testid="prototype-mode-toggle" aria-label="Toggle prototype mode" aria-pressed={prototypeMode} onClick={() => { setPrototypeMode(!prototypeMode); comments.setOpen(false); setTool('select'); setDevMode(false); setInteractionId(null) }}><GitBranch size={14} /><span>Prototype</span></button><button className="prototype-present-button" aria-label="Present prototype" title="Present prototype" onClick={() => setPresenting(true)}><Play size={14} fill="currentColor" /></button><ProfileMenu account={{ ...account, logout: async () => { await io.persistProject(); await account.logout() } }} profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
+      <div className="header-end"><PresenceBar session={collaboration} onActivate={activateCollaboration} room={roomId} /><span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!(bridge.activity || cloud.activity)} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity || cloud.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : account.user?.hasMcpToken && cloud.state === 'synced' ? 'MCP ready' : 'MCP offline'}</span><ThemeSwitcher /><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => { setDevMode(!devMode); setPrototypeMode(false); setTool('select') }}><Code2 size={14} /><span>Dev</span></button><button className={`prototype-mode-toggle ${prototypeMode ? 'active' : ''}`} data-testid="prototype-mode-toggle" aria-label="Toggle prototype mode" aria-pressed={prototypeMode} onClick={() => { setPrototypeMode(!prototypeMode); comments.setOpen(false); setTool('select'); setDevMode(false); setInteractionId(null) }}><GitBranch size={14} /><span>Prototype</span></button><button className="prototype-present-button" aria-label="Present prototype" title="Present prototype" onClick={() => setPresenting(true)}><Play size={14} fill="currentColor" /></button><ProfileMenu account={{ ...account, logout: async () => { await io.persistProject(); await account.logout() } }} profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
     </header>
     <div className="editor-layout" inert={changing}>
       {layersVisible && <DocumentSidebar store={store} controller={controller} onHide={() => setLayersVisible(false)} />}

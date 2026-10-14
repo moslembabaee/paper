@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-14",
+  "current_task_id": "T-ISSUE-15",
   "tasks": [
     {
       "id": "T-ISSUE-13",
@@ -14,7 +14,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 13,
-      "completed_at": "2026-10-14T12:35:09.641507"
+      "completed_at": "2026-10-14T12:35:09.641507",
+      "closed_at": "2026-10-14T12:35:13Z"
     },
     {
       "id": "T-ISSUE-14",
@@ -26,7 +27,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 14,
-      "completed_at": "2026-10-14T12:58:58.416807"
+      "completed_at": "2026-10-14T12:58:58.416807",
+      "closed_at": "2026-10-14T12:59:02Z"
     },
     {
       "id": "T-ISSUE-15",
@@ -34,10 +36,11 @@
       "title": "Issue #15: perf(collaboration): On-Demand Collaboration Session Activation",
       "description": "### Problem Statement\nCurrently, `Studio.tsx` activates `useCollaboration` unconditionally on every opened project, even when the user is designing solo in a private local/cloud canvas. This wastes network bandwidth and backend memory for solo workflows.\n\n### Requirements & Scope (Phase 3 - Priority 3)\n1. **On-Demand Activation:**\n   - Only activate and connect the `CollaborationSession` when:\n     1. The URL hash contains a shared room (`#room=<id>`), OR\n     2. The user opens the Collaborators/Presence modal and clicks 'Share' or 'Copy invite link' to invite others.\n2. **Solo Mode Efficiency:**\n   - When not in collaboration mode, the canvas runs strictly locally with silent cloud persistence, sending 0 collaboration requests.\n3. **Verification:**\n   - Verify opening Paper does not send any `/__paper_collaboration/` requests by default.\n   - Verify clicking 'Invite' or opening a `#room=` URL immediately connects to collaboration.\n   - All automated tests (`npm test`, `npm run build`) pass.\n\nReference: Closes #15",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 15
+      "github_issue_number": 15,
+      "completed_at": "2026-10-14T13:35:09.408598"
     },
     {
       "id": "T-ISSUE-9",

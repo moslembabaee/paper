@@ -62,6 +62,7 @@ test('invited browsers share threads and replies with private unread state and o
   test.setTimeout(60000)
   await waitForCanvasReady(page)
   await page.getByRole('button', { name: 'Canvas collaborators', exact: true }).click()
+  await page.getByRole('button', { name: 'Copy invite link', exact: true }).click()
   await expect(page.locator('.presence-connection')).toHaveText('Live')
   const invite = await page.getByRole('textbox', { name: 'Canvas invite link' }).inputValue()
   await page.getByRole('button', { name: 'Canvas collaborators', exact: true }).click()
