@@ -1,8 +1,8 @@
 # 🗺️ Live Development Roadmap & Task Tracker
 
-> **Last Updated:** `2026-10-14 09:10:41 UTC`  
+> **Last Updated:** `2026-10-14 09:32:50 UTC`  
 > **Supervisor:** Autonomous Tri-Agent Orchestra (`Claude Code` ↔ `OpenAI Codex` ↔ `Google Antigravity`)  
-> **Progress:** `[██████████████████░░]` **43 / 46** tasks completed (**93%**)
+> **Progress:** `[██████████████████░░]` **44 / 47** tasks completed (**93%**)
 
 ---
 
@@ -65,3 +65,4 @@ _All queued tasks in this cycle are completed. New evolution tasks are continuou
 | 🟢 Done | `T-ISSUE-6-3` | Issue #6 (Part 3/4): Frontend Local-First Sync Engine with IndexedDB | `CLAUDE` | Community & Issues | `2026-10-14 08:35:29` |
 | 🟢 Done | `T-ISSUE-6-2` | Issue #6 (Part 2/4): OAuth Authentication & Profile Token Management | `CLAUDE` | Community & Issues | `2026-10-14 07:45:18` |
 | 🟢 Done | `T-ISSUE-6-1` | Issue #6 (Part 1/4): Fastify Backend Storage & Cloud Sync Service | `CLAUDE` | Community & Issues | `2026-10-14 07:22:19` |
+| 🟢 Done | `T-ISSUE-8` | Issue #8: fix(orchestrator): ignore infra issues and cleanup in-progress labels on issue close | `CLAUDE` | Community & Issues | `2026-10-14 09:32:50` |

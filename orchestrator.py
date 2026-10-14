@@ -12,10 +12,13 @@ import time
 import re
 import shlex
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import roadmap_sync
+import roadmap_store
+from issue_lifecycle import (IGNORED_LABELS, issue_number_for_task, label_names,
+                             mark_issue_closed, task_matches_issue)
 
 # Ensure complete PATH is always available even when launched via cron
 FULL_PATH = "/root/.local/bin:/root/.hermes/tools/node-26.7.0-linux-x64/bin:/root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -30,7 +33,7 @@ LOG_FILE = LOG_DIR / "orchestrator.log"
 AGENT_CHAIN = ["claude", "antigravity", "codex"]
 
 def log(msg: str):
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     line = f"[{timestamp}] {msg}"
     print(line, flush=True)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -69,12 +72,44 @@ def load_roadmap() -> dict:
         return json.load(f)
 
 def save_roadmap(data: dict):
-    with open(ROADMAP_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    roadmap_store.save_roadmap(ROADMAP_FILE, data)
     try:
         roadmap_sync.sync_roadmap_to_github()
     except Exception as e:
         log(f"Warning: Failed to sync roadmap to GitHub: {e}")
+
+def reconcile_issue_before_dispatch(roadmap: dict, task: dict) -> bool:
+    number = issue_number_for_task(task)
+    if not number:
+        return True
+    code, out = run_cmd(
+        f"gh issue view {number} --repo moslembabaee/paper --json state,labels,closedAt",
+        timeout=30,
+    )
+    if code != 0:
+        log(f"Unable to confirm Issue #{number} is eligible; deferring dispatch: {out}")
+        return False
+    try:
+        issue = json.loads(out)
+    except ValueError:
+        log(f"Invalid issue response for #{number}; deferring dispatch.")
+        return False
+    if issue.get("state", "").upper() == "CLOSED":
+        mark_issue_closed(roadmap, number, issue.get("closedAt"))
+        save_roadmap(roadmap)
+        run_cmd(f'gh issue edit {number} --repo moslembabaee/paper --remove-label "in-progress,blocked"', timeout=30)
+        return False
+    if label_names(issue) & IGNORED_LABELS:
+        for linked in roadmap.get("tasks", []):
+            if task_matches_issue(linked, number) and linked.get("status") != "completed":
+                linked["status"] = "waiting_approval"
+                if roadmap.get("current_task_id") == linked["id"]:
+                    roadmap["current_task_id"] = None
+        save_roadmap(roadmap)
+        log(f"Skipping Issue #{number}: excluded from app automation by its labels.")
+        return False
+    return True
+
 
 def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple[int, str]:
     log(f"Dispatching task to agent [{agent.upper()}] (retry={is_retry})...")
@@ -233,24 +268,22 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
         if not pending_task:
             continue
 
+        if not reconcile_issue_before_dispatch(roadmap, pending_task):
+            time.sleep(5)
+            continue
+
         task_id = pending_task["id"]
+        issue_num = issue_number_for_task(pending_task)
         log(f"\n--- Starting Task: {task_id} - {pending_task['title']} ---")
         pending_task["status"] = "in_progress"
         roadmap["current_task_id"] = task_id
         save_roadmap(roadmap)
-        
-        # Mark in-progress on GitHub issue if applicable
-        issue_num = pending_task.get("github_issue_number")
-        if not issue_num and pending_task["id"].startswith("T-ISSUE-"):
-            try:
-                issue_num = int(pending_task["id"].split("T-ISSUE-")[1])
-            except Exception:
-                pass
         if issue_num:
-            run_cmd(f'gh issue edit {issue_num} --repo moslembabaee/paper --add-label "in-progress"')
-        
+            run_cmd(f'gh issue edit {issue_num} --repo moslembabaee/paper --add-label "in-progress"', timeout=30)
+
         assigned_agent = pending_task.get("assigned_agent", "claude")
         task_success = False
+        task_closed = False
         error_output = None
         
         # Try agent chain (failover loop)
@@ -270,6 +303,17 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
             log(f"Running quality gate verification: '{verify_cmd}'...")
             v_code, v_out = run_cmd(verify_cmd, timeout=300)
             
+            # A webhook/bot can close the issue while an agent or build runs.
+            # Reload before retrying or reporting implementation completion.
+            retry_count = pending_task.get("retry_count", 0)
+            roadmap = load_roadmap()
+            pending_task = next(t for t in roadmap["tasks"] if t["id"] == task_id)
+            if pending_task.get("closed_at"):
+                log(f"Issue #{issue_num} closed during execution; stopping task {task_id}.")
+                task_closed = True
+                break
+            pending_task["retry_count"] = max(retry_count, pending_task.get("retry_count", 0))
+
             if exit_code == 0 and v_code == 0:
                 log(f"✅ Agent implementation succeeded and quality gate PASSED for task {task_id}!")
                 task_success = True
@@ -285,9 +329,13 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                 pending_task["retry_count"] += 1
                 time.sleep(3)
                 
+        if task_closed:
+            continue
+
+        roadmap["current_task_id"] = None
         if task_success:
             pending_task["status"] = "completed"
-            pending_task["completed_at"] = datetime.utcnow().isoformat()
+            pending_task["completed_at"] = datetime.now(timezone.utc).isoformat()
             save_roadmap(roadmap)
             
             # Git commit and push checkpoint
@@ -307,7 +355,7 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                     # Check if there are other sibling sub-tasks for this issue that are still not completed
                     sibling_tasks = [
                         t for t in roadmap["tasks"]
-                        if (t.get("github_issue_number") == issue_num or t.get("id", "").startswith(f"T-ISSUE-{issue_num}"))
+                        if task_matches_issue(t, issue_num)
                         and t.get("id") != pending_task["id"]
                     ]
                     incomplete_siblings = [t for t in sibling_tasks if t.get("status") != "completed"]

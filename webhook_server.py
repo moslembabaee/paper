@@ -3,9 +3,13 @@ import json
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+
+import roadmap_sync
+import roadmap_store
+from issue_lifecycle import IGNORED_LABELS, label_names, mark_issue_closed, task_matches_issue
 
 PROJECT_ROOT = Path("/root/projects/paper").resolve()
 LOG_DIR = PROJECT_ROOT / "logs"
@@ -13,8 +17,9 @@ LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "webhook.log"
 ROADMAP_FILE = PROJECT_ROOT / "ROADMAP.json"
 
+
 def log(msg: str):
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     line = f"[{timestamp}] [WEBHOOK] {msg}"
     print(line, flush=True)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -27,42 +32,55 @@ def trigger_issue_bot():
     except Exception as e:
         log(f"Error triggering issue_bot: {e}")
 
-def mark_task_approved(issue_num: int):
+def handle_issue_closed(issue_num: int, closed_at: str | None = None):
+    if not isinstance(issue_num, int) or issue_num <= 0:
+        return
+    # Persist closure before any network operation, even if GitHub is unavailable.
     try:
-        if not ROADMAP_FILE.exists():
-            return False
-        with open(ROADMAP_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        
+        if ROADMAP_FILE.exists() and roadmap_store.update_roadmap(
+            ROADMAP_FILE, lambda data: mark_issue_closed(data, issue_num, closed_at)
+        ):
+            roadmap_sync.sync_roadmap_to_github()
+            log(f"Synchronized roadmap for closed Issue #{issue_num}")
+    except Exception as e:
+        log(f"Error synchronizing closed Issue #{issue_num}: {e}")
+
+    try:
+        res = subprocess.run(
+            ["gh", "issue", "edit", str(issue_num), "--repo", "moslembabaee/paper",
+             "--remove-label", "in-progress,blocked"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if res.returncode == 0:
+            log(f"Removed active labels from closed Issue #{issue_num}")
+        else:
+            log(f"Label cleanup failed for Issue #{issue_num}: {res.stderr.strip()}")
+    except Exception as e:
+        log(f"Error removing labels from Issue #{issue_num}: {e}")
+
+def mark_task_approved(issue_num: int):
+    def approve(data):
         modified = False
         for task in data.get("tasks", []):
-            task_id = task.get("id", "")
-            is_match = (
-                task.get("github_issue_number") == issue_num
-                or task_id == f"T-ISSUE-{issue_num}"
-            )
-            if is_match and task.get("status") in ("waiting_approval", "pending_approval", "pending", "failed"):
+            if (task_matches_issue(task, issue_num) and not task.get("closed_at")
+                    and task.get("status") in ("waiting_approval", "pending_approval", "pending", "failed")):
                 task["status"] = "approved"
                 task["retry_count"] = 0
                 modified = True
-                log(f"✅ Task {task_id} marked as APPROVED (matched Issue #{issue_num})")
-                
-        if modified:
-            try:
-                subprocess.run(f'gh issue edit {issue_num} --repo moslembabaee/paper --remove-label "blocked"', shell=True)
-            except Exception:
-                pass
-            with open(ROADMAP_FILE, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-            try:
-                import roadmap_sync
-                roadmap_sync.sync_roadmap_to_github()
-            except Exception:
-                pass
-            return True
+        return modified
+
+    try:
+        if not ROADMAP_FILE.exists() or not roadmap_store.update_roadmap(ROADMAP_FILE, approve):
+            return False
+        roadmap_sync.sync_roadmap_to_github()
+        subprocess.run(
+            ["gh", "issue", "edit", str(issue_num), "--repo", "moslembabaee/paper",
+             "--remove-label", "blocked"], capture_output=True, text=True, timeout=30,
+        )
+        return True
     except Exception as e:
         log(f"Error in mark_task_approved: {e}")
-    return False
+        return False
 
 class GitHubWebhookHandler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -89,16 +107,32 @@ class GitHubWebhookHandler(BaseHTTPRequestHandler):
             issue = payload.get("issue", {})
             num = issue.get("number")
             title = issue.get("title", "")
-            label_name = payload.get("label", {}).get("name", "").lower()
+            label_name = payload.get("label", {}).get("name", "").strip().lower()
+            issue_labels = label_names(issue)
+            if action == "labeled" and label_name:
+                issue_labels.add(label_name)
+            elif action == "unlabeled":
+                issue_labels.discard(label_name)
             
             log(f"Issue #{num} ('{title}') action='{action}', label='{label_name}'")
             
-            if action == "labeled" and label_name == "approved":
-                log(f"Issue #{num} received 'approved' label! Authorizing task...")
-                mark_task_approved(num)
-                trigger_issue_bot()
+            if action == "closed":
+                log(f"Issue #{num} ('{title}') closed event! Removing active labels and synchronizing state...")
+                handle_issue_closed(num, issue.get("closed_at"))
+            elif issue.get("state") == "closed":
+                pass
+            elif action == "labeled" and label_name == "approved":
+                if any(l in IGNORED_LABELS for l in issue_labels):
+                    log(f"Issue #{num} ('{title}') has ignored label ({[l for l in issue_labels if l in IGNORED_LABELS]}). Skipping app queue.")
+                else:
+                    log(f"Issue #{num} received 'approved' label! Authorizing task...")
+                    mark_task_approved(num)
+                    trigger_issue_bot()
             elif action in ("opened", "reopened", "labeled", "unlabeled"):
-                trigger_issue_bot()
+                if any(l in IGNORED_LABELS for l in issue_labels):
+                    log(f"Issue #{num} ('{title}') has ignored label. Skipping issue_bot trigger.")
+                else:
+                    trigger_issue_bot()
 
         elif event_type == "issue_comment":
             action = payload.get("action", "")
@@ -107,14 +141,18 @@ class GitHubWebhookHandler(BaseHTTPRequestHandler):
             num = issue.get("number")
             author = comment.get("user", {}).get("login", "").lower()
             comment_body = comment.get("body", "").lower()
+            issue_labels = label_names(issue)
 
             log(f"Comment on Issue #{num} by @{author}: {comment_body[:80]}...")
             
-            if action == "created" and author == "moslembabaee":
+            if action == "created" and author == "moslembabaee" and issue.get("state") != "closed":
                 if any(kw in comment_body for kw in ("/approve", "approved", "lgtm")):
-                    log(f"Issue #{num} approved via comment by @{author}! Authorizing task...")
-                    mark_task_approved(num)
-                    trigger_issue_bot()
+                    if any(l in IGNORED_LABELS for l in issue_labels):
+                        log(f"Issue #{num} has ignored label ({[l for l in issue_labels if l in IGNORED_LABELS]}). Skipping app queue despite comment.")
+                    else:
+                        log(f"Issue #{num} approved via comment by @{author}! Authorizing task...")
+                        mark_task_approved(num)
+                        trigger_issue_bot()
 
         elif event_type == "push":
             ref = payload.get("ref", "")

@@ -13,8 +13,11 @@ import json
 import re
 import shlex
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+
+from issue_lifecycle import IGNORED_LABELS, label_names, mark_issue_closed, task_matches_issue
+import roadmap_store
 
 PROJECT_ROOT = Path("/root/projects/paper").resolve()
 ROADMAP_FILE = PROJECT_ROOT / "ROADMAP.json"
@@ -27,8 +30,9 @@ REPO = "moslembabaee/paper"
 FULL_PATH = "/root/.local/bin:/root/.hermes/tools/node-26.7.0-linux-x64/bin:/root/.hermes/tools/python-3.14.7+20260901-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 os.environ["PATH"] = f"{FULL_PATH}:{os.environ.get('PATH', '')}"
 
+
 def log(msg: str):
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     line = f"[{timestamp}] [ISSUE-BOT] {msg}"
     print(line, flush=True)
     with open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -60,8 +64,41 @@ def load_roadmap() -> dict:
         return json.load(f)
 
 def save_roadmap(data: dict):
-    with open(ROADMAP_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    roadmap_store.save_roadmap(ROADMAP_FILE, data)
+    try:
+        import roadmap_sync
+        roadmap_sync.sync_roadmap_to_github()
+    except Exception as e:
+        log(f"Warning: Failed to sync roadmap to GitHub: {e}")
+
+def sync_closed_issues(roadmap: dict) -> bool:
+    # REST pagination covers the entire closed backlog, not gh issue list's first 30.
+    endpoint = f"repos/{REPO}/issues?state=closed&per_page=100"
+    code, out = run_cmd(f"gh api --paginate --slurp {shlex.quote(endpoint)}")
+    if code != 0:
+        log(f"Error fetching closed issues: {out}")
+        return False
+    try:
+        pages = json.loads(out)
+    except (ValueError, TypeError) as e:
+        log(f"Failed to parse closed issues JSON: {e}")
+        return False
+
+    modified = False
+    for page in pages:
+        for issue in page:
+            if "pull_request" in issue:
+                continue
+            num = issue["number"]
+            if label_names(issue) & {"in-progress", "blocked"}:
+                code, output = run_cmd(
+                    f'gh issue edit {num} --repo {REPO} --remove-label "in-progress,blocked"',
+                    timeout=30,
+                )
+                if code != 0:
+                    log(f"Failed to clean labels on closed Issue #{num}: {output}")
+            modified = mark_issue_closed(roadmap, num, issue.get("closed_at")) or modified
+    return modified
 
 def fetch_open_issues() -> list:
     cmd = f'gh issue list --repo {REPO} --state open --json number,title,body,author,labels,comments'
@@ -162,13 +199,19 @@ def process_issues():
     authorized_users = [u.lower() for u in maintainers_cfg.get("authorized_approvers", ["moslembabaee"])]
     approval_keywords = [k.lower() for k in maintainers_cfg.get("approval_keywords", ["/approve"])]
     
+    roadmap = load_roadmap()
+    roadmap_modified = sync_closed_issues(roadmap)
+    if roadmap_modified:
+        # Persist closures before potentially slow AI triage/decomposition.
+        save_roadmap(roadmap)
+        roadmap = load_roadmap()
+        roadmap_modified = False
+
     issues = fetch_open_issues()
     if not issues:
         return
         
     log(f"Found {len(issues)} open issue(s). Processing...")
-    roadmap = load_roadmap()
-    roadmap_modified = False
     
     for issue in issues:
         num = issue["number"]
@@ -177,16 +220,20 @@ def process_issues():
         if num == 1 or "live tracker" in title.lower() or "roadmap" in title.lower():
             continue
         author = issue.get("author", {}).get("login", "").lower()
-        labels = [l.get("name", "").lower() for l in issue.get("labels", [])]
+        labels = label_names(issue)
         comments = issue.get("comments", [])
         
+        # Ignore issues with labels like infra, ops, documentation, or manual
+        ignored_match = next((l for l in labels if l in IGNORED_LABELS), None)
+        if ignored_match:
+            log(f"Skipping Issue #{num} ('{title}') - ignored label: '{ignored_match}'")
+            continue
+
         # Check if already completed in roadmap
         task_id = f"T-ISSUE-{num}"
         matching_tasks = [
             t for t in roadmap["tasks"]
-            if t.get("github_issue_number") == num
-            or t.get("id") == task_id
-            or t.get("id", "").startswith(f"T-ISSUE-{num}-")
+            if task_matches_issue(t, num)
         ]
         
         if matching_tasks and all(t.get("status") == "completed" for t in matching_tasks):

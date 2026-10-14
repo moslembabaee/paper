@@ -2,8 +2,20 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-6-4",
+  "current_task_id": "T-ISSUE-8",
   "tasks": [
+    {
+      "id": "T-ISSUE-8",
+      "phase": "Community & Issues",
+      "title": "Issue #8: fix(orchestrator): ignore infra issues and cleanup in-progress labels on issue close",
+      "description": "### Problem\nCurrently, any issue marked with `approved` is assumed to be an application feature task for the Tri-Agent coding orchestra, causing infrastructure or operational issues to enter the app development queue. Additionally, when an issue is closed, active labels (`in-progress`, `blocked`) are not automatically stripped.\n\n### Tasks\n1. Update `webhook_server.py` to handle `issues (closed)` events and automatically remove `in-progress` and `blocked` labels.\n2. Update `issue_bot.py` to ignore issues with labels like `infra`, `ops`, `documentation`, or `manual`.\n3. Ensure closing an issue properly synchronizes state.\n\n\nReference: Closes #8",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 2,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 8,
+      "completed_at": "2026-10-14T09:32:50.404459"
+    },
     {
       "id": "T-ISSUE-6-1",
       "phase": "Community & Issues",
