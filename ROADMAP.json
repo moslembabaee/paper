@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-9",
+  "current_task_id": "T-ISSUE-10",
   "tasks": [
     {
       "id": "T-ISSUE-9",
@@ -22,10 +22,11 @@
       "title": "Issue #10: feat(ux): Streamline Settings & Unify AI Agent (MCP) Token Interface",
       "description": "### Problem Statement\nThe settings modal currently displays confusing dual-mode concepts: 'Local MCP auth token', 'Self-host preferences (LOCAL)', 'Only on this device', alongside remote MCP settings.\n\n### Requirements & Scope (Step 2/4 - Depends on #9)\n1. **Unify MCP Token:**\n   - Remove 'Local MCP auth token' and all client-only token generation.\n   - Replace with a single, clear section: 'AI Agent Access (Model Context Protocol)'.\n   - Display the server-authenticated Cloud MCP Token with Reveal, Copy, Rotate, and Revoke controls.\n   - Show the quick-copy configuration snippet for connecting AI agents (Claude, Codex, Cursor) to `https://paper.141.11.32.213.nip.io/mcp`.\n2. **Clean Profile Dialog:**\n   - Show authenticated user info (Email, Name, Avatar from Google/GitHub).\n   - Studio preferences: Theme (Dark/Light) and Engineering grid toggle.\n   - Remove confusing labels like 'LOCAL', 'Only on this device', etc.\n\n### Acceptance & Verification\n- `cd /root/projects/paper/app && npm run build` succeeds with 0 errors.\n- Profile dialog shows clean, unified settings without local-vs-cloud dichotomy.\n\nReference: Closes #10",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 10
+      "github_issue_number": 10,
+      "completed_at": "2026-10-14T11:29:16.718394"
     },
     {
       "id": "T-ISSUE-11",

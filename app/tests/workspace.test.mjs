@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { defaultProfile, generateToken, initials, PROFILE_STORAGE_KEY, readProfile, saveProfile } from '../src/workspace/profile.ts'
+import { defaultProfile, initials, PROFILE_STORAGE_KEY, readProfile, saveProfile } from '../src/workspace/profile.ts'
 import { localProject, projectSummary } from '../src/workspace/database.ts'
 import { createProject } from '../src/io/project.ts'
 import { SceneStore } from '../src/scene/store.ts'
@@ -25,7 +25,7 @@ function mockStorage(initialValue = null, fails = false) {
   return store
 }
 
-test('profile defaults, initials extraction, and cryptographic token generation', () => {
+test('profile defaults and initials extraction', () => {
   mockStorage()
   const profile = readProfile()
   assert.deepEqual(profile, defaultProfile)
@@ -37,11 +37,6 @@ test('profile defaults, initials extraction, and cryptographic token generation'
   assert.equal(initials('   '), 'P')
   assert.equal(initials('Alpha Beta Gamma'), 'AB')
 
-  const token1 = generateToken()
-  const token2 = generateToken()
-  assert.match(token1, /^paper_[a-f0-9]{64}$/)
-  assert.match(token2, /^paper_[a-f0-9]{64}$/)
-  assert.notEqual(token1, token2)
 })
 
 test('profile sanitization and persistence round-trip safely', () => {
@@ -62,7 +57,15 @@ test('profile sanitization and persistence round-trip safely', () => {
   assert.equal(restored.avatar, valid.avatar)
   assert.equal(restored.workspaceName, 'Local Paper Lab')
   assert.equal(restored.defaultGrid, false)
-  assert.equal(restored.mcpToken, 'paper_custom_secret_key')
+  assert.equal('mcpToken' in restored, false)
+  assert.equal(store.get(PROFILE_STORAGE_KEY).includes('paper_custom_secret_key'), false)
+})
+
+test('existing browser-only tokens are removed while profile preferences survive migration', () => {
+  const store = mockStorage(JSON.stringify({ ...defaultProfile, name: 'Existing Designer', defaultGrid: false, mcpToken: 'obsolete-secret' }))
+  assert.deepEqual(readProfile(), { ...defaultProfile, name: 'Existing Designer', defaultGrid: false })
+  assert.equal('mcpToken' in JSON.parse(store.get(PROFILE_STORAGE_KEY)), false)
+  assert.equal(store.get(PROFILE_STORAGE_KEY).includes('obsolete-secret'), false)
 })
 
 test('malformed profile and storage errors gracefully fallback to defaults', () => {

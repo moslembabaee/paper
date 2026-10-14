@@ -64,7 +64,7 @@ test('migration, edits, headless pulls and remote token rotation work in the bro
   const settings = await openProfile(page)
   await expect(settings.getByText(user.email)).toBeVisible()
   await settings.getByRole('button', { name: 'Generate MCP token' }).click()
-  const field = settings.getByLabel('Remote MCP auth token')
+  const field = settings.getByLabel('Cloud MCP Token')
   await expect(field).toHaveValue(/paper_remote-token-/)
   const first = await field.inputValue()
   await settings.getByRole('button', { name: 'Rotate token' }).click()
@@ -89,11 +89,12 @@ test('profile settings reveal, hide, copy, rotate and revoke server tokens witho
   let token = ''
   let generation = 0
   let copied = ''
+  let rejectRotation = false
   const authorizationAccounts: string[] = []
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.addInitScript(() => {
     Object.defineProperty(navigator.clipboard, 'writeText', { value: async (text: string) => { (window as unknown as { copiedToken: string }).copiedToken = text } })
-    localStorage.setItem('paper.profile.v1', JSON.stringify({ version: 1, name: 'Local Designer', avatar: '', workspaceName: 'Studio', defaultGrid: true, mcpToken: '' }))
+    localStorage.setItem('paper.profile.v1', JSON.stringify({ version: 1, name: 'Local Designer', avatar: '', workspaceName: 'Studio', defaultGrid: true, mcpToken: 'obsolete-client-token' }))
   })
   await page.route('https://paper.test/avatar.png', route => route.fulfill({ status: 204 }))
   await page.route('**/cloud.json', route => route.fulfill({ json: { cloud: true } }))
@@ -102,6 +103,7 @@ test('profile settings reveal, hide, copy, rotate and revoke server tokens witho
   await page.route('**/api/projects', route => route.fulfill({ json: { projects: [] } }))
   await page.route('**/api/auth/token/regenerate', async route => {
     authorizationAccounts.push(route.request().headers()['x-paper-account'])
+    if (rejectRotation) { await route.fulfill({ status: 503, json: { error: 'Please try again.' } }); return }
     token = `paper_${String(++generation).padStart(43, 'a')}`
     profile = { ...profile, hasMcpToken: true }
     await route.fulfill({ json: { token, user: profile } })
@@ -124,26 +126,56 @@ test('profile settings reveal, hide, copy, rotate and revoke server tokens witho
   await migration.getByRole('button', { name: 'Keep local for now' }).click()
   let settings = await openProfile(page)
   await expect(settings.getByRole('textbox', { name: 'Display name' })).toHaveValue(user.name)
+  await expect(settings.getByText(user.email, { exact: true })).toBeVisible()
+  await expect(settings.getByText('Signed in with GitHub')).toBeVisible()
+  await expect(settings.locator('.profile-identity img')).toHaveAttribute('src', profile.avatar)
+  await expect(settings.getByRole('heading', { name: 'Studio preferences' })).toBeVisible()
+  await expect(settings.getByRole('heading', { name: 'AI Agent Access (Model Context Protocol)', exact: true })).toBeVisible()
+  await expect(settings).not.toContainText(/Local MCP|Self-host preferences|Only on this device|LOCAL|Remote MCP/)
   await settings.getByRole('button', { name: 'Generate MCP token' }).click()
-  const input = settings.getByLabel('Remote MCP auth token')
+  const input = settings.getByLabel('Cloud MCP Token')
   await expect(input).toHaveValue(/^paper_/)
   const first = await input.inputValue()
-  await settings.getByRole('button', { name: 'Hide remote token' }).click()
+  await settings.getByRole('button', { name: 'Hide token' }).click()
   await expect(input).not.toHaveValue(first)
   await settings.locator('.mcp-config-guide summary').click()
-  await expect(settings.locator('.mcp-config-guide pre')).not.toContainText(first)
-  await settings.getByRole('button', { name: 'Copy remote token' }).click()
+  const snippet = settings.locator('.mcp-config-guide pre')
+  await expect(snippet).not.toContainText(first)
+  for (const client of ['Claude Code', 'Codex', 'Cursor']) {
+    await settings.getByRole('button', { name: client, exact: true }).click()
+    await expect(snippet).toContainText('https://paper.141.11.32.213.nip.io/mcp')
+    await expect(snippet).toContainText('<YOUR_PAPER_TOKEN>')
+    await settings.getByRole('button', { name: 'Copy configuration snippet' }).click()
+    const config = await page.evaluate(() => (window as unknown as { copiedToken: string }).copiedToken)
+    expect(config).toBe(await snippet.textContent())
+    expect(config).not.toContain(first)
+    if (client === 'Codex') {
+      expect(config).toContain('[mcp_servers.paper]')
+      expect(config).toContain('http_headers')
+    } else {
+      const server = JSON.parse(config).mcpServers.paper
+      expect(server.headers.Authorization).toBe('Bearer <YOUR_PAPER_TOKEN>')
+      if (client === 'Claude Code') expect(server.type).toBe('http')
+    }
+  }
+  await settings.getByRole('button', { name: 'Copy token' }).click()
   copied = await page.evaluate(() => (window as unknown as { copiedToken: string }).copiedToken)
   expect(copied).toBe(first)
   await expect(settings.getByText('Copied to clipboard')).toBeVisible()
-  await settings.getByRole('button', { name: 'Reveal remote token' }).click()
+  await settings.getByRole('button', { name: 'Reveal token' }).click()
   await expect(input).toHaveValue(first)
+  rejectRotation = true
+  await settings.getByRole('button', { name: 'Rotate token' }).click()
+  await expect(settings.getByRole('alert')).toHaveText('Please try again.')
+  await expect(input).toHaveValue(first)
+  await expect(settings.getByRole('button', { name: 'Rotate token' })).toBeEnabled()
+  rejectRotation = false
   await settings.getByRole('button', { name: 'Rotate token' }).click()
   await expect(input).not.toHaveValue(first)
   await settings.getByRole('button', { name: 'Revoke token' }).click()
   await expect(input).toBeEmpty()
-  await expect(settings.getByRole('button', { name: 'Reveal remote token' })).toBeDisabled()
-  await expect(settings.getByRole('button', { name: 'Copy remote token' })).toBeDisabled()
+  await expect(settings.getByRole('button', { name: 'Reveal token' })).toBeDisabled()
+  await expect(settings.getByRole('button', { name: 'Copy token' })).toBeDisabled()
   await expect(settings.getByRole('button', { name: 'Generate MCP token' })).toBeVisible()
   expect(authorizationAccounts.every(id => id === user.id)).toBe(true)
   await settings.getByRole('textbox', { name: 'Display name' }).fill('My Studio')
@@ -155,6 +187,8 @@ test('profile settings reveal, hide, copy, rotate and revoke server tokens witho
   const local = await page.evaluate(() => localStorage.getItem('paper.profile.v1'))
   expect(local).toContain('Local Designer')
   expect(local).not.toContain(first)
+  expect(local).not.toContain('mcpToken')
+  expect(local).not.toContain('obsolete-client-token')
   settings = await openProfile(page)
   await expect(settings.getByRole('textbox', { name: 'Display name' })).toHaveValue('My Studio')
   await expect(settings.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0)

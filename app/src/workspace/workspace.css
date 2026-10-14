@@ -57,6 +57,10 @@
 .profile-identity { display: flex; align-items: center; gap: 18px; padding: 18px 0 24px; }
 .profile-identity strong { display: block; font-size: 12px; font-weight: 500; }
 .profile-identity div > span { display: block; color: var(--workspace-muted); font-size: 10px; margin-top: 6px; }
+.profile-account-details { display: grid; gap: 8px; margin-bottom: 18px; font-size: 11px; }
+.profile-account-details > span { color: var(--workspace-muted); }
+.profile-account-details strong { font-weight: 450; overflow-wrap: anywhere; }
+.profile-account-details .profile-provider { font-size: 10px; }
 .avatar-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
 .workspace-field { display: block; font-size: 11px; font-weight: 450; margin-bottom: 18px; }
 .workspace-field > input, .token-field > div { display: flex; align-items: center; width: 100%; height: 38px; margin-top: 8px; padding: 0 12px; color: var(--workspace-ink); border: 1px solid var(--workspace-border); border-radius: 5px; background: var(--workspace-raised); font: 12px var(--font-sans); }
@@ -70,7 +74,8 @@
 .workspace-text-button:hover { color: var(--workspace-ink); }
 .profile-section-title { display: flex; align-items: center; gap: 8px; margin: 26px 0 18px; padding-top: 22px; border-top: 1px solid var(--workspace-border); }
 .profile-section-title svg { color: var(--workspace-muted); }
-.profile-section-title h3 { font-size: 12px; font-weight: 500; margin: 0; }
+.profile-section-title svg, .profile-section-title > span { flex-shrink: 0; }
+.profile-section-title h3 { font-size: 12px; font-weight: 500; margin: 0; line-height: 1.5; }
 .profile-section-title > span { margin-left: auto; font: 8px var(--font-mono); color: var(--workspace-muted); letter-spacing: .06em; }
 .profile-preference { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0 0; }
 .profile-preference strong { display: block; font-size: 11px; font-weight: 450; }
@@ -150,6 +155,11 @@
 .cloud-identity strong { display: block; font-size: 12px; font-weight: 500; }
 .cloud-identity span { display: block; margin-top: 5px; color: var(--workspace-muted); font-size: 10px; overflow-wrap: anywhere; }
 .cloud-account code { color: var(--workspace-blue); font: 10px var(--font-mono); overflow-wrap: anywhere; }
+.mcp-endpoint { display: grid; gap: 8px; padding: 12px; margin-bottom: 16px; border: 1px solid var(--workspace-border); border-radius: 5px; }
+.mcp-endpoint > span { color: var(--workspace-muted); font: 9px var(--font-mono); }
+.mcp-token-status[data-active='true'] { color: var(--workspace-blue); }
+.token-field .mcp-token-control { display: flex; gap: 5px; width: auto; padding: 0 6px; font-size: 10px; }
+.mcp-action-note { margin: 12px 0 0; }
 .cloud-status { display: inline-flex; align-items: center; gap: 5px; color: var(--paper-text-secondary); font: 9px var(--font-mono); white-space: nowrap; }
 .sync-indicator { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .cloud-status[data-state='synced'] { color: var(--paper-blue, #81adec); }
@@ -216,6 +226,15 @@
   color: var(--workspace-blue);
   overflow-x: auto;
 }
+.mcp-config-guide summary::-webkit-details-marker { display: none; }
+.mcp-snippet-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px; border-top: 1px solid var(--workspace-border); }
+.mcp-client-picker { display: flex; gap: 3px; }
+.mcp-client-picker button { padding: 6px 8px; border: 0; border-radius: 4px; background: transparent; color: var(--workspace-muted); font: 10px var(--font-sans); cursor: pointer; }
+.mcp-client-picker button[aria-pressed='true'] { background: var(--workspace-raised); color: var(--workspace-blue); }
+.mcp-copy-button { display: flex; gap: 6px; width: auto; padding: 0 6px; font-size: 10px; color: var(--workspace-muted); }
+.mcp-config-instruction { margin: 0; padding: 0 12px 12px; line-height: 1.8; font-size: 10px; color: var(--workspace-muted); }
+.mcp-copy-status:empty { display: none; }
+.mcp-copy-status { display: block; padding: 8px 12px; color: var(--workspace-blue); font-size: 10px; }
 .oauth-button {
   display: inline-flex;
   align-items: center;

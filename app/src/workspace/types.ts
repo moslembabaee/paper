@@ -18,5 +18,4 @@ export interface UserProfile {
   avatar: string
   workspaceName: string
   defaultGrid: boolean
-  mcpToken: string
 }
