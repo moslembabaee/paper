@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { PaperMcpServer } from '../mcp/server.ts'
 import type { PaperToolBackend } from '../mcp/server.ts'
-import { basicInfo, exportCanvas, mutateCanvas, readCanvas } from '../src/mcp/operations.ts'
+import { basicInfo, exportCanvas, mutateCanvas, readCanvas, searchLayers, selectionContext } from '../src/mcp/operations.ts'
 import type { ToolArguments } from '../src/mcp/operations.ts'
 import { paperTools } from '../src/mcp/schema.ts'
 import type { PaperTool } from '../src/mcp/schema.ts'
@@ -48,6 +48,8 @@ class RemoteWorkspace implements PaperToolBackend {
       const project = saved?.document ?? createProject(new SceneStore(), String(input.project_name ?? 'Untitled'), { x: 0, y: 0, zoom: 1 }, true)
       let output: Record<string, unknown>
       if (name === 'get_basic_info') output = basicInfo(project)
+      else if (name === 'get_selection_context') output = selectionContext(project, (input.element_ids as string[] | undefined) ?? [], { projectId: id, project_id: id, revision: saved!.revision })
+      else if (name === 'search_layers') output = searchLayers(project, input, { projectId: id, project_id: id, revision: saved!.revision })
       else if (name === 'get_canvas_elements') output = readCanvas(project, input.element_ids as string[] | undefined)
       else if (name === 'list_tokens') output = { tokens: (project.scene.tokens ?? []).filter(token => !input.type || token.type === input.type) }
       else if (name === 'export_selection') output = exportCanvas(project, input)
@@ -169,7 +171,7 @@ export class RemoteMcpGateway {
         authorized: () => this.sessions.get(id) === newSession && Date.now() - newSession.lastSeen < sessionLifetime && this.auth.bearer(token)?.id === agent.id,
         server: new PaperMcpServer(new RemoteWorkspace(this.storage, agent.id, () => newSession.authorized(), this.changed), {
           tools: remoteTools, protocolVersions: versions, serverInfo: { name: 'paper-cloud', version: '1.0.0' }, experimental: { 'paper/project-changed': {} },
-          instructions: 'Call list_projects, then pass project_id to each tool. Edits work with the browser closed. Pass expected_revision from a read to guard against stale edits. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Exports return inline; filesystem paths are never accepted. GET /mcp can deliver optional notifications/paper/project_changed events; reconcile with list_projects after reconnecting.',
+          instructions: 'Call list_projects, then pass project_id to each tool. Start with get_basic_info, then search_layers and get_selection_context with explicit element_ids (headless mode has no human selection). These bounded reads publish input/output schemas in tools/list; inspect truncation and continue using nextCursor with identical filters. Edits work with the browser closed. Pass the opaque revision from targeted context/search as expected_revision to guard against stale edits; restart reads after conflicts. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Exports return inline; filesystem paths are never accepted. GET /mcp can deliver optional notifications/paper/project_changed events; reconcile with list_projects after reconnecting.',
         }),
       }
       const reply = await newSession.server.handle(message)

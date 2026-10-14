@@ -143,10 +143,48 @@ export const projectSchema = {
   }, ['format', 'version', 'name', 'grid', 'viewport', 'scene']),
 }
 
+// Exact compact read contracts. Large strings and paths are previews.
+const layerType: JsonSchema = { type: 'string', enum: Object.keys(specific) }
+const preview = (maxLength: number): JsonSchema => ({ type: 'string', maxLength })
+const boundsSchema = object({ x: num, y: num, width: nonnegative, height: nonnegative }, ['x', 'y', 'width', 'height'])
+const componentSummarySchema = object({ id: str(), name: preview(160), kind: { type: 'string', enum: ['master', 'instance'] }, masterId: str(), sourceId: str(), instanceId: str(), propertyCount: nonnegative }, ['id', 'name', 'kind'])
+const compactProperties = {
+  id: str(), name: preview(160), type: layerType, parentId: nullable(str()),
+  ...geometry, zIndex: { type: 'integer', minimum: 0 } as JsonSchema, visible: flag, locked: flag,
+  effectiveVisible: flag, effectiveLocked: flag, effectiveBounds: boundsSchema, truncated: flag,
+  style: object({ fill: nullable(preview(160)), opacity: num, stroke: nullable(object({ color: preview(160), width: nonnegative }, ['color', 'width'])), shaderKind: nullable({ type: 'string', enum: shaderKinds }), effectCount: nonnegative }, ['fill', 'opacity', 'stroke', 'shaderKind', 'effectCount']),
+}
+const compactElementSchema = object({
+  ...compactProperties, tokenBindings, sharedStyleBindings, component: componentSummarySchema, sizing,
+  cornerRadius: nonnegative, clipContent: flag, childCount: nonnegative, layout,
+  text: preview(256), fontFamily: preview(160), fontSize: positive, fontWeight: num, lineHeight: positive, letterSpacing: num, textAlign: specific.text.textAlign,
+  alt: preview(160), fit: specific.image.fit, fillRule: specific.path.fillRule,
+}, Object.keys(compactProperties))
+const readIdentity = { projectId: str(), revision: str(), file: str(), live: flag, project_id: str() }
+const omissions = { elements: nonnegative, ancestors: nonnegative, siblings: nonnegative, linkedTokens: nonnegative, sharedStyles: nonnegative, components: nonnegative }
+const tokenPreviewValue: JsonSchema = { anyOf: [preview(256), num] }
+export const selectionContextOutputSchema: JsonSchema = object({
+  ...readIdentity, empty: flag, selectionCount: nonnegative,
+  elements: { ...list(compactElementSchema), maxItems: 50 }, ancestors: { ...list(compactElementSchema), maxItems: 40 }, siblings: { ...list(compactElementSchema), maxItems: 30 }, effectiveBounds: nullable(boundsSchema),
+  linkedTokens: { ...list(object({ id: str(), name: str(), type: { type: 'string', enum: Object.keys(TOKEN_META) }, value: tokenPreviewValue, resolvedValue: tokenPreviewValue, aliasId: str(), truncated: flag }, ['id', 'name', 'type', 'value', 'resolvedValue', 'truncated'])), maxItems: 50 },
+  sharedStyles: { ...list(object({ id: str(), name: str(), kind: { type: 'string', enum: ['color', 'typography', 'effects'] }, tokenIds: list(str()) }, ['id', 'name', 'kind', 'tokenIds'])), maxItems: 50 },
+  components: { ...list(componentSummarySchema), maxItems: 50 }, truncated: flag, omitted: object(omissions, Object.keys(omissions)),
+}, ['projectId', 'revision', 'empty', 'selectionCount', 'elements', 'ancestors', 'siblings', 'effectiveBounds', 'linkedTokens', 'sharedStyles', 'components', 'truncated', 'omitted'])
+const searchResultProperties = {
+  id: str(), name: preview(160), type: layerType, parentId: nullable(str()),
+  parentPath: { ...list(preview(160)), maxItems: 20 }, ancestorIds: { ...list(str()), maxItems: 20 },
+  pathTruncated: flag, nameTruncated: flag, visible: flag, locked: flag, bounds: boundsSchema,
+}
+export const searchLayersOutputSchema: JsonSchema = object({
+  ...readIdentity, results: { ...list(object({ ...searchResultProperties, text: preview(120), textTruncated: flag, shaderKind: { type: 'string', enum: shaderKinds } }, Object.keys(searchResultProperties))), maxItems: 100 },
+  total: nonnegative, offset: nonnegative, limit: { type: 'integer', minimum: 1, maximum: 100 }, hasMore: flag, nextCursor: nullable(str()), truncated: flag,
+}, ['projectId', 'revision', 'results', 'total', 'offset', 'limit', 'hasMore', 'nextCursor', 'truncated'])
+
 export interface PaperTool {
   readonly name: string
   readonly description: string
   readonly inputSchema: JsonSchema
+  readonly outputSchema?: JsonSchema
   readonly annotations: { readonly readOnlyHint: boolean; readonly destructiveHint: boolean; readonly idempotentHint: boolean; readonly openWorldHint: boolean }
 }
 const file = str('Paper JSON file path within the configured workspace. Omit to use the active live editor, or --file in offline mode.')
@@ -161,9 +199,17 @@ export function patchSchema(type: string): JsonSchema {
 }
 const allPatchFields = Object.assign({}, ...Object.values(specific)) as Record<string, JsonSchema>
 delete allPatchFields.children
-const tool = (name: string, description: string, inputSchema: JsonSchema, readOnly = false): PaperTool => ({ name, description, inputSchema, annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly && name === 'update_element', idempotentHint: readOnly || name === 'update_element', openWorldHint: false } })
+const tool = (name: string, description: string, inputSchema: JsonSchema, readOnly = false, outputSchema?: JsonSchema): PaperTool => ({ name, description, inputSchema, ...(outputSchema ? { outputSchema } : {}), annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly && name === 'update_element', idempotentHint: readOnly || name === 'update_element', openWorldHint: false } })
 export const paperTools: readonly PaperTool[] = [
   tool('get_basic_info', 'Identify the currently open file, artboards, selection, node count and revision before editing.', object(base), true),
+  tool('get_selection_context', 'Read only the human selection in live mode; file/remote mode has no selection, so pass element_ids. Empty selection returns empty:true; any invalid ID is an error. Document order, root-to-parent ancestors, and up to five adjacent siblings per side. World AABB includes nested center rotations; effective flags include ancestors. Linked token aliases, style references and component masters are compact. Complete result is capped at 32 KiB: check truncated and omitted counters. Use returned opaque revision as expected_revision when editing.', object({ ...base, element_ids: { ...list(str()), maxItems: 200 } }), true, selectionContextOutputSchema),
+  tool('search_layers', 'Case-insensitive substring search of layer name, full text and type in one project. Includes hidden/locked layers by default; visible/locked filter local flags. parentId filters direct children (null for roots); scope_id traverses frame descendants only. Invalid scope/parent IDs are errors. Document paint order; default 20 results, max 100 and 32 KiB. Paths keep the nearest 20 ancestors. Return nextCursor unchanged with identical filters and limit; a changed revision/project invalidates it. Use revision as expected_revision for edits.', object({ ...base,
+    query: { type: 'string', maxLength: 512, description: 'Optional substring; empty/whitespace matches all layers.' },
+    type: layerType, types: { ...list(layerType), maxItems: 6 },
+    parentId: nullable(str('Direct parent frame; null matches roots.')), parent_id: nullable(str('Alias of parentId.')),
+    scope_id: str('Frame whose descendants are searched, excluding the frame.'), scopeId: str('Alias of scope_id.'),
+    visible: flag, locked: flag, limit: { type: 'integer', minimum: 1, maximum: 100 }, cursor: { ...str('Opaque continuation, bound to project, revision, filters and limit.'), maxLength: 200 },
+  }), true, searchLayersOutputSchema),
   tool('list_tokens', 'List design tokens in the active file. Optional type filters the result.', object({ ...base, type: { type: 'string', enum: Object.keys(TOKEN_META) } }), true),
   tool('create_token', 'Create a named design token. Names use lowercase kebab-case; values follow the token type. Creation is atomic and undoable.', object({ ...base, expected_revision: revision, id: str(), name: { ...str(), pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 100 }, type: { type: 'string', enum: Object.keys(TOKEN_META) }, value: { anyOf: [str(), num] } }, ['name', 'type', 'value'])),
   tool('get_canvas_elements', 'Read the latest canvas, hierarchy, project settings and file revision. Coordinates are relative to the parent frame, in pixels; the engineering grid is 120px. Optional element_ids includes those elements and their descendants.', object({ ...base, element_ids: { ...list(str()), minItems: 1 } }), true),

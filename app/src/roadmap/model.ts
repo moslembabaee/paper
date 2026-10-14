@@ -36,9 +36,10 @@ export function parseRoadmap(value: unknown, options: { mode?: RoadmapFeed['mode
   if (!record(value) || !Array.isArray(value.tasks)) throw new Error('Invalid roadmap feed.')
   const ids = new Set<string>()
   const tasks = value.tasks.map((task: unknown): RoadmapTask => {
+    const status = record(task) && task.status === 'pending_approval' ? 'waiting_approval' : (record(task) ? task.status : undefined)
     if (!record(task) || typeof task.id !== 'string' || !task.id.trim() || ids.has(task.id)
       || typeof task.title !== 'string' || !task.title.trim()
-      || !taskStatuses.includes(task.status as TaskStatus)) throw new Error('Invalid roadmap task.')
+      || !taskStatuses.includes(status as TaskStatus)) throw new Error('Invalid roadmap task.')
     ids.add(task.id)
     const completedAt = utcTimestamp(task.completed_at)
     if (task.completed_at !== undefined && !completedAt) throw new Error('Invalid completion date.')
@@ -46,7 +47,7 @@ export function parseRoadmap(value: unknown, options: { mode?: RoadmapFeed['mode
       id: task.id, title: task.title,
       phase: typeof task.phase === 'string' ? task.phase : 'Community & Issues',
       assigned_agent: typeof task.assigned_agent === 'string' ? task.assigned_agent : 'unassigned',
-      status: task.status as TaskStatus,
+      status: status as TaskStatus,
       ...(completedAt ? { completed_at: completedAt } : {}),
     }
   })

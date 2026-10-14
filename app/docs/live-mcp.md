@@ -30,7 +30,9 @@ Vite also serves `/mcp` on its own port. If 29979 is occupied, use `--live http:
 | Tool | Behavior |
 | --- | --- |
 | `get_basic_info` | Active project ID, file name, top-level artboards, node count, human selection, grid size, and revision |
-| `get_canvas_elements` | Current scene, hierarchy, tokens and project settings; optional `element_ids` includes descendants |
+| `get_selection_context` | Bounded context for current human selection (or explicit `element_ids`): compact element summaries, ancestor chain, adjacent siblings, effective world bounds, and linked tokens/styles/components |
+| `search_layers` | Case-insensitive substring search of layer name, text, and type with scoping (`parentId`, `scope_id`), filters (`visible`, `locked`), and deterministic pagination (`limit`, `cursor`) |
+| `get_canvas_elements` | Full scene dump, hierarchy, tokens and project settings; optional `element_ids` includes descendants |
 | `create_frame` | Creates an undoable frame in the active scene |
 | `update_element` | Validates and applies an atomic patch, including reparenting or reordering |
 | `add_shader_shape` | Creates a native shader rectangle or ellipse |
@@ -38,7 +40,16 @@ Vite also serves `/mcp` on its own port. If 29979 is occupied, use `--live http:
 | `create_token` | Creates an undoable token with a unique lowercase kebab-case name and a value matching its type |
 | `export_selection` | Returns JSON or SVG inline; live mode does not write disk files |
 
-Call `get_basic_info` to verify the active project before editing. Pass the returned opaque `revision` as `expected_revision` on mutations. Human document edits and tab synchronization advance revisions; selecting layers and reading artwork do not. Live tools reject `file`; explicit offline mode is required to address a disk file.
+## Recommended agent workflow
+
+Avoid dumping the entire scene with `get_canvas_elements` on large documents. Use the bounded agent workflow:
+
+1. **Basic info**: Call `get_basic_info` to verify the active project ID, file name, artboard list, current human selection, and document `revision`.
+2. **Targeted search/context**:
+   - In live mode with a human selection, call `get_selection_context` with `{}` to inspect selected layers, their root-to-parent ancestor chain, up to 5 adjacent siblings per side, center-rotated effective bounds, and linked tokens, styles, and components within a deterministic 32 KiB budget.
+   - To locate specific layers across the project or within a frame subtree, call `search_layers` with targeted filters (`query`, `type`, `parentId`, `scope_id`, `visible`, `locked`). When `hasMore` is true, pass `nextCursor` with identical filters to continue paginating deterministically.
+   - In headless or offline file mode (or to inspect unselected elements), call `get_selection_context` with explicit `element_ids`. Empty selection returns `empty: true`; invalid IDs fail explicitly.
+3. **Edit with revision**: Pass the opaque `revision` from `get_basic_info`, `get_selection_context`, or `search_layers` as `expected_revision` on subsequent mutations (`update_element`, `create_frame`, `add_shader_shape`, `create_token`). This ensures mutations fail atomically if human edits or concurrent sync have changed the scene.
 
 Example arguments:
 
@@ -48,6 +59,14 @@ Example arguments:
 
 ```json
 {"name":"agent-blue","type":"color","value":"#81adec","expected_revision":"<last revision>"}
+```
+
+```json
+{"query":"button","limit":20}
+```
+
+```json
+{"element_ids":["hero","button"]}
 ```
 
 ## Synchronization and recovery

@@ -70,6 +70,9 @@ test('all five tools work over a real child-process stdio connection and survive
     { id: 4, method: 'tools/call', params: { name: 'update_element', arguments: { element_id: 'shader', patch: { x: 24, style: { opacity: .5 } } } } },
     { id: 5, method: 'tools/call', params: { name: 'get_canvas_elements', arguments: {} } },
     { id: 6, method: 'tools/call', params: { name: 'export_selection', arguments: { element_ids: ['frame'], output: 'export.paper.json' } } },
+    { id: 7, method: 'tools/call', params: { name: 'get_basic_info', arguments: {} } },
+    { id: 8, method: 'tools/call', params: { name: 'get_selection_context', arguments: { element_ids: ['shader'] } } },
+    { id: 9, method: 'tools/call', params: { name: 'search_layers', arguments: { query: 'RECTANGLE', limit: 1 } } },
   ].map(message => JSON.stringify({ jsonrpc: '2.0', ...message })).join('\n') + '\n'
   // Deliberately split a UTF-8 character across writes, then send many messages
   // in one chunk. This catches transport framing and mutation ordering errors.
@@ -81,10 +84,19 @@ test('all five tools work over a real child-process stdio connection and survive
   assert.equal(code, 0, stderr)
   assert.equal(stderr, '')
   assert.equal(pending, '')
-  assert.equal(responses.length, 7)
+  assert.equal(responses.length, 10)
   assert.equal(responses[0].result.protocolVersion, '2025-06-18')
   assert.deepEqual(responses[1].result.tools.map(tool => tool.name), paperTools.map(tool => tool.name))
   for (const response of responses.slice(2)) assert.equal(response.result.isError, false, JSON.stringify(response))
+  const context = responses[8].result.structuredContent
+  assert.equal(context.projectId, 'stdio.paper.json')
+  assert.equal(context.elements[0].id, 'shader')
+  assert.equal(context.ancestors[0].id, 'frame')
+  assert.equal(responses[9].result.structuredContent.results[0].id, 'shader')
+  for (const [index, name] of [[8, 'get_selection_context'], [9, 'search_layers']]) {
+    const tool = responses[1].result.tools.find(tool => tool.name === name)
+    validateSchema(responses[index].result.structuredContent, tool.outputSchema)
+  }
   const project = parseProject(await readFile(join(workspace, 'stdio.paper.json'), 'utf8'))
   assert.equal(project.name, 'Paper studio')
   assert.equal(project.scene.elements.frame.name, 'Étude — 紙')

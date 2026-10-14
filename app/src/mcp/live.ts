@@ -2,7 +2,7 @@ import { MAX_IMPORT_BYTES, parseProject } from '../io/project.ts'
 import type { PaperProject } from '../io/project.ts'
 import { equalValue } from '../scene/history.ts'
 import type { SceneStore } from '../scene/store.ts'
-import { basicInfo, exportCanvas, mutateCanvas, readCanvas } from './operations.ts'
+import { basicInfo, exportCanvas, mutateCanvas, readCanvas, searchLayers, selectionContext } from './operations.ts'
 import type { ToolArguments } from './operations.ts'
 import type { AgentActivity } from './protocol.ts'
 import { paperTools, validateSchema } from './schema.ts'
@@ -153,6 +153,23 @@ export class LiveCanvas {
     const project = getProject()
     const context = () => ({ file: projectId, projectId, revision: this.revision, live: true })
     if (name === 'get_basic_info') return { ...context(), ...basicInfo(project, store.getSnapshot().selection) }
+    if (name === 'get_selection_context') {
+      const ids = args.element_ids !== undefined ? (args.element_ids as string[]) : store.getSnapshot().selection
+      const result = selectionContext(project, ids, context())
+      if (result.elements.length > 0) {
+        this.highlight(result.elements.map(node => node.id), name)
+        this.broadcastActivity()
+      }
+      return { ...context(), ...result }
+    }
+    if (name === 'search_layers') {
+      const result = searchLayers(project, args, context())
+      if (result.results.length > 0) {
+        this.highlight(result.results.map(node => node.id), name)
+        this.broadcastActivity()
+      }
+      return { ...context(), ...result }
+    }
     if (name === 'get_canvas_elements') {
       const result = readCanvas(project, args.element_ids as string[] | undefined)
       if (args.element_ids) { this.highlight(result.elements.map(node => node.id), name); this.broadcastActivity() }

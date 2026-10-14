@@ -2,8 +2,20 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-15",
+  "current_task_id": "T-ISSUE-16",
   "tasks": [
+    {
+      "id": "T-ISSUE-16",
+      "phase": "Community & Issues",
+      "title": "Issue #16: feat(agent-first): Smart, bounded design context and layer search for MCP agents",
+      "description": "## Goal\nMake Paper's canvas intelligible to agents without dumping the full scene. This is priority 1 of the agent-first roadmap; priority 2 (atomic edit plans) depends on this read contract.\n\n## Current baseline\n`get_canvas_elements` returns a potentially large full scene; `get_basic_info` is minimal. Live and file-backed MCP share `app/src/mcp/schema.ts` and `operations.ts` but selection exists only in a live editor.\n\n## Deliverables\n1. Add `get_selection_context`: use current human selection in live mode (or explicit element IDs in headless/file mode); return compact element summaries, ancestor chain, immediate relevant siblings, effective bounds, linked tokens/shared styles/components, project ID and opaque revision. Cap payload size and make ordering deterministic; do not return unrelated nodes. Distinguish empty selection from invalid IDs.\n2. Add `search_layers`: case-insensitive name/text/type search with project-scoped traversal, filters, bounded page size, deterministic continuation, and compact results with IDs and parent paths. Default response should stay small on large documents.\n3. Publish exact input/output schemas and tool descriptions in MCP. Support the browser live bridge and offline stdio/remote MCP without changing existing tools or leaking other users' projects.\n4. Document a short agent workflow: basic info \u2192 targeted search/context \u2192 edit with revision.\n\n## Acceptance\n- Unit/integration tests are written first and demonstrate a failing case before implementation.\n- Test nested/rotated frames, locked/hidden nodes, token/component links, empty selection, nonmatching queries, pagination, stale/invalid IDs, and large scenes.\n- Same semantics work through live and file-backed MCP; existing MCP tools remain backward compatible.\n- `npm test`, `npm run build`, and MCP tests pass. No change to an unrelated project's data.\n\nImplementation order: complete and verify this issue before beginning the atomic batch edit issue. Owner requested both issues and sequential implementation in chat.\n\n\nReference: Closes #16",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 16,
+      "completed_at": "2026-10-14T19:49:43.028773"
+    },
     {
       "id": "T-ISSUE-13",
       "phase": "Community & Issues",
@@ -40,7 +52,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 15,
-      "completed_at": "2026-10-14T13:35:09.408598"
+      "completed_at": "2026-10-14T13:35:09.408598",
+      "closed_at": "2026-10-14T13:35:13Z"
     },
     {
       "id": "T-ISSUE-9",

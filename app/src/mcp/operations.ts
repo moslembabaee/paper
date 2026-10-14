@@ -11,6 +11,8 @@ import type { ShaderKind, ShaderPaint } from '../shaders/types.ts'
 import type { TokenInput } from '../tokens/types.ts'
 import { patchSchema, validateSchema } from './schema.ts'
 
+export { selectionContext, searchLayers } from './context.ts'
+
 export type ToolArguments = Record<string, unknown>
 
 export function projectStore(project: PaperProject): SceneStore {

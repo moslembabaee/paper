@@ -210,6 +210,15 @@ test('stdio live backend negotiates HTTP MCP and receives actual browser mutatio
   await issue('create_token', { name: 'bridge-blue', type: 'color', value: '#81adec' })
   assert.equal((await issue('list_tokens')).tokens[0].value, '#81adec')
 
+  store.select(['via-stdio'])
+  const selected = await issue('get_selection_context')
+  assert.equal(selected.elements[0].id, 'via-stdio')
+  assert.equal(selected.projectId, info.projectId)
+  const page = await issue('search_layers', { query: 'frame', limit: 1 })
+  assert.equal(page.results[0].id, 'via-stdio')
+  assert.equal(page.revision, selected.revision)
+  assert.equal(store.getSnapshot().selection[0], 'via-stdio')
+
   bridge.close()
   await send('/api/paper/connect', { clientId: live.clientId, projectId: 'project-a', focused: true })
   await assert.rejects(client.call('create_frame', { id: 'never-replayed' }), /404/)

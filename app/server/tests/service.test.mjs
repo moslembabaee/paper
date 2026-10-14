@@ -498,7 +498,7 @@ test('remote MCP enforces lifecycle, validates transport, and binds sessions to 
   assert.equal((await f.request('/mcp', { headers: { ...headers, Accept: 'text/event-stream' } })).status, 400)
   assert.equal((await send({ jsonrpc: '2.0', method: 'notifications/initialized' }, headers)).status, 202)
   const tools = await send({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, headers)
-  assert.equal(tools.data.result.tools.length, 9)
+  assert.equal(tools.data.result.tools.length, 11)
   for (const tool of tools.data.result.tools.slice(1)) {
     assert.ok(tool.inputSchema.required.includes('project_id'))
     assert.equal(tool.inputSchema.properties.file, undefined)
@@ -620,4 +620,63 @@ test('revoking a token while a remote mutation waits for its project lock preven
   const response = await mutation
   assert.equal(response.data.result.isError, true)
   assert.equal(await f.storage.read(a.user.id, 'queued'), null)
+})
+
+test('bounded remote reads publish schemas, match shared semantics and isolate accounts and projects', async t => {
+  const { createProject } = await import('../dist/src/io/project.js')
+  const { selectionContext, searchLayers } = await import('../dist/src/mcp/context.js')
+  const { validateSchema } = await import('../dist/src/mcp/schema.js')
+  const f = await fixture(t), a = await f.login('context-a'), b = await f.login('context-b')
+  const store = new SceneStore()
+  const token = store.addToken({ name: 'blue', type: 'color', value: '#81adec' })
+  const root = store.add('frame', { id: 'root', name: 'Private A', rotation: 45 })
+  store.add('frame', { id: 'card', parentId: root.id, rotation: -15 })
+  store.add('text', { id: 'heading', parentId: 'card', text: 'Hello agent', tokenBindings: { fill: token.id } })
+  store.add('rectangle', { id: 'locked', parentId: 'card', locked: true })
+  store.add('text', { id: 'hidden', parentId: 'card', text: 'Private note', visible: false })
+  const document = createProject(store, 'Context study', { x: 0, y: 0, zoom: 1 }, true)
+  const put = (user, id, document) => f.request(`/api/projects/${id}`, { method: 'PUT', headers: user.headers, body: JSON.stringify({ document, updatedAt: Date.now(), expectedRevision: null }) })
+  assert.equal((await put(a, 'study', document)).status, 200)
+  assert.equal((await put(a, 'unrelated', empty('Unrelated project'))).status, 200)
+  const before = await f.storage.read(a.user.id, 'study')
+  const unrelated = await f.storage.read(a.user.id, 'unrelated')
+  for (const name of ['get_selection_context', 'search_layers']) {
+    const denied = await f.tool(b.token, name, { project_id: 'study' })
+    assert.equal(denied.data.result.isError, true)
+    assert.ok(!JSON.stringify(denied.data).includes('Private A'))
+  }
+  assert.equal((await put(b, 'study', empty('Account B private'))).status, 200)
+  const otherUser = await f.storage.read(b.user.id, 'study')
+  const tools = (await f.rpc(a.token, 'tools/list')).data.result.tools
+  const identity = { projectId: 'study', project_id: 'study', revision: before.revision }
+  const success = async (name, args = {}) => {
+    const reply = await f.tool(a.token, name, { project_id: 'study', ...args })
+    assert.equal(reply.data.result.isError, false, JSON.stringify(reply.data))
+    const result = reply.data.result.structuredContent
+    validateSchema(result, tools.find(tool => tool.name === name).outputSchema)
+    assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 32768)
+    return result
+  }
+  assert.equal((await success('get_selection_context')).empty, true)
+  const context = await success('get_selection_context', { element_ids: ['heading'] })
+  assert.deepEqual(context, selectionContext(before.document, ['heading'], identity))
+  assert.ok(context.linkedTokens.some(t => t.id === token.id))
+  const args = { scope_id: 'card', limit: 1 }
+  const page = await success('search_layers', args)
+  assert.deepEqual(page, searchLayers(before.document, args, identity))
+  assert.equal((await success('search_layers', { ...args, cursor: page.nextCursor })).results[0].id, 'locked')
+  for (const args of [{ element_ids: ['deleted'] }, { element_ids: ['heading', 'deleted'] }]) {
+    assert.equal((await f.tool(a.token, 'get_selection_context', { project_id: 'study', ...args })).data.result.isError, true)
+  }
+  assert.equal((await f.tool(a.token, 'search_layers', { ...args, project_id: 'unrelated', cursor: page.nextCursor })).data.result.isError, true)
+  assert.equal((await f.tool(b.token, 'search_layers', { ...args, project_id: 'study', cursor: page.nextCursor })).data.result.isError, true)
+  assert.deepEqual(await f.storage.read(a.user.id, 'study'), before)
+  assert.deepEqual(await f.storage.read(a.user.id, 'unrelated'), unrelated)
+  assert.deepEqual(await f.storage.read(b.user.id, 'study'), otherUser)
+  const edit = await f.tool(a.token, 'update_element', { project_id: 'study', element_id: 'heading', expected_revision: context.revision, patch: { text: 'Changed with targeted revision' } })
+  assert.equal(edit.data.result.isError, false)
+  assert.equal((await f.tool(a.token, 'search_layers', { project_id: 'study', ...args, cursor: page.nextCursor })).data.result.isError, true)
+  assert.equal((await f.tool(a.token, 'update_element', { project_id: 'study', element_id: 'heading', expected_revision: context.revision, patch: { text: 'Stale' } })).data.result.isError, true)
+  assert.deepEqual(await f.storage.read(a.user.id, 'unrelated'), unrelated)
+  assert.deepEqual(await f.storage.read(b.user.id, 'study'), otherUser)
 })

@@ -10,7 +10,7 @@ const multiply = (a: Matrix, b: Matrix): Matrix => [
 ]
 
 /** Match the renderer's center-origin rotation through every ancestor frame. */
-export function getWorldMatrix(state: SceneSnapshot, id: string): Matrix {
+export function getWorldMatrix(state: Pick<SceneSnapshot, 'elements'>, id: string): Matrix {
   const node = state.elements[id]
   if (!node) throw new Error(`Unknown element: ${id}`)
   const radians = node.rotation * Math.PI / 180
@@ -20,7 +20,7 @@ export function getWorldMatrix(state: SceneSnapshot, id: string): Matrix {
   return multiply(node.parentId === null ? identity : getWorldMatrix(state, node.parentId), local)
 }
 
-export function getWorldBounds(state: SceneSnapshot, id: string): Bounds {
+export function getWorldBounds(state: Pick<SceneSnapshot, 'elements'>, id: string): Bounds {
   const node = state.elements[id]
   if (!node) throw new Error(`Unknown element: ${id}`)
   const [a, b, c, d, e, f] = getWorldMatrix(state, id)

@@ -48,8 +48,11 @@ Use absolute paths so the host's working directory does not affect startup. This
 ## Work with Paper
 
 1. Save a project in Paper with **Save project JSON** (or ⌘/Ctrl S), and place the `.paper.json` file in your workspace.
-2. Ask your agent to read `get_canvas_elements`, then inspect `paper://schema` and `paper://shaders` as needed.
-3. Make edits with `create_frame`, `add_shader_shape`, or `update_element`. Pass the last returned `revision` as `expected_revision` for each subsequent mutation.
+2. Follow the agent-first workflow:
+   - **Basic info**: Call `get_basic_info` to inspect file identity, top-level artboards, element count, and opaque `revision`.
+   - **Targeted search/context**: Call `search_layers` with targeted filters (`query`, `type`, `parentId`, `scope_id`, `visible`, `locked`) or `get_selection_context` with explicit `element_ids` to read compact layer summaries, ancestor chain, adjacent siblings, center-rotated effective bounds, and linked tokens/styles/components without dumping the entire canvas.
+   - **Edit with revision**: Make edits with `create_frame`, `add_shader_shape`, or `update_element`, passing the latest opaque `revision` as `expected_revision`.
+3. Inspect `paper://schema` and `paper://shaders` for schema invariants and supported shader parameters.
 4. Reopen the edited JSON file in Paper with **Open or import file**.
 
 The editor's local-storage document and the file on disk are separate. File edits do not push into a running browser. Save browser edits before handing a file to an agent, and reopen the file after agent edits.
@@ -60,11 +63,14 @@ Every tool accepts an optional `file` relative to the workspace (or an absolute 
 
 | Tool | Inputs | Result |
 | --- | --- | --- |
-| `get_canvas_elements` | Optional `element_ids` | Current project settings, background shader, ordered elements, root IDs, 120px grid size, SHA-256 `revision` |
-| `create_frame` | Optional `id`, `name`, `parentId`, geometry, `style`, `clipContent`, `cornerRadius`, `project_name`, `expected_revision` | Created frame and new file revision |
-| `add_shader_shape` | Required `shader_kind`; optional `shape` (`rectangle` / `ellipse`), geometry, `parentId`, `style`, `params`, `motion`, `expected_revision` | Created shape with a native shader paint and new revision |
-| `update_element` | Required `element_id`, `patch`; optional `parentId`, `index`, `expected_revision` | Updated element and new revision |
-| `export_selection` | Optional `element_ids`, `format` (`json` / `svg`), `background`, `output`, `shader_snapshots` | MIME type, inline file content, selected root IDs; optional new output file |
+| `get_basic_info` | Optional `file` | Active project ID, file name, artboard list, element count, and opaque `revision` |
+| `get_selection_context` | Optional `element_ids`, `file` | Compact element summaries, root-to-parent ancestor chain, adjacent siblings, world effective bounds, linked tokens/styles/components (capped at 32 KiB) |
+| `search_layers` | Optional `query`, `type`, `types`, `parentId`, `scope_id`, `visible`, `locked`, `limit`, `cursor`, `file` | Bounded matching layers with IDs, types, bounds, parent paths, total count, and deterministic continuation `nextCursor` |
+| `get_canvas_elements` | Optional `element_ids`, `file` | Current project settings, background shader, ordered elements, root IDs, 120px grid size, SHA-256 `revision` |
+| `create_frame` | Optional `id`, `name`, `parentId`, geometry, `style`, `clipContent`, `cornerRadius`, `project_name`, `expected_revision`, `file` | Created frame and new file revision |
+| `add_shader_shape` | Required `shader_kind`; optional `shape` (`rectangle` / `ellipse`), geometry, `parentId`, `style`, `params`, `motion`, `expected_revision`, `file` | Created shape with a native shader paint and new revision |
+| `update_element` | Required `element_id`, `patch`; optional `parentId`, `index`, `expected_revision`, `file` | Updated element and new revision |
+| `export_selection` | Optional `element_ids`, `format` (`json` / `svg`), `background`, `output`, `shader_snapshots`, `file` | MIME type, inline file content, selected root IDs; optional new output file |
 
 Coordinates are in pixels relative to the parent frame; rotation is in degrees about the element center. Default frames are 720 × 480px, clipped, and filled with `#edebe1`. Default shapes are 120 × 120px. Shader defaults use Paper's cream, ink, blue, and charcoal palette.
 

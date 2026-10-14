@@ -69,7 +69,7 @@ export class PaperMcpServer {
         protocolVersion: (this.options.protocolVersions ?? PROTOCOL_VERSIONS).find(version => version === params.protocolVersion) ?? (this.options.protocolVersions ?? PROTOCOL_VERSIONS)[0],
         capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false }, ...(this.options.experimental ? { experimental: this.options.experimental } : {}) },
         serverInfo: this.options.serverInfo ?? { name: 'paper', version: SERVER_VERSION },
-        instructions: this.options.instructions ?? 'Paper edits the focused live browser canvas, or portable .paper.json files in offline mode. Read get_canvas_elements before editing and pass expected_revision to avoid stale writes. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Without --file, tools operate on the focused browser editor and changes appear immediately. Call get_basic_info to verify the active project. With --file, tools edit an offline JSON file. SVG shaders need browser snapshots; JSON preserves the native shader paint.',
+        instructions: this.options.instructions ?? 'Paper edits the focused live browser canvas, or portable .paper.json files in offline mode. Start with get_basic_info, then search_layers and get_selection_context for targeted context. In offline mode pass explicit element_ids; only the live editor has a human selection. Inspect truncated/omitted metadata and continue searches with nextCursor and identical filters. Pass the returned opaque revision as expected_revision when editing; restart reads after a revision conflict. tools/list publishes exact input/output schemas for these bounded reads. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Without --file, tools operate on the focused browser editor and changes appear immediately. With --file, tools edit an offline JSON file. SVG shaders need browser snapshots; JSON preserves the native shader paint.',
       }
     }
     if (this.state !== 'ready') throw new RpcError(-32002, 'Initialize and send notifications/initialized before using Paper')
@@ -84,6 +84,7 @@ export class PaperMcpServer {
       try {
         validateSchema(args, tool.inputSchema)
         const result = await this.files.call(tool.name, args as Record<string, unknown>)
+        if (tool.outputSchema) validateSchema(result, tool.outputSchema, 'result')
         return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result, isError: false }
       } catch (error) {
         return { content: [{ type: 'text', text: error instanceof Error ? error.message : 'Paper tool failed' }], isError: true }
