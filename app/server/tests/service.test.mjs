@@ -67,7 +67,7 @@ async function fixture(t, extra = {}) {
 }
 const empty = name => ({ format: 'paper', version: 1, name, viewport: { x: 0, y: 0, zoom: 1 }, grid: true, scene: { version: 1, elements: {}, rootIds: [] } })
 
-test('guest sessions are optional; private endpoints require session and CSRF guard', async t => {
+test('session discovery is public; private endpoints require session and CSRF guard', async t => {
   const f = await fixture(t)
   assert.equal((await f.request('/api/auth/session')).data.user, null)
   assert.equal((await f.request('/api/projects')).status, 401)
@@ -76,6 +76,89 @@ test('guest sessions are optional; private endpoints require session and CSRF gu
   assert.equal((await f.request('/api/projects', { headers: { ...a.headers, Origin: 'https://evil.test' } })).status, 403)
   assert.equal((await f.request('/api/projects', { headers: { ...a.headers, 'X-Paper-Account': 'another-account' } })).status, 403)
   assert.equal((await f.request('/mcp', { method: 'POST', headers: { ...a.headers, Accept: 'application/json, text/event-stream' }, body: '{}' })).status, 401)
+})
+
+test('every project endpoint rejects missing, invalid and revoked sessions before accessing data', async t => {
+  const f = await fixture(t), a = await f.login('private-account')
+  const document = empty('Private study')
+  const created = await f.request('/api/projects/private-project', {
+    method: 'PUT', headers: a.headers,
+    body: JSON.stringify({ document, expectedRevision: null, updatedAt: Date.now() }),
+  })
+  assert.equal(created.status, 200)
+  const credentials = [
+    {},
+    { Cookie: 'paper_session=invalid' },
+    { Cookie: `paper_session=${'a'.repeat(43)}` },
+    { Authorization: `Bearer ${a.token}` },
+    { 'X-Paper-Account': a.user.id, 'X-Paper-Client': 'web' },
+    { Cookie: 'paper_session=invalid', 'X-Paper-Account': a.user.id, 'X-Paper-Client': 'web' },
+  ]
+  await f.auth.logout(a.session)
+  credentials.push(a.headers)
+  const endpoints = [
+    ['GET', '/api/projects'],
+    ['GET', '/api/projects/private-project'],
+    ['GET', '/api/projects/nonexistent'],
+    ['PUT', '/api/projects/private-project'],
+    ['PUT', '/api/projects/new-project'],
+    // Unsupported methods and invalid IDs must not bypass the session guard.
+    ['POST', '/api/projects'],
+    ['DELETE', '/api/projects/private-project'],
+    ['PATCH', '/api/projects/private-project'],
+    ['PUT', '/api/projects/bad%2Fid'],
+  ]
+  for (const headers of credentials) {
+    for (const [method, path] of endpoints) {
+      const response = await f.request(path, { method, headers, body: method === 'PUT' ? '{}' : undefined })
+      assert.equal(response.status, 401, `${method} ${path} must require a browser session`)
+      assert.deepEqual(response.data, { error: 'Sign in to access cloud projects' })
+      assert.equal(response.headers.get('cache-control'), 'no-store')
+    }
+  }
+  assert.equal((await f.storage.read(a.user.id, 'private-project')).revision, created.data.revision)
+  assert.equal(await f.storage.read(a.user.id, 'new-project'), null)
+})
+
+test('expired browser sessions cannot list, read or write projects', async t => {
+  const f = await fixture(t), a = await f.login('expired-account')
+  const now = Date.now()
+  t.mock.method(Date, 'now', () => now + 31 * 86400_000)
+  for (const [method, path] of [['GET', '/api/projects'], ['GET', '/api/projects/private'], ['PUT', '/api/projects/private']]) {
+    assert.equal((await f.request(path, { method, headers: a.headers, body: method === 'PUT' ? '{}' : undefined })).status, 401)
+  }
+})
+
+test('remote MCP requires a valid Bearer token on every transport method and never falls back to cookies', async t => {
+  const f = await fixture(t), a = await f.login('agent-account')
+  const rejected = [undefined, '', a.token, `Basic ${a.token}`, 'Bearer', 'Bearer paper_short',
+    `Bearer paper_${'a'.repeat(43)}`, `Bearer ${a.token} extra`, `Bearer ${a.token}, Bearer ${a.token}`]
+  for (const authorization of rejected) {
+    for (const method of ['POST', 'GET', 'DELETE']) {
+      const response = await f.request('/mcp', {
+        method,
+        headers: { ...a.headers, Accept: 'application/json, text/event-stream',
+          ...(authorization === undefined ? {} : { Authorization: authorization }) },
+        body: method === 'POST' ? '{}' : undefined,
+      })
+      assert.equal(response.status, 401, `${method} /mcp must authenticate before handling the transport`)
+      assert.equal(response.headers.get('www-authenticate'), 'Bearer realm="Paper"')
+      assert.deepEqual(response.data, { error: 'Invalid MCP token' })
+    }
+  }
+  // A cookie is neither necessary nor sufficient for the remote gateway.
+  const initialized = await f.rpc(a.token, 'initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'auth-test', version: '1' } })
+  assert.equal(initialized.status, 200)
+  assert.ok(initialized.headers.get('mcp-session-id'))
+  assert.equal((await f.rpc(a.token, 'ping')).status, 200)
+  await f.auth.revoke(a.user.id)
+  for (const method of ['POST', 'GET', 'DELETE']) {
+    const response = await f.request('/mcp', {
+      method, headers: { ...a.headers, Authorization: `Bearer ${a.token}`, 'MCP-Session-Id': f.sessions.get(a.token) },
+      body: method === 'POST' ? '{}' : undefined,
+    })
+    assert.equal(response.status, 401, 'revoked tokens must not authorize an existing MCP session')
+  }
 })
 
 test('headless MCP edits persist, export correctly, and never cross account boundaries', async t => {

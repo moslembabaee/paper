@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/*.test.mjs",
+    "test": "node --experimental-strip-types --test tests/*.test.mjs && npm run test:cloud",
     "test:e2e": "playwright test",
     "dev": "vite",
     "build": "tsc -b && vite build && npm run build:mcp && npm run build:server",

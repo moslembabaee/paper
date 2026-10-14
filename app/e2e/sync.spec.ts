@@ -1,8 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
-import type { CloudProject } from '../src/cloud/model'
+import type { CloudProject, CloudUser } from '../src/cloud/model'
 import type { LocalProject } from '../src/workspace/types'
 
-const user = { id: 'sync-account', email: 'sync@paper.test', name: 'Sync Designer', avatar: '', createdAt: 1, hasMcpToken: false }
+const user: CloudUser = { id: 'sync-account', provider: 'github', email: 'sync@paper.test', name: 'Sync Designer', avatar: '', createdAt: 1, hasMcpToken: false }
 
 async function records(page: Page): Promise<LocalProject[]> {
   return page.evaluate(async () => {
@@ -25,7 +25,7 @@ async function setup(page: Page) {
   const server = {
     remote: undefined as CloudProject | undefined,
     extra: new Map<string, CloudProject>(),
-    puts: 0, lists: 0, unauthorized: false,
+    puts: 0, lists: 0, unauthorized: false, signedIn: true,
     hold: undefined as Promise<void> | undefined,
     conflict: undefined as CloudProject | undefined,
   }
@@ -38,12 +38,16 @@ async function setup(page: Page) {
     Object.defineProperty(window, 'EventSource', { value: Events })
   })
   await page.route('**/cloud.json', route => route.fulfill({ json: { cloud: true } }))
-  await page.route('**/api/auth/session', route => route.fulfill({ json: { user, providers: { google: false, github: true } } }))
+  // Exercise cloud persistence independently of the dev server's live room state.
+  // A relay snapshot from before the offline edit can otherwise replace the restored scene.
+  await page.route('**/__paper_collaboration/**', route => route.fulfill({ status: 503, json: { error: 'Relay unavailable in cloud-sync tests' } }))
+  await page.route('**/api/auth/session', route => route.fulfill({ json: { user: server.signedIn ? user : null, providers: { google: false, github: true } } }))
   await page.route('**/api/projects', route => {
     server.lists++
     return route.fulfill(server.unauthorized ? { status: 401, json: { error: 'Expired' } } : { json: { projects: [...(server.remote ? [server.remote] : []), ...server.extra.values()].map(({ id, revision }) => ({ id, revision })) } })
   })
   await page.route('**/api/projects/*', async route => {
+    if (server.unauthorized) { await route.fulfill({ status: 401, json: { error: 'Expired' } }); return }
     const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()!)
     if (server.remote && id !== server.remote.id) {
       if (route.request().method() === 'PUT') {
@@ -66,6 +70,8 @@ async function setup(page: Page) {
     await route.fulfill({ json: server.remote })
   })
   await page.goto('/')
+  await expect(page.getByTestId('canvas-viewport')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Paper — Space to think.' })).toHaveCount(0)
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
   return { server, errors }
@@ -84,8 +90,8 @@ test('offline edits survive reload and reconnect without a cloud write loop', as
   await expect(page.getByTestId('sync-status')).toHaveText('Offline · saved locally')
   await page.screenshot({ path: '/tmp/paper-sync-offline.png' })
   // Dev-server reload needs the network; keep cloud unavailable until the draft is restored.
-  await context.setOffline(false)
   server.unauthorized = true
+  await context.setOffline(false)
   await page.reload()
   await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('Offline exploration')
   await expect(page.getByTestId('sync-status')).toHaveText('Sign in to sync')
@@ -113,11 +119,12 @@ test('edits made during an upload remain queued and selection does not resave', 
   let release!: () => void
   server.hold = new Promise<void>(resolve => { release = resolve })
   const before = server.puts
-  await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('First upload')
-  await expect.poll(() => server.puts).toBe(before + 1)
-  await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Newer live edit')
-  await expect.poll(async () => (await records(page))[0].document.name).toBe('Newer live edit')
-  release()
+  try {
+    await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('First upload')
+    await expect.poll(() => server.puts).toBe(before + 1)
+    await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Newer live edit')
+    await expect.poll(async () => (await records(page))[0].document.name).toBe('Newer live edit')
+  } finally { release() }
   await expect.poll(() => server.remote?.document.name).toBe('Newer live edit')
   await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
   await page.getByRole('button', { name: 'Add rectangle', exact: true }).click()
@@ -130,6 +137,36 @@ test('edits made during an upload remain queued and selection does not resave', 
   await page.waitForTimeout(1400)
   expect(server.puts).toBe(puts)
   expect((await records(page))[0].updatedAt).toBe(updatedAt)
+  expect(errors).toEqual([])
+})
+
+test('an expired session gates reload, preserves offline edits and resumes after sign-in', async ({ page, context }) => {
+  const { server, errors } = await setup(page)
+  const uploaded = server.puts
+  await context.setOffline(true)
+  await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Draft awaiting sign-in')
+  await page.getByRole('button', { name: 'Add rectangle', exact: true }).click()
+  await expect.poll(async () => (await records(page))[0]?.document.scene.rootIds.length).toBe(1)
+  const draft = (await records(page))[0]
+  expect(draft.cloud?.dirty).toBe(true)
+  server.signedIn = false
+  server.unauthorized = true
+  await context.setOffline(false)
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Paper — Space to think.' })).toBeVisible()
+  await expect(page.getByTestId('canvas-viewport')).toHaveCount(0)
+  const pausedLists = server.lists
+  expect((await records(page))[0].document).toEqual(draft.document)
+  expect(server.puts).toBe(uploaded)
+  await page.waitForTimeout(500)
+  expect(server.lists).toBe(pausedLists)
+  server.signedIn = true
+  server.unauthorized = false
+  await page.reload()
+  await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue(draft.document.name)
+  await expect(page.getByTestId('sync-status')).toHaveText('Saved to Cloud')
+  expect(server.remote?.document.scene.rootIds).toEqual(draft.document.scene.rootIds)
+  expect((await records(page))[0].cloud?.dirty).toBe(false)
   expect(errors).toEqual([])
 })
 

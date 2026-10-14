@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
+import type { CloudUser } from '../src/cloud/model'
 
-const user = { provider: 'github', id: 'test-account', name: 'Cloud Designer', email: 'designer@paper.test', avatar: '', createdAt: 1, hasMcpToken: false }
+const user: CloudUser = { provider: 'github', id: 'test-account', name: 'Cloud Designer', email: 'designer@paper.test', avatar: '', createdAt: 1, hasMcpToken: false }
+const providers = { google: true, github: true }
 async function openProfile(page: Page) {
   await page.getByRole('button', { name: 'User profile menu' }).click()
   await page.getByRole('menuitem', { name: 'Profile & account' }).click()
@@ -71,6 +73,10 @@ test('silent cloud saves, edits, headless pulls and remote token rotation work i
 })
 
 test('signed-out visitors see the login gate with configured providers', async ({ page }) => {
+  const projectRequests: string[] = []
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.startsWith('/api/projects')) projectRequests.push(request.url())
+  })
   await page.route('**/cloud.json', route => route.fulfill({ json: { cloud: true } }))
   await page.route('**/api/auth/session', route => route.fulfill({ json: { user: null, providers: { google: true, github: true } } }))
   await page.goto('/')
@@ -78,6 +84,8 @@ test('signed-out visitors see the login gate with configured providers', async (
   await expect(page.getByRole('heading', { name: 'Paper — Space to think.' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toHaveAttribute('href', '/api/auth/google')
   await expect(page.getByRole('link', { name: 'Sign in with GitHub' })).toHaveAttribute('href', '/api/auth/github')
+  expect(projectRequests).toEqual([])
+  expect(await page.evaluate(async () => (await indexedDB.databases()).map(database => database.name))).not.toContain('paper.workspaces')
 })
 
 test('profile settings reveal, hide, copy, rotate and revoke server tokens without storing credentials locally', async ({ page, context }) => {
@@ -205,7 +213,7 @@ test('switching accounts restores only that account’s cached projects', async 
   const projects = new Map<string, Map<string, { id: string; document: { name: string }; revision: string; updatedAt: number; createdAt: number }>>()
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
-  await page.route('**/api/auth/session', route => route.fulfill({ json: { user: account, providers: { github: true } } }))
+  await page.route('**/api/auth/session', route => route.fulfill({ json: { user: account, providers } }))
   await page.route('**/api/events?*', route => route.fulfill({ contentType: 'text/event-stream', body: ': connected\n\n' }))
   const owned = (id: string) => {
     if (!projects.has(id)) projects.set(id, new Map())

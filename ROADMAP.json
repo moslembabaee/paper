@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-11",
+  "current_task_id": "T-ISSUE-12",
   "tasks": [
     {
       "id": "T-ISSUE-9",
@@ -14,7 +14,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 9,
-      "completed_at": "2026-10-14T11:04:53.800233"
+      "completed_at": "2026-10-14T11:04:53.800233",
+      "closed_at": "2026-10-14T11:04:57Z"
     },
     {
       "id": "T-ISSUE-10",
@@ -26,7 +27,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 10,
-      "completed_at": "2026-10-14T11:29:16.718394"
+      "completed_at": "2026-10-14T11:29:16.718394",
+      "closed_at": "2026-10-14T11:29:22Z"
     },
     {
       "id": "T-ISSUE-11",
@@ -46,10 +48,11 @@
       "title": "Issue #12: test(e2e): Update Test Suite and Harden Cloud-First APIs",
       "description": "### Requirements & Scope (Step 4/4 - Depends on #11)\n1. **API Hardening:**\n   - Verify all `/api/projects` endpoints reject unauthenticated access with 401.\n   - Verify Remote MCP Gateway properly authenticates via Bearer tokens.\n2. **E2E & Unit Tests:**\n   - Update Playwright e2e specs (`cloud.spec.ts`, `sync.spec.ts`) to account for the Login Gate.\n   - Ensure all automated tests pass (`npm run test`, `npm run build`, `npm run lint`).\n\n### Acceptance & Verification\n- `cd /root/projects/paper/app && npm run build` passes.\n- `cd /root/projects/paper/app && npm test` passes.\n\nReference: Closes #12",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 12
+      "github_issue_number": 12,
+      "completed_at": "2026-10-14T12:15:45.176930"
     },
     {
       "id": "T-ISSUE-8",
