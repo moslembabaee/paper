@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { IncomingMessage, ServerResponse } from 'node:http'
 import { Duplex } from 'node:stream'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, mkdir, symlink, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -44,9 +44,26 @@ async function fixture(t, extra = {}) {
     const token = await service.auth.regenerate(user.id)
     return { user, session, token, headers: { Cookie: `paper_session=${session}`, 'X-Paper-Client': 'web' } }
   }
-  const rpc = async (token, method, params = {}) => request('/mcp', { method: 'POST', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })
+  const sessions = new Map()
+  const post = (token, method, params, sessionId, notification = false) => request('/mcp', { method: 'POST', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json, text/event-stream', ...(sessionId ? { 'MCP-Session-Id': sessionId } : {}) }, body: JSON.stringify({ jsonrpc: '2.0', ...(!notification ? { id: 1 } : {}), method, params }) })
+  const rpc = async (token, method, params = {}) => {
+    if (method === 'initialize') {
+      const response = await post(token, method, params)
+      if (response.status === 200 && !response.data.error) {
+        const sessionId = response.headers.get('mcp-session-id')
+        sessions.set(token, sessionId)
+        assert.equal((await post(token, 'notifications/initialized', {}, sessionId, true)).status, 202)
+      }
+      return response
+    }
+    if (!sessions.has(token)) {
+      const initialized = await rpc(token, 'initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'test', version: '1' } })
+      if (initialized.status !== 200) return initialized
+    }
+    return post(token, method, params, sessions.get(token))
+  }
   const tool = (token, name, args) => rpc(token, 'tools/call', { name, arguments: args })
-  return { ...service, root, open, request, login, rpc, tool }
+  return { ...service, root, open, request, login, rpc, tool, sessions }
 }
 const empty = name => ({ format: 'paper', version: 1, name, viewport: { x: 0, y: 0, zoom: 1 }, grid: true, scene: { version: 1, elements: {}, rootIds: [] } })
 
@@ -305,4 +322,151 @@ test('canonical revisions and conflict ordering are deterministic', () => {
   assert.equal(canonical({ b: 2, a: { z: 1, x: 0 } }), canonical({ a: { x: 0, z: 1 }, b: 2 }))
   assert.equal(newer({ updatedAt: 3, revision: 'a' }, { updatedAt: 2, revision: 'z' }), true)
   assert.equal(newer({ updatedAt: 2, revision: 'z' }, { updatedAt: 2, revision: 'a' }), true)
+})
+
+const remoteHeaders = (token, sessionId) => ({ Authorization: `Bearer ${token}`, Accept: 'application/json, text/event-stream', ...(sessionId ? { 'MCP-Session-Id': sessionId, 'MCP-Protocol-Version': '2025-11-25' } : {}) })
+const initializeMessage = { jsonrpc: '2.0', id: 'initialize', method: 'initialize', params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'remote-test', version: '1' } } }
+
+test('remote MCP enforces lifecycle, validates transport, and binds sessions to account and token', async t => {
+  const f = await fixture(t), a = await f.login('a'), b = await f.login('b')
+  const send = (message, headers = remoteHeaders(a.token)) => f.request('/mcp', { method: 'POST', headers, body: JSON.stringify(message) })
+  assert.equal((await send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })).status, 400)
+  assert.equal((await send({ ...initializeMessage, params: {} })).data.error.code, -32602)
+  assert.equal((await send({ ...initializeMessage, id: null })).data.error.code, -32600)
+  assert.equal((await send(initializeMessage, { ...remoteHeaders(a.token), Origin: 'https://evil.test' })).status, 403)
+  assert.equal((await send(initializeMessage, { ...remoteHeaders(a.token), Accept: 'application/json' })).status, 406)
+  assert.equal((await send(initializeMessage, { ...remoteHeaders(a.token), Accept: 'application/json, text/event-stream;q=0' })).status, 406)
+  assert.equal((await send(initializeMessage, { ...remoteHeaders(a.token), 'Content-Type': 'text/plain' })).status, 415)
+  assert.equal((await send(initializeMessage, { ...remoteHeaders(a.token), 'MCP-Protocol-Version': '1900-01-01' })).status, 400)
+  const initialized = await send(initializeMessage)
+  assert.equal(initialized.status, 200)
+  const id = initialized.headers.get('mcp-session-id')
+  assert.match(id, /^[a-z0-9-]{36}$/)
+  const headers = remoteHeaders(a.token, id)
+  assert.equal((await send({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, headers)).data.error.code, -32002)
+  assert.equal((await f.request('/mcp', { headers: { ...headers, Accept: 'text/event-stream' } })).status, 400)
+  assert.equal((await send({ jsonrpc: '2.0', method: 'notifications/initialized' }, headers)).status, 202)
+  const tools = await send({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, headers)
+  assert.equal(tools.data.result.tools.length, 9)
+  for (const tool of tools.data.result.tools.slice(1)) {
+    assert.ok(tool.inputSchema.required.includes('project_id'))
+    assert.equal(tool.inputSchema.properties.file, undefined)
+    assert.equal(tool.inputSchema.properties.output, undefined)
+  }
+  assert.equal((await send({ jsonrpc: '2.0', id: 4, method: 'ping' }, remoteHeaders(b.token, id))).status, 404)
+  assert.equal((await f.request('/mcp', { method: 'DELETE', headers: remoteHeaders(b.token, id) })).status, 404)
+  assert.equal((await send({ jsonrpc: '2.0', id: 5, method: 'ping' }, { ...headers, 'MCP-Protocol-Version': '2025-06-18' })).status, 400)
+  assert.equal((await send(initializeMessage, headers)).data.error.code, -32600)
+  assert.equal((await send({ jsonrpc: '2.0', id: 6, method: 'resources/read', params: { uri: 'paper://schema' } }, headers)).data.result.contents[0].mimeType, 'application/schema+json')
+  assert.ok(JSON.parse((await send({ jsonrpc: '2.0', id: 7, method: 'resources/read', params: { uri: 'paper://shaders' } }, headers)).data.result.contents[0].text).shaders)
+  assert.equal((await send({ jsonrpc: '2.0', id: 8, result: {} }, headers)).status, 202)
+  assert.equal((await send({ jsonrpc: '2.0', id: 9, method: 'no-such-method' }, headers)).data.error.code, -32601)
+  assert.equal((await f.request('/mcp', { method: 'PATCH', headers })).headers.get('allow'), 'POST, GET, DELETE')
+  assert.equal((await f.request('/mcp', { method: 'DELETE', headers })).status, 204)
+  assert.equal((await send({ jsonrpc: '2.0', id: 10, method: 'ping' }, headers)).status, 404)
+})
+
+test('remote SSE delivers project notifications only to its account and closes on revoke, delete and shutdown', async t => {
+  const f = await fixture(t), a = await f.login('a'), b = await f.login('b')
+  await f.rpc(a.token, 'ping'); await f.rpc(b.token, 'ping')
+  const headers = remoteHeaders(a.token, f.sessions.get(a.token)), otherHeaders = remoteHeaders(b.token, f.sessions.get(b.token))
+  const stream = await f.open('/mcp', { headers: { ...headers, Accept: 'text/event-stream' } })
+  const otherStream = await f.open('/mcp', { headers: { ...otherHeaders, Accept: 'text/event-stream' } })
+  assert.equal(stream.status, 200)
+  assert.equal(stream.headers.get('x-accel-buffering'), 'no')
+  assert.match(stream.text(), /: connected/)
+  assert.equal((await f.request('/mcp', { headers: { ...headers, Accept: 'text/event-stream' } })).status, 409)
+  assert.equal((await f.request('/mcp', { headers: { ...headers, Origin: 'https://evil.test', Accept: 'text/event-stream' } })).status, 403)
+  assert.equal((await f.request('/mcp', { headers: { Cookie: a.headers.Cookie, Accept: 'text/event-stream' } })).status, 401)
+  await f.tool(a.token, 'create_frame', { project_id: 'private' })
+  assert.match(stream.text(), /"method":"notifications\/paper\/project_changed"/)
+  assert.match(stream.text(), /"project_id":"private"/)
+  assert.ok(!otherStream.text().includes('private'))
+  assert.equal(stream.text().split('event: message').length - 1, 1)
+  const browser = await f.open('/api/events', { headers: a.headers })
+  await f.tool(a.token, 'create_frame', { project_id: 'from-agent' })
+  assert.match(browser.text(), /"id":"from-agent"/)
+  const rotation = await f.request('/api/auth/token/regenerate', { method: 'POST', headers: a.headers })
+  assert.equal(stream.res.writableEnded, true)
+  assert.equal(otherStream.res.writableEnded, false)
+  assert.equal((await f.request('/mcp', { headers: remoteHeaders(rotation.data.token, headers['MCP-Session-Id']) })).status, 404)
+  assert.equal((await f.request('/mcp', { headers })).status, 401)
+  await f.rpc(rotation.data.token, 'ping')
+  const newStream = await f.open('/mcp', { headers: { ...remoteHeaders(rotation.data.token, f.sessions.get(rotation.data.token)), Accept: 'text/event-stream' } })
+  await f.request('/api/auth/token', { method: 'DELETE', headers: a.headers })
+  assert.equal(newStream.res.writableEnded, true)
+  assert.equal((await f.request('/mcp', { method: 'DELETE', headers: otherHeaders })).status, 204)
+  assert.equal(otherStream.res.writableEnded, true)
+  await f.rpc(b.token, 'initialize', initializeMessage.params)
+  const finalStream = await f.open('/mcp', { headers: { ...remoteHeaders(b.token, f.sessions.get(b.token)), Accept: 'text/event-stream' } })
+  f.close()
+  assert.equal(finalStream.res.writableEnded, true)
+})
+
+test('MCP can return SSE for POST requests and notifications never perform mutations', async t => {
+  const f = await fixture(t), a = await f.login('a')
+  await f.rpc(a.token, 'ping')
+  const headers = { ...remoteHeaders(a.token, f.sessions.get(a.token)), Accept: 'text/event-stream, application/json;q=0.5' }
+  const reply = await f.request('/mcp', { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 'sse-request', method: 'tools/call', params: { name: 'create_frame', arguments: { project_id: 'sse-project' } } }) })
+  assert.equal(reply.status, 200)
+  assert.equal(reply.headers.get('content-type'), 'text/event-stream')
+  const payload = JSON.parse(reply.data.split('data: ')[1].trim())
+  assert.equal(payload.id, 'sse-request')
+  assert.equal(payload.result.structuredContent.project_id, 'sse-project')
+  const notification = await f.request('/mcp', { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/call', params: { name: 'create_frame', arguments: { project_id: 'must-not-exist' } } }) })
+  assert.equal(notification.status, 202)
+  assert.equal(notification.data, '')
+  assert.equal(await f.storage.read(a.user.id, 'must-not-exist'), null)
+})
+
+test('headless tokens and native shader paints round-trip through persistent remote projects', async t => {
+  const f = await fixture(t), a = await f.login('a')
+  const frame = (await f.tool(a.token, 'create_frame', { project_id: 'offline', project_name: 'Offline studio' })).data.result.structuredContent
+  assert.equal(frame.element.style.fill, '#edebe1')
+  const token = await f.tool(a.token, 'create_token', { project_id: 'offline', expected_revision: frame.revision, name: 'agent-blue', type: 'color', value: '#81adec' })
+  assert.equal(token.data.result.isError, false)
+  assert.equal((await f.tool(a.token, 'list_tokens', { project_id: 'offline', type: 'color' })).data.result.structuredContent.tokens[0].value, '#81adec')
+  const resources = await f.rpc(a.token, 'resources/read', { uri: 'paper://shaders' })
+  const kind = Object.keys(JSON.parse(resources.data.result.contents[0].text).shaders)[0]
+  const shape = await f.tool(a.token, 'add_shader_shape', { project_id: 'offline', shader_kind: kind, parentId: frame.element.id, x: 120, y: 120 })
+  assert.equal(shape.data.result.isError, false)
+  const exported = await f.tool(a.token, 'export_selection', { project_id: 'offline' })
+  const document = JSON.parse(exported.data.result.structuredContent.content)
+  assert.equal(document.scene.elements[shape.data.result.structuredContent.element.id].style.shader.kind, kind)
+  assert.equal((await f.tool(a.token, 'get_basic_info', { project_id: 'offline' })).data.result.structuredContent.gridSize, 120)
+})
+
+test('workspace isolation rejects account and project symlinks and failed writes leave no staging files', async t => {
+  const f = await fixture(t), a = await f.login('a'), b = await f.login('b')
+  await f.tool(b.token, 'create_frame', { project_id: 'secret' })
+  const directoryA = join(f.root, 'projects', a.user.id), directoryB = join(f.root, 'projects', b.user.id)
+  await mkdir(directoryA)
+  await symlink(join(directoryB, 'secret.paper.json'), join(directoryA, 'shortcut.paper.json'))
+  assert.equal((await f.tool(a.token, 'get_canvas_elements', { project_id: 'shortcut' })).data.result.isError, true)
+  assert.equal((await f.tool(a.token, 'create_frame', { project_id: 'shortcut' })).data.result.isError, true)
+  assert.deepEqual((await f.tool(a.token, 'list_projects', {})).data.result.structuredContent.projects, [])
+  await rm(directoryA, { recursive: true })
+  await symlink(directoryB, directoryA)
+  assert.equal((await f.tool(a.token, 'get_canvas_elements', { project_id: 'secret' })).data.result.isError, true)
+  assert.equal((await f.tool(a.token, 'create_frame', { project_id: 'new' })).data.result.isError, true)
+  const authPath = join(f.root, 'auth.json')
+  await rm(authPath); await mkdir(authPath)
+  await assert.rejects(f.auth.regenerate(a.user.id))
+  assert.ok(!(await readdir(f.root)).some(name => name.endsWith('.tmp')))
+})
+
+test('revoking a token while a remote mutation waits for its project lock prevents the write', async t => {
+  const f = await fixture(t), a = await f.login('a')
+  await f.rpc(a.token, 'ping')
+  let release, acquired
+  const ready = new Promise(resolve => { acquired = resolve })
+  const locked = f.storage.locked(`${a.user.id}/queued`, async () => { acquired(); await new Promise(resolve => { release = resolve }) })
+  await ready
+  const mutation = f.tool(a.token, 'create_frame', { project_id: 'queued' })
+  // Tool handler has yielded at its asynchronous request-body read; revoke before releasing the lock.
+  await f.request('/api/auth/token', { method: 'DELETE', headers: a.headers })
+  release(); await locked
+  const response = await mutation
+  assert.equal(response.data.result.isError, true)
+  assert.equal(await f.storage.read(a.user.id, 'queued'), null)
 })

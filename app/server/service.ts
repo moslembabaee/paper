@@ -2,10 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes, createHash } from 'node:crypto'
 import { Auth } from './auth.ts'
 import { Storage, httpError, safeId } from './storage.ts'
-import { basicInfo, exportCanvas, mutateCanvas, readCanvas } from '../src/mcp/operations.ts'
-import { paperTools, validateSchema } from '../src/mcp/schema.ts'
-import { createProject } from '../src/io/project.ts'
-import { SceneStore } from '../src/scene/store.ts'
+import { RemoteMcpGateway } from './mcp.ts'
 import type { CloudProject } from '../src/cloud/model.ts'
 
 export interface ServiceConfig {
@@ -40,8 +37,10 @@ export async function createService(config: ServiceConfig) {
   const attempts = new Map<string, { provider: string; verifier: string; expires: number }>()
   const rates = new Map<string, { count: number; until: number }>()
   const emit = (user: string, record: CloudProject) => {
+    mcp.notify(user, record)
     for (const stream of streams.get(user) ?? []) stream.write(`event: project\ndata: ${JSON.stringify({ id: record.id, revision: record.revision })}\n\n`)
   }
+  const mcp = new RemoteMcpGateway(auth, storage, emit)
   function cookie(name: string, value: string, maxAge: number) { return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith('https:') ? '; Secure' : ''}` }
   async function providerJSON(url: string, init?: RequestInit) {
     const response = await requestFetch(url, { ...init, signal: AbortSignal.timeout(10_000) })
@@ -133,67 +132,7 @@ export async function createService(config: ServiceConfig) {
           return
         }
       }
-      if (path === '/mcp') {
-        const match = req.headers.authorization?.match(/^Bearer (paper_[A-Za-z0-9_-]{43})$/)
-        const agent = auth.bearer(match?.[1])
-        if (!agent) { res.setHeader('WWW-Authenticate', 'Bearer realm="Paper"'); throw httpError(401, 'Invalid MCP token') }
-        const protocol = req.headers['mcp-protocol-version']
-        if (protocol && !['2025-03-26', '2025-06-18', '2025-11-25'].includes(String(protocol))) throw httpError(400, 'Unsupported MCP protocol version')
-        if (req.method !== 'POST') { json(res, 405, { error: 'Use Streamable HTTP POST' }); return }
-        if (!req.headers.accept?.includes('application/json') || !req.headers.accept?.includes('text/event-stream')) throw httpError(406, 'Accept application/json and text/event-stream')
-        const rpc = await body(req, parsed)
-        if (rpc.jsonrpc !== '2.0' || typeof rpc.method !== 'string' || (rpc.params !== undefined && (!rpc.params || typeof rpc.params !== 'object' || Array.isArray(rpc.params)))) { json(res, 400, { jsonrpc: '2.0', id: rpc.id ?? null, error: { code: -32600, message: 'Invalid request' } }); return }
-        if (rpc.id === undefined) { res.writeHead(202); res.end(); return }
-        const params = (rpc.params ?? {}) as Record<string, unknown>
-        let result: unknown
-        if (rpc.method === 'initialize') result = { protocolVersion: ['2025-11-25', '2025-06-18', '2025-03-26'].includes(String(params.protocolVersion)) ? params.protocolVersion : '2025-11-25', capabilities: { tools: {} }, serverInfo: { name: 'paper-cloud', version: '1.0.0' }, instructions: 'Call list_projects, then pass project_id to each tool. Edits work with the browser closed. Pass expected_revision to guard against stale edits.' }
-        else if (rpc.method === 'ping') result = {}
-        else if (rpc.method === 'tools/list') result = { tools: [
-          { name: 'list_projects', description: 'List projects in your account.', inputSchema: { type: 'object', properties: {}, additionalProperties: false }, annotations: { readOnlyHint: true } },
-          ...paperTools.map(tool => {
-            const properties = { ...tool.inputSchema.properties }; delete properties.file; delete properties.output
-            return { ...tool, inputSchema: { ...tool.inputSchema, properties: { ...properties, project_id: { type: 'string', description: 'Project ID from list_projects. For create_frame, a new ID creates a project.' } }, required: [...tool.inputSchema.required ?? [], 'project_id'] } }
-          }),
-        ] }
-        else if (rpc.method === 'tools/call') {
-          try {
-            let output: Record<string, unknown>
-            if (params.name === 'list_projects') { validateSchema(params.arguments ?? {}, { type: 'object', properties: {}, additionalProperties: false }); output = { projects: await storage.list(agent.id) } }
-            else {
-              const tool = paperTools.find(t => t.name === params.name)
-              if (!tool) throw new Error('Unknown tool')
-              const args = params.arguments as Record<string, unknown>
-              const id = safeId(args?.project_id)
-              const { project_id: _projectId, ...input } = args
-              if (input.file !== undefined || input.output !== undefined) throw new Error('Remote tools accept project IDs, not file paths')
-              validateSchema(input, tool.inputSchema)
-              output = await storage.locked(`${agent.id}/${id}`, async () => {
-                // Token rotation may have occurred while waiting for this project's lock.
-                if (!auth.bearer(match?.[1])) throw httpError(401, 'Token revoked')
-                let record = await storage.read(agent.id, id)
-                if (!record && tool.name !== 'create_frame') throw httpError(404, 'Project not found')
-                if (input.expected_revision !== undefined && input.expected_revision !== record?.revision) throw httpError(409, 'Revision conflict; read the project again')
-                const project = record?.document ?? createProject(new SceneStore(), String(input.project_name ?? 'Untitled'), { x: 0, y: 0, zoom: 1 }, true)
-                let output: Record<string, unknown>
-                if (tool.name === 'get_basic_info') output = basicInfo(project)
-                else if (tool.name === 'get_canvas_elements') output = readCanvas(project, input.element_ids as string[] | undefined)
-                else if (tool.name === 'list_tokens') output = { tokens: (project.scene.tokens ?? []).filter(t => !input.type || t.type === input.type) }
-                else if (tool.name === 'export_selection') output = exportCanvas(project, input)
-                else {
-                  const mutated = mutateCanvas(project, tool.name, input)
-                  const activity = { ids: mutated.element ? [mutated.element.id] : [], tool: tool.name, until: Date.now() + 4000 }
-                  record = await storage.write(agent.id, id, mutated.project, Math.max(Date.now(), (record?.updatedAt ?? 0) + 1), record, activity)
-                  emit(agent.id, record)
-                  output = { ...mutated }
-                }
-                return { ...output, project_id: id, revision: record?.revision }
-              })
-            }
-            result = { content: [{ type: 'text', text: JSON.stringify(output) }], structuredContent: output, isError: false }
-          } catch (error) { result = { content: [{ type: 'text', text: error instanceof Error ? error.message : 'Tool failed' }], isError: true } }
-        } else { json(res, 200, { jsonrpc: '2.0', id: rpc.id, error: { code: -32601, message: 'Method not found' } }); return }
-        json(res, 200, { jsonrpc: '2.0', id: rpc.id, result }); return
-      }
+      if (path === '/mcp') { await mcp.handle(req, res, () => body(req, parsed)); return }
       if (!user) throw httpError(401, 'Sign in to access cloud projects')
       const account = req.headers['x-paper-account'] ?? (path === '/api/events' ? url.searchParams.get('account') : undefined)
       if (account && account !== user.id) throw httpError(403, 'Account changed. Reload Paper before syncing.')
@@ -201,11 +140,13 @@ export async function createService(config: ServiceConfig) {
       if (path === '/api/auth/logout' && req.method === 'POST') { await auth.logout(sessionCookie); res.setHeader('Set-Cookie', cookie('paper_session', '', 0)); json(res, 200, { ok: true }); return }
       if (path === '/api/auth/token/regenerate' && req.method === 'POST') {
         const token = await auth.regenerate(user.id)
+        mcp.revokeUser(user.id)
         json(res, 200, { token, user: auth.profile(auth.session(sessionCookie) || user) }); return
       }
       if (path === '/api/auth/token' && req.method === 'GET') { json(res, 200, { token: auth.reveal(user.id) }); return }
       if ((path === '/api/auth/token' && req.method === 'DELETE') || (path === '/api/auth/token/revoke' && req.method === 'POST')) {
         const profile = await auth.revoke(user.id)
+        mcp.revokeUser(user.id)
         json(res, 200, { ok: true, user: profile })
         return
       }
@@ -240,5 +181,5 @@ export async function createService(config: ServiceConfig) {
       json(res, failure.status ?? 500, { error: failure.status ? failure.message : 'Server could not complete the request', ...(failure.status === 409 ? { current: failure.current ?? null } : {}) })
     }
   }
-  return { handler, auth, storage, close: () => { for (const set of streams.values()) for (const res of set) res.end() } }
+  return { handler, auth, storage, close: () => { mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
 }

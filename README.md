@@ -46,6 +46,9 @@ For a complete breakdown of runtimes (Node 22, Python 3.10+, Docker), agent CLIs
 ```bash
 git clone https://github.com/moslembabaee/paper.git
 cd paper
+cp .env.example .env
+# Set PAPER_SESSION_SECRET using: openssl rand -hex 32
+# Configure PAPER_PUBLIC_URL and OAuth credentials in .env (see app/docs/cloud.md).
 docker compose up -d --build
 ```
 Open **`http://localhost:3000`** in your browser.

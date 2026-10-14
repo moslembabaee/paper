@@ -1,5 +1,6 @@
 .git
 app/node_modules
+app/server/node_modules
 app/dist
 app/server/dist
 app/test-results

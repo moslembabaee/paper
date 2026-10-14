@@ -1,5 +1,7 @@
 # Live Paper MCP
 
+For the production, Bearer-authenticated `/mcp` gateway that edits account projects while the browser is closed, see [remote agents and deployment](cloud.md#remote-agents). This page describes the separate localhost bridge for the focused browser editor.
+
 Agents operate on the most recently focused Paper editor. Mutations appear immediately in the canvas, enter its undo history, and use the existing IndexedDB autosave. Human selection stays in place. Recently affected layers glow in Paper blue; focused reads also show agent activity. Same-origin tabs of the same project synchronize through BroadcastChannel. Other projects stay separate.
 
 ## Connect

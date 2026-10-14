@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-6-3",
+  "current_task_id": "T-ISSUE-6-4",
   "tasks": [
     {
       "id": "T-ISSUE-6-1",
@@ -52,12 +52,13 @@
       "title": "Issue #6 (Part 4/4): Remote Streamable MCP Gateway and Production Packaging",
       "description": "Expose streamable HTTP/SSE remote MCP server at /mcp with Bearer token authentication, scoped workspace isolation to user directories, headless offline project mutation, and updated docker-compose.yml with Caddy/Nginx reverse proxying.\n\nParent Issue: #6\nReference: Closes #6",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 6,
       "subtask_index": 4,
-      "total_subtasks": 4
+      "total_subtasks": 4,
+      "completed_at": "2026-10-14T09:10:41.313456"
     },
     {
       "id": "T-ISSUE-2",

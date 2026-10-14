@@ -29,13 +29,17 @@ services:
       NODE_ENV: production
       PAPER_DATA_DIR: /data
       PAPER_PUBLIC_URL: ${PAPER_PUBLIC_URL:-http://localhost:3000}
-      PAPER_SESSION_SECRET: ${PAPER_SESSION_SECRET:-30ce48371867cc169955c3ec7c69ab8501407bbcf77b0e46f20f13861496d983}
+      PAPER_SESSION_SECRET: ${PAPER_SESSION_SECRET:?Set PAPER_SESSION_SECRET in .env to a private persistent secret of at least 32 characters}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
     volumes:
       - paper_projects:/data
+    expose:
+      - "3001"
+    init: true
+    stop_grace_period: 15s
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/healthz"]
       interval: 15s

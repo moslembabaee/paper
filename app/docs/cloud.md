@@ -14,7 +14,7 @@ cp .env.example .env
 docker compose up -d --build --wait
 ```
 
-Keep `PAPER_SESSION_SECRET` stable and private. It encrypts the recoverable MCP token at rest. An empty or short secret prevents startup. Use HTTPS for public deployments: cookies are marked Secure when `PAPER_PUBLIC_URL` starts with `https:`. Terminate TLS at your existing reverse proxy; forward `/`, `/api/`, and `/mcp` to Paper's port 3000. The API service is exposed only on the Docker network.
+Keep `PAPER_SESSION_SECRET` stable and private. It encrypts the recoverable MCP token at rest. Compose requires an explicitly configured secret; an empty or short secret prevents startup. Use HTTPS for public deployments: cookies are marked Secure when `PAPER_PUBLIC_URL` starts with `https:`. Terminate TLS at your existing reverse proxy; forward `/`, `/api/`, and `/mcp` to Paper's port 3000. The API service is exposed only on the Docker network. Nginx forwards the Bearer credential, MCP session/version headers and all three MCP methods, disables SSE buffering and compression, and allows 90 seconds between stream reads (the API sends heartbeats every 20 seconds).
 
 Register OAuth applications using the provider instructions for [Google](https://developers.google.com/identity/protocols/oauth2/web-server) and [GitHub](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps). Set their callback URLs to:
 
@@ -52,11 +52,18 @@ Connect a client supporting [MCP Streamable HTTP](https://ts.sdk.modelcontextpro
 }
 ```
 
-Client configuration shapes vary. The endpoint uses stateless Streamable HTTP with JSON responses (protocol revisions 2025-03-26, 2025-06-18, and 2025-11-25). POST requests accept `application/json, text/event-stream`; GET returns 405 as permitted for servers without an MCP SSE notification stream. Browser update notifications use the separate session-authenticated `/api/events` SSE stream.
+Client configuration shapes vary. The endpoint implements [MCP Streamable HTTP](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports) with protocol revisions 2025-03-26, 2025-06-18, and 2025-11-25:
+
+1. POST `initialize` with `Content-Type: application/json` and `Accept: application/json, text/event-stream`. Retain the returned `MCP-Session-Id` and negotiated `protocolVersion`.
+2. Include `Authorization: Bearer …`, `MCP-Session-Id`, and `MCP-Protocol-Version` on every subsequent request. POST `notifications/initialized` without an `id` before using tools; notifications and client responses return an empty 202. Requests return JSON by default; putting `text/event-stream` first (or giving it a higher Accept quality) selects an SSE response containing the JSON-RPC result.
+3. Optionally GET `/mcp` with `Accept: text/event-stream` to listen for account-scoped `notifications/paper/project_changed` JSON-RPC notifications. The initialization result advertises this Paper extension under `capabilities.experimental`. Each notification contains `project_id` and `revision`. The separate cookie-authenticated `/api/events` stream updates browser editors.
+4. DELETE `/mcp` to close the session and its stream. Sessions expire after 30 minutes without a client request; a persistent GET does not renew the idle timer. HTTP 404 means initialize a new session. Token rotation and revocation immediately end that account's sessions and streams.
+
+Every request requires a valid Bearer token; a browser cookie or another user's session ID cannot authorize an agent. Unknown/mismatched session IDs return 404, missing IDs return 400, and an untrusted `Origin` returns 403. The service permits 20 sessions per account, 1,000 in total, and one GET stream per session. SSE sends heartbeats every 20 seconds. It does not retain event history or replay `Last-Event-ID`: after reconnecting, call `list_projects` and re-read changed projects. Never automatically replay a mutation after an uncertain response; read the persisted document first.
 
 Call `list_projects`, then supply `project_id` to the standard Paper tools: `get_basic_info`, `get_canvas_elements`, `create_frame`, `update_element`, `list_tokens`, `create_token`, `add_shader_shape`, and `export_selection`. For mutations, pass `expected_revision` from the last read to guard against stale edits. `create_frame` can create a new project using a new ID. Remote tools never accept filesystem paths or export paths.
 
-The gateway always edits the persisted project; an active editor receives the new revision and glowing agent outlines. Closed tabs are not required for tool execution. Reopening or switching to the project downloads agent edits during reconciliation. JSON preserves shaders; SVG shader export still needs explicit browser-captured shader snapshots.
+The gateway always edits the persisted project; an active editor receives the new revision and glowing agent outlines. Closed tabs are not required for tool execution. Reopening or switching to the project downloads agent edits during reconciliation. JSON preserves shaders; SVG shader export still needs explicit browser-captured shader snapshots. `resources/read` exposes `paper://schema` and `paper://shaders`, matching the local server. Account/project symlinks are rejected; agents cannot supply paths or redirect storage outside their account directory.
 
 The file-backed `mcp-server/bin/paper-mcp.mjs` stdio workflow is unchanged. A production UI can still connect to the separately running local bridge by setting `VITE_PAPER_BRIDGE_URL` at build time.
 
@@ -72,6 +79,8 @@ npm test
 npm run test:mcp
 npm run test:e2e -- e2e/cloud.spec.ts e2e/workspace.spec.ts
 ```
+
+The backend suite covers session initialization, HTTP/SSE negotiation, account/token isolation, stream cleanup on rotation/revocation/shutdown, headless edits and exports, stale queued mutations, symlink rejection, and atomic REST/MCP revision checks. Validate Compose without starting services using `docker compose config --quiet` after configuring `.env`.
 
 For live development, install backend dependencies and run the service:
 

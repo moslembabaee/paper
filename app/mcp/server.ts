@@ -3,10 +3,18 @@ import type { Readable, Writable } from 'node:stream'
 import { StringDecoder } from 'node:string_decoder'
 import { MAX_IMPORT_BYTES } from '../src/io/project.ts'
 import { paperTools, projectSchema, validateSchema } from '../src/mcp/schema.ts'
+import type { PaperTool } from '../src/mcp/schema.ts'
 import { motionControls, shaderCatalog } from '../src/shaders/catalog.ts'
 import type { ToolArguments } from '../src/mcp/operations.ts'
 
 export interface PaperToolBackend { call(name: string, args: ToolArguments): Promise<Record<string, unknown>> }
+export interface PaperMcpOptions {
+  tools?: readonly PaperTool[]
+  protocolVersions?: readonly string[]
+  serverInfo?: { name: string; version: string }
+  instructions?: string
+  experimental?: Record<string, unknown>
+}
 
 export const SERVER_VERSION = '0.1.0'
 export const PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'] as const
@@ -26,7 +34,11 @@ const resources = [
 export class PaperMcpServer {
   private state: 'new' | 'initializing' | 'ready' = 'new'
   private readonly files: PaperToolBackend
-  constructor(files: PaperToolBackend) { this.files = files }
+  private readonly options: PaperMcpOptions
+  constructor(files: PaperToolBackend, options: PaperMcpOptions = {}) {
+    this.files = files
+    this.options = options
+  }
 
   async handle(message: unknown): Promise<RpcResponse | undefined> {
     if (!record(message) || message.jsonrpc !== '2.0' || typeof message.method !== 'string' || (Object.hasOwn(message, 'id') && typeof message.id !== 'string' && (typeof message.id !== 'number' || !Number.isFinite(message.id)))) {
@@ -54,19 +66,19 @@ export class PaperMcpServer {
       if (typeof params.protocolVersion !== 'string' || !record(params.capabilities) || !record(params.clientInfo) || typeof params.clientInfo.name !== 'string' || typeof params.clientInfo.version !== 'string') throw new RpcError(-32602, 'Invalid initialization parameters')
       this.state = 'initializing'
       return {
-        protocolVersion: PROTOCOL_VERSIONS.find(version => version === params.protocolVersion) ?? PROTOCOL_VERSIONS[0],
-        capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false } },
-        serverInfo: { name: 'paper', version: SERVER_VERSION },
-        instructions: 'Paper edits the focused live browser canvas, or portable .paper.json files in offline mode. Read get_canvas_elements before editing and pass expected_revision to avoid stale writes. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Without --file, tools operate on the focused browser editor and changes appear immediately. Call get_basic_info to verify the active project. With --file, tools edit an offline JSON file. SVG shaders need browser snapshots; JSON preserves the native shader paint.',
+        protocolVersion: (this.options.protocolVersions ?? PROTOCOL_VERSIONS).find(version => version === params.protocolVersion) ?? (this.options.protocolVersions ?? PROTOCOL_VERSIONS)[0],
+        capabilities: { tools: { listChanged: false }, resources: { subscribe: false, listChanged: false }, ...(this.options.experimental ? { experimental: this.options.experimental } : {}) },
+        serverInfo: this.options.serverInfo ?? { name: 'paper', version: SERVER_VERSION },
+        instructions: this.options.instructions ?? 'Paper edits the focused live browser canvas, or portable .paper.json files in offline mode. Read get_canvas_elements before editing and pass expected_revision to avoid stale writes. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Without --file, tools operate on the focused browser editor and changes appear immediately. Call get_basic_info to verify the active project. With --file, tools edit an offline JSON file. SVG shaders need browser snapshots; JSON preserves the native shader paint.',
       }
     }
     if (this.state !== 'ready') throw new RpcError(-32002, 'Initialize and send notifications/initialized before using Paper')
     if (method === 'tools/list') {
       if (params.cursor !== undefined) throw new RpcError(-32602, 'Paper does not use pagination cursors')
-      return { tools: paperTools }
+      return { tools: this.options.tools ?? paperTools }
     }
     if (method === 'tools/call') {
-      const tool = paperTools.find(candidate => candidate.name === params.name)
+      const tool = (this.options.tools ?? paperTools).find(candidate => candidate.name === params.name)
       if (!tool) throw new RpcError(-32602, 'Unknown Paper tool')
       const args = params.arguments ?? {}
       try {
