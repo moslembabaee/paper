@@ -331,8 +331,8 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
             
             if issue_num:
                 try:
-                    # Remove in-progress, add blocked label
-                    run_cmd(f'gh issue edit {issue_num} --repo moslembabaee/paper --remove-label "in-progress" --add-label "blocked"')
+                    # Remove in-progress and approved, add blocked label
+                    run_cmd(f'gh issue edit {issue_num} --repo moslembabaee/paper --remove-label "in-progress,approved" --add-label "blocked"')
                     
                     err_snippet = (error_output[-500:] if error_output else "Task failed across all agents or timed out.").replace("```", "'''").strip()
                     blocked_msg = f"""⚠️ **Execution Blocked / Attention Required**

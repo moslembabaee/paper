@@ -197,6 +197,26 @@ def process_issues():
             run_cmd(f'gh issue edit {num} --repo {REPO} --remove-label "in-progress,blocked"')
             continue
             
+        # Check blocked status
+        is_blocked = "blocked" in labels
+        if is_blocked:
+            # If the issue is marked blocked, do NOT auto-approve it!
+            # Only unblock if maintainer explicitly commented /approve, approved, or lgtm
+            unblocked = False
+            for c in comments:
+                c_author = c.get("author", {}).get("login", "").lower()
+                c_body = c.get("body", "").lower()
+                if c_author in authorized_users:
+                    if any(kw in c_body for kw in approval_keywords):
+                        unblocked = True
+                        log(f"Blocked Issue #{num} explicitly unblocked via comment by @{c_author}!")
+                        run_cmd(f'gh issue edit {num} --repo {REPO} --remove-label "blocked" --add-label "approved"')
+                        is_blocked = False
+                        break
+            if is_blocked:
+                # Still blocked, do not proceed with execution
+                continue
+
         # Check approval status
         is_autonomous_proposal = (
             "autonomous roadmap proposal" in issue.get("body", "").lower()
@@ -218,8 +238,8 @@ def process_issues():
                             log(f"Autonomous Proposal #{num} explicitly approved via comment by @{c_author}!")
                             run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "approved"')
                             break
-            elif author in authorized_users:
-                # Human manual issue created by repository owner
+            elif author in authorized_users and not matching_tasks:
+                # Human manual issue created by repository owner (initial triage only)
                 is_approved = True
                 log(f"Issue #{num} is created manually by authorized user @{author}. Auto-approving...")
                 run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "approved"')
