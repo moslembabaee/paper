@@ -6,6 +6,25 @@ import { SceneReplica } from './model.ts'
 import { COLLAB_PATH, PRESENCE_COLORS } from './types.ts'
 import type { ConnectionStatus, Presence, Register, RoomState } from './types.ts'
 
+export const BACKOFF_INITIAL_MS = 2000
+export const BACKOFF_MAX_MS = 30000
+export const MAX_RETRY_ATTEMPTS = 5
+
+export function isTerminalStatus(status: number): boolean {
+  return status === 404 || status === 405 || status === 501
+}
+
+export function terminalErrorMessage(status: number): string {
+  if (status === 404) return 'Collaboration service not found (404).'
+  if (status === 405) return 'Collaboration endpoint not supported by server (405).'
+  if (status === 501) return 'Collaboration feature not implemented on server (501).'
+  return `Collaboration service unavailable (${status}).`
+}
+
+export function getBackoffDelay(attempt: number): number {
+  return Math.min(BACKOFF_INITIAL_MS * Math.pow(2, attempt), BACKOFF_MAX_MS)
+}
+
 export interface CollaborationSnapshot {
   status: ConnectionStatus
   peers: readonly Presence[]
@@ -34,6 +53,7 @@ export class CollaborationSession {
   private cleanup: (() => void)[] = []
   private timer: ReturnType<typeof setTimeout> | undefined
   private retryTimer: ReturnType<typeof setTimeout> | undefined
+  private retryAttempts = 0
   private connection = 0
   private joining: AbortController | null = null
   private heartbeat: ReturnType<typeof setInterval> | undefined
@@ -55,9 +75,28 @@ export class CollaborationSession {
   private async post(route: string, data: unknown, signal = this.abort.signal) {
     return fetch(this.endpoint(route), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data), signal: AbortSignal.any([this.abort.signal, signal, AbortSignal.timeout(8000)]) })
   }
+  retry = () => {
+    if (this.stopped) return
+    this.retryAttempts = 0
+    this.update({ status: 'connecting', error: '' })
+    void this.connect()
+  }
+  private markUnavailable(error: string) {
+    if (this.stopped) return
+    ++this.connection
+    this.joining?.abort(); this.joining = null
+    this.source?.close(); this.source = null
+    if (this.snapshot.following) this.controller.stop()
+    this.lastFollow = ''
+    this.own.following = null
+    clearTimeout(this.timer); this.timer = undefined
+    clearTimeout(this.retryTimer); this.retryTimer = undefined
+    this.update({ status: 'unavailable', peers: [], following: null, error })
+  }
   start() {
     if (!this.stopped || this.abort.signal.aborted) return
     this.stopped = false
+    this.retryAttempts = 0
     this.cleanup.push(this.store.subscribe(() => {
       if (this.applying) return
       const next = this.store.toJSON()
@@ -78,7 +117,7 @@ export class CollaborationSession {
       if (document.hidden) this.own.cursor = null
       this.dirtyPresence = true; this.schedule()
     }
-    const online = () => { if (this.snapshot.status !== 'live') void this.connect() }
+    const online = () => { if (this.snapshot.status !== 'live') { this.retryAttempts = 0; void this.connect() } }
     const offline = () => this.disconnected()
     window.addEventListener('online', online); window.addEventListener('offline', offline)
     document.addEventListener('visibilitychange', visibility)
@@ -99,16 +138,23 @@ export class CollaborationSession {
     this.source?.close(); this.source = null
     try {
       const response = await this.post('join', { id: this.id, token: this.token, presence: this.own, document: this.previous }, joining.signal)
-      if (!response.ok) throw new Error('Room service unavailable')
+      if (this.stopped || connection !== this.connection) return
+      if (isTerminalStatus(response.status)) {
+        this.markUnavailable(terminalErrorMessage(response.status))
+        return
+      }
+      if (!response.ok) throw new Error(`Room service unavailable (${response.status})`)
       const state = await response.json() as RoomState & { token: string }
       if (this.stopped || connection !== this.connection) return
       this.token = state.token
+      this.retryAttempts = 0
       this.receiveState(state)
       const source = new EventSource(this.endpoint('events')); this.source = source
       source.addEventListener('state', event => {
         if (this.stopped || connection !== this.connection) return
         try {
           this.receiveState(JSON.parse((event as MessageEvent<string>).data) as RoomState)
+          this.retryAttempts = 0
           this.update({ status: 'live', error: '' }); this.dirtyPresence = true; this.schedule()
         } catch { this.disconnected() }
       })
@@ -155,11 +201,25 @@ export class CollaborationSession {
     this.source?.close(); this.source = null
     if (this.snapshot.following) this.controller.stop()
     this.lastFollow = ''
-    this.update({ status: navigator.onLine ? 'reconnecting' : 'offline', peers: [], following: null })
     this.own.following = null
     clearTimeout(this.timer); this.timer = undefined
-    clearTimeout(this.retryTimer)
-    this.retryTimer = setTimeout(() => { this.retryTimer = undefined; void this.connect() }, 2000)
+    clearTimeout(this.retryTimer); this.retryTimer = undefined
+
+    if (this.retryAttempts >= MAX_RETRY_ATTEMPTS) {
+      this.update({
+        status: 'unavailable',
+        peers: [],
+        following: null,
+        error: 'Collaboration connection paused after repeated failures. Click Retry to reconnect.',
+      })
+      return
+    }
+
+    const delay = getBackoffDelay(this.retryAttempts)
+    this.retryAttempts++
+
+    this.update({ status: navigator.onLine ? 'reconnecting' : 'offline', peers: [], following: null, error: '' })
+    this.retryTimer = setTimeout(() => { this.retryTimer = undefined; void this.connect() }, delay)
   }
   private schedule() {
     if (this.stopped || this.timer || this.snapshot.status !== 'live') return
@@ -174,6 +234,12 @@ export class CollaborationSession {
     const connection = this.connection
     try {
       const response = await this.post('update', { ...(changes.length ? { changes } : {}), ...(sendPresence ? { presence: this.own } : {}) })
+      if (connection !== this.connection || this.stopped) return
+      if (isTerminalStatus(response.status)) {
+        this.dirtyPresence = true
+        this.markUnavailable(terminalErrorMessage(response.status))
+        return
+      }
       if (response.status === 409) {
         const rejected = await response.json() as { error: string; registers: Register[] }
         if (connection !== this.connection || this.stopped) return
@@ -216,6 +282,7 @@ export class CollaborationSession {
     clearTimeout(this.timer); clearTimeout(this.retryTimer); clearInterval(this.heartbeat)
     for (const cleanup of this.cleanup) cleanup()
     this.cleanup = []
+    this.retryAttempts = 0
     if (this.token) void fetch(this.endpoint('leave'), { method: 'POST', keepalive: true }).catch(() => {})
   }
 }

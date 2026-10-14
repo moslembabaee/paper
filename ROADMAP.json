@@ -2,8 +2,42 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-12",
+  "current_task_id": "T-ISSUE-13",
   "tasks": [
+    {
+      "id": "T-ISSUE-13",
+      "phase": "Community & Issues",
+      "title": "Issue #13: fix(collaboration): Circuit Breaker for 404/405 Errors and Exponential Backoff in CollaborationSession",
+      "description": "### Problem Statement\nWhen any project canvas is loaded, `Studio.tsx` unconditionally initializes `useCollaboration`, which sends a large JSON payload (the full serialized scene document, 15KB to several MBs) to `/__paper_collaboration/<room>/join`.\nIf the server responds with a terminal error like `405 Method Not Allowed` (or `404 Not Found`), the client catches the error and immediately schedules a reconnect in 2000ms.\nBecause there is no backoff, no retry limit, and no special handling for permanent HTTP status codes, the client enters an aggressive 2-second reconnect loop. Serializing and posting the document every 2 seconds creates high CPU spikes, network spam, and severe canvas lag.\n\n### Requirements & Scope (Phase 1 - Priority 1)\n1. **Terminal Error Circuit Breaker:**\n   - In `app/src/collaboration/session.ts`, inspect response status when joining or updating.\n   - If response status is a permanent/unsupported client or server configuration error (specifically `404`, `405`, or `501`), stop retrying immediately.\n   - Transition snapshot status to `'unavailable'` (or `'offline'`) and set a clear explanatory error message.\n2. **Exponential Backoff for Transient Failures:**\n   - For network disconnections or transient `502`/`503` errors, replace the constant 2000ms timer with exponential backoff:\n     - 2s, 4s, 8s, 16s, up to 30s max, with a max retry count before pausing.\n3. **UI Integration (`PresenceBar.tsx`):**\n   - Cleanly display the `Unavailable` or `Offline` status in `PresenceBar`.\n   - Provide a manual 'Retry' button when in the unavailable state so users can re-trigger connection without reloading the page.\n4. **Verification & Tests:**\n   - Update `app/tests/collaboration-session.test.mjs` to assert that 404/405 responses abort the retry loop and set status to unavailable.\n   - Verify `npm test` and `npm run build` pass without error.\n\nReference: Closes #13",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 13,
+      "completed_at": "2026-10-14T12:35:09.641507"
+    },
+    {
+      "id": "T-ISSUE-14",
+      "phase": "Community & Issues",
+      "title": "Issue #14: feat(collaboration): Mount Collaboration Relay in API Backend and Route in Nginx",
+      "description": "### Problem Statement\nPaper includes an in-memory HTTP + SSE collaboration relay in `app/collaboration/server.ts` that handles real-time multiplayer editing, cursors, and presence. While this is used by the Vite dev/preview plugin, it was never mounted into the production Docker Fastify backend (`app/server/index.ts` / `service.ts`). Furthermore, `docker/nginx.conf` lacks a location block for `/__paper_collaboration/`, causing all collaboration requests in production to fall through to `index.html` and return `405 Method Not Allowed`.\n\n### Requirements & Scope (Phase 2 - Priority 2)\n1. **Mount Relay in Fastify / Backend Service:**\n   - Mount `CollaborationServer` in `app/server/` to handle all `/__paper_collaboration/*` requests:\n     - `POST /__paper_collaboration/:room/join`\n     - `GET /__paper_collaboration/:room/events` (SSE streaming)\n     - `POST /__paper_collaboration/:room/update`\n     - `POST /__paper_collaboration/:room/leave`\n   - Update `app/tsconfig.server.json` if needed to ensure collaboration server files compile into `server/dist`.\n2. **Reverse Proxy Configuration in Nginx:**\n   - In `docker/nginx.conf`, add:\n     ```nginx\n     location /__paper_collaboration/ {\n         proxy_pass http://paper-api:3001;\n         proxy_http_version 1.1;\n         proxy_set_header Host $host;\n         proxy_set_header X-Forwarded-Proto $scheme;\n         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n         proxy_buffering off;\n         proxy_cache off;\n         proxy_read_timeout 3600s;\n         proxy_send_timeout 3600s;\n         client_max_body_size 17m;\n     }\n     ```\n3. **Verification:**\n   - Test that `POST /__paper_collaboration/<room>/join` returns `200 OK` with session credentials and registers.\n   - Test that `GET /__paper_collaboration/<room>/events` opens an active SSE stream.\n   - Run `npm run build` and `npm test` (including `collaboration.test.mjs`).\n\nReference: Closes #14",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 14
+    },
+    {
+      "id": "T-ISSUE-15",
+      "phase": "Community & Issues",
+      "title": "Issue #15: perf(collaboration): On-Demand Collaboration Session Activation",
+      "description": "### Problem Statement\nCurrently, `Studio.tsx` activates `useCollaboration` unconditionally on every opened project, even when the user is designing solo in a private local/cloud canvas. This wastes network bandwidth and backend memory for solo workflows.\n\n### Requirements & Scope (Phase 3 - Priority 3)\n1. **On-Demand Activation:**\n   - Only activate and connect the `CollaborationSession` when:\n     1. The URL hash contains a shared room (`#room=<id>`), OR\n     2. The user opens the Collaborators/Presence modal and clicks 'Share' or 'Copy invite link' to invite others.\n2. **Solo Mode Efficiency:**\n   - When not in collaboration mode, the canvas runs strictly locally with silent cloud persistence, sending 0 collaboration requests.\n3. **Verification:**\n   - Verify opening Paper does not send any `/__paper_collaboration/` requests by default.\n   - Verify clicking 'Invite' or opening a `#room=` URL immediately connects to collaboration.\n   - All automated tests (`npm test`, `npm run build`) pass.\n\nReference: Closes #15",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 15
+    },
     {
       "id": "T-ISSUE-9",
       "phase": "Community & Issues",
@@ -40,7 +74,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 11,
-      "completed_at": "2026-10-14T11:50:32.682814"
+      "completed_at": "2026-10-14T11:50:32.682814",
+      "closed_at": "2026-10-14T11:50:37Z"
     },
     {
       "id": "T-ISSUE-12",
@@ -52,7 +87,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 12,
-      "completed_at": "2026-10-14T12:15:45.176930"
+      "completed_at": "2026-10-14T12:15:45.176930",
+      "closed_at": "2026-10-14T12:15:49Z"
     },
     {
       "id": "T-ISSUE-8",

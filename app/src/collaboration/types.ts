@@ -2,7 +2,7 @@ import type { Point, Size } from '../canvas/types.ts'
 
 export const COLLAB_PATH = '/__paper_collaboration'
 export const PRESENCE_COLORS = ['#81adec', '#c4a2e8', '#e9aa83', '#86bca3', '#df96ac', '#bdb178'] as const
-export type ConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'offline'
+export type ConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'offline' | 'unavailable'
 export interface Presence {
   id: string
   name: string

@@ -187,3 +187,124 @@ test('a semantically rejected edit restores accepted state and exposes the relay
   assert.match(rig.session.getSnapshot().error, /invalid reference/)
   assert.equal(rig.session.getSnapshot().status, 'live')
 })
+
+for (const status of [404, 405, 501]) {
+  test(`terminal error ${status} aborts retry loop immediately and transitions status to unavailable`, async t => {
+    const rig = setup(t, request => {
+      if (request.route === 'join') return response({ error: 'Not Supported' }, status)
+      return response({})
+    })
+    rig.session.start()
+    await settle()
+    assert.equal(rig.session.getSnapshot().status, 'unavailable')
+    assert.match(rig.session.getSnapshot().error, new RegExp(`${status}`))
+    const initialRequests = rig.requests.length
+
+    // Advance clock past any retry timer
+    await rig.tick(2000)
+    await rig.tick(4000)
+    await rig.tick(30000)
+    assert.equal(rig.requests.length, initialRequests)
+  })
+}
+
+test('transient failures use exponential backoff up to 30s and pause after max retry attempts', async t => {
+  let joins = 0
+  const rig = setup(t, request => {
+    if (request.route === 'join') {
+      joins++
+      return response({ error: 'Service Unavailable' }, 503)
+    }
+    return response({})
+  })
+  rig.session.start()
+  await settle()
+  assert.equal(joins, 1)
+  assert.equal(rig.session.getSnapshot().status, 'reconnecting')
+
+  // Attempt 1 backoff: 2000ms
+  await rig.tick(1900)
+  assert.equal(joins, 1)
+  await rig.tick(100)
+  assert.equal(joins, 2)
+
+  // Attempt 2 backoff: 4000ms
+  await rig.tick(3900)
+  assert.equal(joins, 2)
+  await rig.tick(100)
+  assert.equal(joins, 3)
+
+  // Attempt 3 backoff: 8000ms
+  await rig.tick(8000)
+  assert.equal(joins, 4)
+
+  // Attempt 4 backoff: 16000ms
+  await rig.tick(16000)
+  assert.equal(joins, 5)
+
+  // Attempt 5 backoff: 30000ms (clamped from 32000ms to max 30000ms)
+  await rig.tick(30000)
+  assert.equal(joins, 6)
+
+  // Max retries reached: paused and set to unavailable
+  assert.equal(rig.session.getSnapshot().status, 'unavailable')
+  assert.match(rig.session.getSnapshot().error, /paused|repeated failures|Retry/i)
+
+  // Advancing time further makes NO new attempts
+  await rig.tick(60000)
+  assert.equal(joins, 6)
+
+  // Manual retry resets attempts and triggers new connection attempt
+  rig.session.retry()
+  await settle()
+  assert.equal(joins, 7)
+})
+
+test('manual retry restores connection attempt from unavailable state', async t => {
+  let attempts = 0
+  const rig = setup(t, (request, state) => {
+    if (request.route !== 'join') return response({})
+    attempts++
+    if (attempts === 1) return response({ error: 'Endpoint not allowed' }, 405)
+    return response({ ...state, token: request.body.token })
+  })
+  rig.session.start()
+  await settle()
+  assert.equal(rig.session.getSnapshot().status, 'unavailable')
+  assert.equal(attempts, 1)
+
+  await rig.tick(10000)
+  assert.equal(attempts, 1)
+
+  // User clicks manual Retry
+  rig.session.retry()
+  await rig.open()
+  await rig.tick()
+  assert.equal(attempts, 2)
+  assert.equal(rig.session.getSnapshot().status, 'live')
+})
+
+test('terminal error during update aborts connection and transitions to unavailable', async t => {
+  let updates = 0
+  const rig = setup(t, (request, state) => {
+    if (request.route === 'join') return response({ ...state, token: request.body.token })
+    if (request.route === 'update') {
+      updates++
+      return response({ error: 'Endpoint gone' }, 404)
+    }
+    return response({})
+  })
+  rig.session.start()
+  await rig.open()
+  assert.equal(rig.session.getSnapshot().status, 'live')
+
+  rig.store.update('rect', 'rectangle', { x: 500 })
+  await rig.tick()
+  assert.equal(updates, 1)
+  assert.equal(rig.session.getSnapshot().status, 'unavailable')
+  assert.match(rig.session.getSnapshot().error, /404/)
+
+  await rig.tick(10000)
+  assert.equal(updates, 1)
+})
+
