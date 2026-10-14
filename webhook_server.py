@@ -116,6 +116,18 @@ class GitHubWebhookHandler(BaseHTTPRequestHandler):
                     mark_task_approved(num)
                     trigger_issue_bot()
 
+        elif event_type == "push":
+            ref = payload.get("ref", "")
+            commits = payload.get("commits", [])
+            head_commit = payload.get("after") or (commits[-1].get("id") if commits else "unknown")
+            log(f"Push event on ref '{ref}' (head: {head_commit[:8] if head_commit else 'unknown'}, {len(commits)} commits)")
+            if ref in ("refs/heads/main", "refs/heads/master"):
+                log("Target is production branch main. Triggering auto_deploy.sh in background...")
+                try:
+                    subprocess.Popen(["/bin/bash", str(PROJECT_ROOT / "auto_deploy.sh")])
+                except Exception as e:
+                    log(f"Error launching auto_deploy.sh: {e}")
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()

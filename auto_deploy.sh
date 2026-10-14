@@ -1,5 +1,6 @@
 #!/bin/bash
 set -u
+export PATH="/root/.local/bin:/root/.hermes/tools/node-26.7.0-linux-x64/bin:/root/.hermes/tools/python-3.14.7+202****0901-linux-x64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 PROJECT_DIR="/root/projects/paper"
 LOCK_FILE="/tmp/paper_deploy.lock"
