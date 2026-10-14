@@ -37,7 +37,11 @@ Writes compare an expected SHA-256 revision before replacement. On a conflict, t
 
 ## Remote agents
 
-Generate a **Remote MCP token** in account settings. Reveal and copy it there. Regeneration immediately revokes the previous token; changing local preferences never changes remote credentials.
+Open the header avatar → **Profile & account** to edit your account name and picture. Signed-in profiles are stored on the server and survive future provider logins. Workspace name, appearance and the 120 px engineering grid preference stay on this device. Signing in never replaces your local guest profile.
+
+Choose **Generate MCP token** to create a private, cryptographically random 256-bit credential. Reveal, hide or copy it in this dialog. **Rotate token** immediately revokes the previous credential; **Revoke token** removes access without creating a replacement. These actions apply immediately, independently of **Save changes**. Rotated and revoked tokens remain invalid after a server restart. Revealing a token requires an active browser session; tokens alone cannot access account settings.
+
+The server stores a SHA-256 digest for authentication and an AES-256-GCM encrypted copy for authenticated reveal. Plaintext credentials never enter browser storage, project exports, session responses or the configuration snippet. Paste a copied token into the snippet's `<YOUR_PAPER_TOKEN>` placeholder in your own agent client configuration. Keep the server's session secret stable so existing encrypted tokens remain recoverable.
 
 Connect a client supporting [MCP Streamable HTTP](https://ts.sdk.modelcontextprotocol.io/server) to:
 

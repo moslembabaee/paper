@@ -5,6 +5,7 @@ import { Duplex } from 'node:stream'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { createService } from '../dist/server/service.js'
 import { canonical, newer } from '../dist/src/cloud/model.js'
 
@@ -153,18 +154,140 @@ test('Google and GitHub OAuth bind state to the browser, exchange PKCE codes, an
     assert.equal(start.status, 302)
     const target = new URL(start.headers.get('location'))
     assert.equal(target.searchParams.get('code_challenge_method'), 'S256')
+    assert.equal(target.searchParams.get('redirect_uri'), `http://localhost:3000/api/auth/${provider}/callback`)
     const state = target.searchParams.get('state')
     const callback = `/api/auth/${provider}/callback?state=${state}&code=private-code`
     const done = await f.request(callback, { headers: { Cookie: `paper_oauth=${state}` } })
     assert.equal(done.status, 302)
     const session = done.headers.get('set-cookie').match(/paper_session=([^;]+)/)[1]
     assert.equal((await f.request('/api/auth/session', { headers: { Cookie: `paper_session=${session}` } })).data.user.email, `${provider}@test.local`)
+    const exchange = calls.findLast(c => c.options.method === 'POST')
+    const verifier = new URLSearchParams(exchange.options.body).get('code_verifier')
+    assert.equal(createHash('sha256').update(verifier).digest('base64url'), target.searchParams.get('code_challenge'))
     assert.equal((await f.request(callback, { headers: { Cookie: `paper_oauth=${state}` } })).status, 400)
   }
   const start = await f.request('/api/auth/google')
   const state = new URL(start.headers.get('location')).searchParams.get('state')
   assert.equal((await f.request(`/api/auth/google/callback?state=${state}&code=code`, { headers: { Cookie: 'paper_oauth=wrong' } })).status, 400)
   assert.ok(calls.filter(c => c.options.method === 'POST').every(c => new URLSearchParams(c.options.body).has('code_verifier')))
+  const disk = await readFile(join(f.root, 'auth.json'), 'utf8')
+  assert.ok(!disk.includes('provider-private-token'))
+  assert.ok(!disk.includes('private-code'))
+})
+
+test('token revocation rejects agents immediately and stays revoked after restart', async t => {
+  const f = await fixture(t), a = await f.login('a'), b = await f.login('b')
+  assert.equal((await f.request('/api/auth/token', { method: 'DELETE', headers: { Cookie: a.headers.Cookie } })).status, 403)
+  assert.equal((await f.request('/api/auth/token', { method: 'DELETE', headers: { ...a.headers, 'X-Paper-Account': b.user.id } })).status, 403)
+  const revoked = await f.request('/api/auth/token', { method: 'DELETE', headers: a.headers })
+  assert.equal(revoked.status, 200)
+  assert.equal(revoked.data.user.hasMcpToken, false)
+  assert.equal(revoked.data.user.tokenRotatedAt, undefined)
+  assert.equal((await f.rpc(a.token, 'ping')).status, 401)
+  assert.equal((await f.rpc(b.token, 'ping')).status, 200)
+  assert.equal((await f.request('/api/auth/token', { headers: a.headers })).status, 404)
+  const restarted = await createService({ root: f.root, secret, origin: 'http://localhost:3000' })
+  assert.equal(restarted.auth.bearer(a.token), undefined)
+  assert.throws(() => restarted.auth.reveal(a.user.id), { status: 404 })
+  const regenerated = await f.request('/api/auth/token/regenerate', { method: 'POST', headers: a.headers })
+  assert.match(regenerated.data.token, /^paper_[A-Za-z0-9_-]{43}$/)
+  assert.equal(regenerated.data.user.hasMcpToken, true)
+  assert.equal(typeof regenerated.data.user.tokenRotatedAt, 'number')
+})
+
+test('profiles validate edits, clear avatars, stay private, and survive provider login and restart', async t => {
+  const f = await fixture(t), a = await f.login('a')
+  const update = values => f.request('/api/auth/profile', { method: 'PATCH', headers: a.headers, body: JSON.stringify(values) })
+  for (const input of [{ name: '' }, { name: 'x'.repeat(81) }, { name: 42 }, { avatar: 'javascript:alert(1)' }, { avatar: null }, { avatar: 'data:image/svg+xml;base64,AA==' }]) assert.equal((await update(input)).status, 400)
+  assert.equal((await f.request('/api/auth/profile', { method: 'PATCH', headers: { Cookie: a.headers.Cookie }, body: '{"name":"unsafe"}' })).status, 403)
+  const edited = await update({ name: '  Studio Designer  ', avatar: 'data:image/png;base64,AA==' })
+  assert.equal(edited.data.user.name, 'Studio Designer')
+  assert.equal(edited.data.user.provider, 'github')
+  assert.equal(edited.data.user.tokenHash, undefined)
+  assert.equal(edited.data.user.tokenEncrypted, undefined)
+  assert.equal(edited.data.user.profileEdited, undefined)
+  assert.equal((await update({ avatar: '' })).data.user.avatar, '')
+  const again = await f.auth.login('github', { sub: 'a', email: 'changed@test.local', name: 'Provider name', avatar: 'https://example.com/avatar.png' })
+  assert.equal(again.user.id, a.user.id)
+  assert.equal(again.user.name, 'Studio Designer')
+  assert.equal(again.user.avatar, '')
+  assert.equal(again.user.email, 'changed@test.local')
+  const other = await f.auth.login('google', { sub: 'a', email: 'changed@test.local', name: 'Google', avatar: '' })
+  assert.notEqual(other.user.id, a.user.id)
+  const restarted = await createService({ root: f.root, secret, origin: 'http://localhost:3000' })
+  assert.equal(restarted.auth.profile(restarted.auth.session(a.session)).name, 'Studio Designer')
+})
+
+test('OAuth cancellation and unavailable providers return safely to the editor', async t => {
+  const f = await fixture(t, { google: { clientId: 'client', clientSecret: 'secret' }, fetch: async () => { throw new Error('provider network failure') } })
+  assert.equal((await f.request('/api/auth/github')).status, 503)
+  const begin = async () => {
+    const start = await f.request('/api/auth/google')
+    return new URL(start.headers.get('location')).searchParams.get('state')
+  }
+  const cancelledState = await begin()
+  const cancelled = await f.request(`/api/auth/google/callback?state=${cancelledState}&error=access_denied`, { headers: { Cookie: `paper_oauth=${cancelledState}`, Accept: 'text/html' } })
+  assert.equal(cancelled.status, 302)
+  assert.match(cancelled.headers.get('location'), /^\/\?auth_error=/)
+  assert.match(cancelled.headers.get('set-cookie'), /paper_oauth=;.*Max-Age=0/)
+  assert.equal((await f.request(`/api/auth/google/callback?state=${cancelledState}&code=code`, { headers: { Cookie: `paper_oauth=${cancelledState}` } })).status, 400)
+  const failedState = await begin()
+  const failed = await f.request(`/api/auth/google/callback?state=${failedState}&code=code`, { headers: { Cookie: `paper_oauth=${failedState}`, Accept: 'text/html' } })
+  assert.equal(failed.status, 302)
+  assert.ok(!failed.headers.get('location').includes('network failure'))
+  assert.equal((await f.request('/api/auth/session')).data.user, null)
+  const wrongCookieState = await begin()
+  assert.equal((await f.request(`/api/auth/google/callback?state=${wrongCookieState}&code=code`, { headers: { Cookie: 'paper_oauth=wrong' } })).status, 400)
+  // An unrelated browser cannot consume the legitimate browser's attempt.
+  assert.equal((await f.request(`/api/auth/google/callback?state=${wrongCookieState}&code=code`, { headers: { Cookie: `paper_oauth=${wrongCookieState}` } })).status, 502)
+})
+
+test('failed persistence never publishes a token change to authentication', async t => {
+  const f = await fixture(t), a = await f.login('a')
+  const path = join(f.root, 'auth.json')
+  await rm(path)
+  const { mkdir } = await import('node:fs/promises')
+  await mkdir(path)
+  await assert.rejects(f.auth.regenerate(a.user.id))
+  assert.equal(f.auth.bearer(a.token).id, a.user.id)
+  assert.equal(f.auth.reveal(a.user.id), a.token)
+  await assert.rejects(f.auth.revoke(a.user.id))
+  assert.equal(f.auth.bearer(a.token).id, a.user.id)
+})
+
+test('OAuth rejects unverified identities and never issues a session on rejection', async t => {
+  const f = await fixture(t, {
+    google: { clientId: 'client', clientSecret: 'secret' }, github: { clientId: 'client', clientSecret: 'secret' },
+    fetch: async url => {
+      const data = url.includes('/token') || url.includes('access_token') ? { access_token: 'private' }
+        : url.includes('userinfo') ? { sub: 'g', email: 'unverified@test.local', email_verified: false }
+        : url.endsWith('/user/emails') ? [{ email: 'unverified@test.local', primary: true, verified: false }]
+        : { id: 42, login: 'unverified' }
+      return Response.json(data)
+    },
+  })
+  for (const provider of ['google', 'github']) {
+    const start = await f.request(`/api/auth/${provider}`)
+    const state = new URL(start.headers.get('location')).searchParams.get('state')
+    const rejected = await f.request(`/api/auth/${provider}/callback?state=${state}&code=code`, { headers: { Cookie: `paper_oauth=${state}` } })
+    assert.equal(rejected.status, 403)
+    assert.ok(!rejected.headers.get('set-cookie').includes('paper_session='))
+  }
+  assert.equal((await f.request('/api/auth/session')).data.user, null)
+})
+
+test('HTTPS OAuth uses secure cookies and expiring single-use state', async t => {
+  const f = await fixture(t, { origin: 'https://paper.test', google: { clientId: 'client', clientSecret: 'secret' }, fetch: async () => { throw new Error('Expired attempts must never reach the provider') } })
+  const start = await f.request('/api/auth/google')
+  assert.match(start.headers.get('set-cookie'), /HttpOnly; SameSite=Lax; Max-Age=600; Secure/)
+  const target = new URL(start.headers.get('location'))
+  assert.equal(target.searchParams.get('redirect_uri'), 'https://paper.test/api/auth/google/callback')
+  const state = target.searchParams.get('state')
+  const now = Date.now()
+  t.mock.method(Date, 'now', () => now + 601_000)
+  const expired = await f.request(`/api/auth/google/callback?state=${state}&code=code`, { headers: { Cookie: `paper_oauth=${state}` } })
+  assert.equal(expired.status, 400)
+  assert.match(expired.headers.get('set-cookie'), /Max-Age=0; Secure/)
 })
 
 test('live changes are pushed only to the owning session through SSE', async t => {

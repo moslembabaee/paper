@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
-const user = { id: 'test-account', name: 'Cloud Designer', email: 'designer@paper.test', avatar: '', createdAt: 1, hasMcpToken: false }
+const user = { provider: 'github', id: 'test-account', name: 'Cloud Designer', email: 'designer@paper.test', avatar: '', createdAt: 1, hasMcpToken: false }
 async function openProfile(page: Page) {
   await page.getByRole('button', { name: 'User profile menu' }).click()
   await page.getByRole('menuitem', { name: 'Profile & account' }).click()
@@ -47,7 +47,7 @@ test('migration, edits, headless pulls and remote token rotation work in the bro
     }
     await route.fulfill({ status: remote ? 200 : 404, json: remote ?? { error: 'Not found' } })
   })
-  await page.route('**/api/auth/token/regenerate', async route => { generated = true; await route.fulfill({ json: { token: `paper_remote-token-${++tokenNumber}` } }) })
+  await page.route('**/api/auth/token/regenerate', async route => { generated = true; await route.fulfill({ json: { token: `paper_remote-token-${++tokenNumber}`, user: { ...user, hasMcpToken: true, tokenRotatedAt: Date.now() } } }) })
   await page.route('**/api/auth/token', route => route.fulfill({ json: { token: `paper_remote-token-${tokenNumber}` } }))
   await page.goto('/')
   const migration = page.getByRole('dialog', { name: 'Bring your projects along.' })
@@ -65,11 +65,11 @@ test('migration, edits, headless pulls and remote token rotation work in the bro
   await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('Edited while closed')
   const settings = await openProfile(page)
   await expect(settings.getByText(user.email)).toBeVisible()
-  await settings.getByRole('button', { name: 'Generate remote token' }).click()
-  const field = settings.getByRole('textbox', { name: 'Remote MCP auth token' })
+  await settings.getByRole('button', { name: 'Generate MCP token' }).click()
+  const field = settings.getByLabel('Remote MCP auth token')
   await expect(field).toHaveValue(/paper_remote-token-/)
   const first = await field.inputValue()
-  await settings.getByRole('button', { name: 'Regenerate remote token' }).click()
+  await settings.getByRole('button', { name: 'Rotate token' }).click()
   await expect(field).not.toHaveValue(first)
   expect(errors).toEqual([])
 })
@@ -82,4 +82,92 @@ test('cloud login offers configured providers without changing guest rendering',
   const settings = await openProfile(page)
   await expect(settings.getByRole('link', { name: 'Sign in with Google' })).toHaveAttribute('href', '/api/auth/google')
   await expect(settings.getByRole('link', { name: 'Sign in with GitHub' })).toHaveAttribute('href', '/api/auth/github')
+})
+
+test('profile settings reveal, hide, copy, rotate and revoke server tokens without storing credentials locally', async ({ page, context }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  let profile = { ...user, avatar: 'https://paper.test/avatar.png' }
+  let token = ''
+  let generation = 0
+  let copied = ''
+  const authorizationAccounts: string[] = []
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', { value: async (text: string) => { (window as unknown as { copiedToken: string }).copiedToken = text } })
+    localStorage.setItem('paper.profile.v1', JSON.stringify({ version: 1, name: 'Local Designer', avatar: '', workspaceName: 'Studio', defaultGrid: true, mcpToken: '' }))
+  })
+  await page.route('https://paper.test/avatar.png', route => route.fulfill({ status: 204 }))
+  await page.route('**/cloud.json', route => route.fulfill({ json: { cloud: true } }))
+  await page.route('**/api/auth/session', route => route.fulfill({ json: { user: profile, providers: { google: true, github: true } } }))
+  await page.route('**/api/events?*', route => route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': connected\n\n' }))
+  await page.route('**/api/projects', route => route.fulfill({ json: { projects: [] } }))
+  await page.route('**/api/auth/token/regenerate', async route => {
+    authorizationAccounts.push(route.request().headers()['x-paper-account'])
+    token = `paper_${String(++generation).padStart(43, 'a')}`
+    profile = { ...profile, hasMcpToken: true }
+    await route.fulfill({ json: { token, user: profile } })
+  })
+  await page.route('**/api/auth/token', async route => {
+    authorizationAccounts.push(route.request().headers()['x-paper-account'])
+    if (route.request().method() === 'DELETE') {
+      token = ''; profile = { ...profile, hasMcpToken: false }
+      await route.fulfill({ json: { ok: true, user: profile } }); return
+    }
+    await route.fulfill({ json: { token } })
+  })
+  await page.route('**/api/auth/profile', async route => {
+    profile = { ...profile, ...route.request().postDataJSON() }
+    await route.fulfill({ json: { user: profile } })
+  })
+  await page.goto('/')
+  const migration = page.getByRole('dialog', { name: 'Bring your projects along.' })
+  await expect(migration).toBeVisible()
+  await migration.getByRole('button', { name: 'Keep local for now' }).click()
+  let settings = await openProfile(page)
+  await expect(settings.getByRole('textbox', { name: 'Display name' })).toHaveValue(user.name)
+  await settings.getByRole('button', { name: 'Generate MCP token' }).click()
+  const input = settings.getByLabel('Remote MCP auth token')
+  await expect(input).toHaveValue(/^paper_/)
+  const first = await input.inputValue()
+  await settings.getByRole('button', { name: 'Hide remote token' }).click()
+  await expect(input).not.toHaveValue(first)
+  await settings.locator('.mcp-config-guide summary').click()
+  await expect(settings.locator('.mcp-config-guide pre')).not.toContainText(first)
+  await settings.getByRole('button', { name: 'Copy remote token' }).click()
+  copied = await page.evaluate(() => (window as unknown as { copiedToken: string }).copiedToken)
+  expect(copied).toBe(first)
+  await expect(settings.getByText('Copied to clipboard')).toBeVisible()
+  await settings.getByRole('button', { name: 'Reveal remote token' }).click()
+  await expect(input).toHaveValue(first)
+  await settings.getByRole('button', { name: 'Rotate token' }).click()
+  await expect(input).not.toHaveValue(first)
+  await settings.getByRole('button', { name: 'Revoke token' }).click()
+  await expect(input).toBeEmpty()
+  await expect(settings.getByRole('button', { name: 'Reveal remote token' })).toBeDisabled()
+  await expect(settings.getByRole('button', { name: 'Copy remote token' })).toBeDisabled()
+  await expect(settings.getByRole('button', { name: 'Generate MCP token' })).toBeVisible()
+  expect(authorizationAccounts.every(id => id === user.id)).toBe(true)
+  await settings.getByRole('textbox', { name: 'Display name' }).fill('My Studio')
+  await settings.getByRole('button', { name: 'Remove', exact: true }).click()
+  await settings.getByRole('button', { name: 'Save changes' }).click()
+  await expect(settings).toHaveCount(0)
+  expect(profile.name).toBe('My Studio')
+  expect(profile.avatar).toBe('')
+  const local = await page.evaluate(() => localStorage.getItem('paper.profile.v1'))
+  expect(local).toContain('Local Designer')
+  expect(local).not.toContain(first)
+  settings = await openProfile(page)
+  await expect(settings.getByRole('textbox', { name: 'Display name' })).toHaveValue('My Studio')
+  await expect(settings.getByRole('button', { name: 'Remove', exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('OAuth callback errors open account settings and are decoded only once', async ({ page }) => {
+  await page.route('**/cloud.json', route => route.fulfill({ json: { cloud: true } }))
+  await page.route('**/api/auth/session', route => route.fulfill({ json: { user: null, providers: { google: true, github: true } } }))
+  await page.goto('/?auth_error=Sign-in%20failed%20%28100%25%29')
+  await expect(page.getByRole('dialog', { name: 'Profile & account', exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveText('Sign-in failed (100%)')
+  await expect(page).not.toHaveURL(/auth_error/)
 })

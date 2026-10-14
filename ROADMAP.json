@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-6-1",
+  "current_task_id": "T-ISSUE-6-2",
   "tasks": [
     {
       "id": "T-ISSUE-6-1",
@@ -24,12 +24,13 @@
       "title": "Issue #6 (Part 2/4): OAuth Authentication & Profile Token Management",
       "description": "Implement Google and GitHub OAuth flow, user profile entity, and UI profile settings dialog to generate, reveal, copy, and rotate secure MCP Auth Tokens with server-side revocation.\n\nParent Issue: #6\nReference: Closes #6",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 6,
       "subtask_index": 2,
-      "total_subtasks": 4
+      "total_subtasks": 4,
+      "completed_at": "2026-10-14T07:45:18.377959"
     },
     {
       "id": "T-ISSUE-6-3",

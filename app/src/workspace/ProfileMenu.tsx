@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Check, Copy, Eye, EyeOff, FolderOpen, HardDrive, KeyRound, Settings2, Upload, UserRound, X } from 'lucide-react'
+import { ArrowUpRight, Check, Cloud, Copy, Eye, EyeOff, FolderOpen, HardDrive, KeyRound, Settings2, Upload, UserRound, X } from 'lucide-react'
 import { getTheme, setTheme } from '../design-system/theme'
 import type { StudioTheme } from '../design-system/tokens'
 import { Dialog } from './Dialog'
@@ -7,10 +7,13 @@ import { generateToken, initials, readAvatar, saveProfile } from './profile'
 import { CloudAccount } from '../cloud/CloudAccount'
 import type { CloudAccountState } from '../cloud/CloudAccount'
 import type { useCloudSync } from '../cloud/useCloudSync'
+import type { CloudUser } from '../cloud/model'
 import type { UserProfile } from './types'
 
-export function Avatar({ profile, large = false }: { profile: UserProfile; large?: boolean }) {
-  return <span className={`account-avatar ${large ? 'large' : ''}`} aria-hidden="true">{profile.avatar ? <img src={profile.avatar} alt="" /> : initials(profile.name)}</span>
+export function Avatar({ profile, user, large = false }: { profile: UserProfile; user?: CloudUser | null; large?: boolean }) {
+  const avatar = user ? user.avatar : profile.avatar
+  const name = user ? user.name : profile.name
+  return <span className={`account-avatar ${large ? 'large' : ''}`} aria-hidden="true">{avatar ? <img src={avatar} alt="" referrerPolicy="no-referrer" /> : initials(name)}</span>
 }
 
 export function ProfileMenu({ profile, onSave, onOpenProjects, account, sync }: {
@@ -21,6 +24,7 @@ export function ProfileMenu({ profile, onSave, onOpenProjects, account, sync }: 
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const close = () => { setOpen(false); trigger.current?.focus() }
+  useEffect(() => { if (account.authNotice) setSettings(true) }, [account.authNotice])
   useEffect(() => {
     if (!open) return
     root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus()
@@ -32,7 +36,7 @@ export function ProfileMenu({ profile, onSave, onOpenProjects, account, sync }: 
   }, [open])
 
   return <div className="account-control" ref={root}>
-    <button ref={trigger} className="account-trigger" aria-label="User profile menu" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? 'profile-menu' : undefined} title={`${account.user?.name ?? profile.name} · ${account.user ? "Cloud workspace" : "Local workspace"}`} onClick={() => setOpen(!open)}><Avatar profile={profile} /><i className="account-status" /></button>
+    <button ref={trigger} className="account-trigger" aria-label="User profile menu" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? 'profile-menu' : undefined} title={`${account.user?.name ?? profile.name} · ${account.user ? "Cloud workspace" : "Local workspace"}`} onClick={() => setOpen(!open)}><Avatar profile={profile} user={account.user} /><i className="account-status" /></button>
     {open && <div id="profile-menu" className="account-menu workspace-surface" role="menu" aria-label="Your account" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }} onKeyDown={event => {
       const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
@@ -41,22 +45,28 @@ export function ProfileMenu({ profile, onSave, onOpenProjects, account, sync }: 
         buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus()
       }
     }}>
-      <div className="account-menu-identity"><Avatar profile={profile} /><div><strong>{account.user?.name ?? profile.name}</strong><span>{account.user?.email ?? "Self-hosted · On this device"}</span></div></div>
+      <div className="account-menu-identity"><Avatar profile={profile} user={account.user} /><div><strong>{account.user?.name ?? profile.name}</strong><span>{account.user?.email ?? "Self-hosted · On this device"}</span></div></div>
       <button role="menuitem" onClick={() => { close(); setSettings(true) }}><UserRound size={15} />Profile & account<Settings2 size={13} /></button>
       <button role="menuitem" onClick={() => { close(); onOpenProjects() }}><FolderOpen size={15} />Local projects<ArrowUpRight size={13} /></button>
       <div className="account-menu-footer"><HardDrive size={12} /><span>{profile.workspaceName}</span><i /></div>
     </div>}
-    {settings && <ProfileDialog profile={profile} onSave={onSave} account={account} sync={sync} onClose={() => { setSettings(false); trigger.current?.focus() }} />}
+    {settings && <ProfileDialog key={account.user?.id ?? 'local'} profile={profile} onSave={onSave} account={account} sync={sync} onClose={() => { setSettings(false); trigger.current?.focus() }} />}
   </div>
 }
 
 function ProfileDialog({ profile, onSave, onClose, account, sync }: { profile: UserProfile; onSave: (profile: UserProfile) => void; onClose: () => void; account: CloudAccountState; sync: ReturnType<typeof useCloudSync> }) {
-  const [draft, setDraft] = useState(profile)
+  const [draft, setDraft] = useState(() => ({
+    ...profile,
+    name: account.user ? account.user.name : profile.name,
+    avatar: account.user ? account.user.avatar : profile.avatar,
+  }))
   const [theme, setDraftTheme] = useState<StudioTheme>(getTheme)
   const [revealed, setRevealed] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const busy = uploading || saving
   const file = useRef<HTMLInputElement>(null)
   const field = <K extends keyof UserProfile>(key: K, value: UserProfile[K]) => setDraft(current => ({ ...current, [key]: value }))
 
@@ -68,15 +78,26 @@ function ProfileDialog({ profile, onSave, onClose, account, sync }: { profile: U
     finally { setUploading(false) }
   }
 
-  function submit() {
+  async function submit() {
+    if (busy) return
     if (!draft.name.trim() || !draft.workspaceName.trim()) { setError('Enter your name and a workspace name.'); return }
+    setSaving(true)
+    setError('')
     try {
       const next = { ...draft, name: draft.name.trim(), workspaceName: draft.workspaceName.trim(), mcpToken: draft.mcpToken.trim() }
-      saveProfile(next)
+      if (account.user && (next.name !== account.user.name || next.avatar !== account.user.avatar)) {
+        await account.updateProfile({
+          name: next.name,
+          avatar: next.avatar,
+        })
+      }
+      const local = account.user ? { ...next, name: profile.name, avatar: profile.avatar } : next
+      saveProfile(local)
       setTheme(theme)
-      onSave(next)
+      onSave(local)
       onClose()
-    } catch { setError('Account settings could not be saved. Browser storage may be full or unavailable.') }
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Account settings could not be saved. Browser storage may be full or unavailable.') }
+    finally { setSaving(false) }
   }
 
   async function copyToken() {
@@ -84,13 +105,13 @@ function ProfileDialog({ profile, onSave, onClose, account, sync }: { profile: U
     catch { setError('Clipboard unavailable. Reveal the token to copy it manually.') }
   }
 
-  return <Dialog className="profile-dialog workspace-surface" labelledBy="profile-title" onClose={onClose} busy={uploading}>
-    <form onSubmit={event => { event.preventDefault(); submit() }}>
-      <div className="workspace-dialog-heading"><div><span className="workspace-eyebrow">YOUR OWN LITTLE CORNER</span><h2 id="profile-title">Profile & account</h2><p>A personal space. Hosted on your terms.</p></div><button type="button" className="quiet-button" aria-label="Close account settings" disabled={uploading} onClick={onClose}><X size={18} /></button></div>
+  return <Dialog className="profile-dialog workspace-surface" labelledBy="profile-title" onClose={onClose} busy={busy}>
+    <form onSubmit={event => { event.preventDefault(); void submit() }}>
+      <div className="workspace-dialog-heading"><div><span className="workspace-eyebrow">YOUR OWN LITTLE CORNER</span><h2 id="profile-title">Profile & account</h2><p>A personal space. Hosted on your terms.</p></div><button type="button" className="quiet-button" aria-label="Close account settings" disabled={busy} onClick={onClose}><X size={18} /></button></div>
       <div className="profile-body">
-        <div className="profile-identity"><Avatar profile={draft} large /><div><strong>Your profile picture</strong><span>PNG, JPEG or WebP · up to 5 MB</span><div className="avatar-actions"><button type="button" className="workspace-secondary" disabled={uploading} onClick={() => file.current?.click()}><Upload size={12} />{uploading ? 'Preparing…' : 'Upload image'}</button>{draft.avatar && <button type="button" className="workspace-text-button" disabled={uploading} onClick={() => field('avatar', '')}>Remove</button>}</div></div><input ref={file} hidden type="file" aria-label="Upload profile image" accept="image/png,image/jpeg,image/webp" onChange={event => { const avatar = event.target.files?.[0]; event.target.value = ''; if (avatar) void upload(avatar) }} /></div>
+        <div className="profile-identity"><Avatar profile={draft} user={account.user ? { ...account.user, name: draft.name, avatar: draft.avatar } : null} large /><div><strong>Your profile picture</strong><span>PNG, JPEG or WebP · up to 5 MB</span><div className="avatar-actions"><button type="button" className="workspace-secondary" disabled={busy} onClick={() => file.current?.click()}><Upload size={12} />{uploading ? 'Preparing…' : 'Upload image'}</button>{draft.avatar && <button type="button" className="workspace-text-button" disabled={busy} onClick={() => field('avatar', '')}>Remove</button>}</div></div><input ref={file} hidden type="file" aria-label="Upload profile image" accept="image/png,image/jpeg,image/webp" onChange={event => { const avatar = event.target.files?.[0]; event.target.value = ''; if (avatar) void upload(avatar) }} /></div>
         <label className="workspace-field">Display name<input required maxLength={80} value={draft.name} autoComplete="name" onChange={event => field('name', event.target.value)} /></label>
-        <CloudAccount account={account} sync={sync} />
+        <CloudAccount key={account.user?.id ?? "local"} account={account} sync={sync} disabled={busy} />
         <div className="profile-section-title"><HardDrive size={14} /><h3>Self-host preferences</h3><span>LOCAL</span></div>
         <label className="workspace-field">Workspace name<input required maxLength={80} value={draft.workspaceName} onChange={event => field('workspaceName', event.target.value)} /></label>
         <div className="profile-preference"><div><strong>Studio appearance</strong><span>Choose the space you work best in.</span></div><div className="profile-theme" role="group" aria-label="Preferred studio appearance">{(['dark', 'light'] as const).map(value => <button type="button" key={value} aria-pressed={theme === value} onClick={() => setDraftTheme(value)}>{value === 'dark' ? 'Dark' : 'Light'}</button>)}</div></div>
@@ -102,7 +123,7 @@ function ProfileDialog({ profile, onSave, onClose, account, sync }: { profile: U
         </>}
         {error && <p className="workspace-error" role="alert">{error}</p>}
       </div>
-      <div className="workspace-dialog-footer"><span><HardDrive size={12} />Only on this device</span><div><button type="button" className="workspace-secondary" disabled={uploading} onClick={onClose}>Cancel</button><button className="workspace-primary" type="submit" disabled={uploading}>Save changes</button></div></div>
+      <div className="workspace-dialog-footer"><span>{account.user ? <><Cloud size={12} />Cloud synced workspace</> : <><HardDrive size={12} />Only on this device</>}</span><div><button type="button" className="workspace-secondary" disabled={busy} onClick={onClose}>Cancel</button><button className="workspace-primary" type="submit" disabled={busy}>{saving ? "Saving…" : "Save changes"}</button></div></div>
     </form>
   </Dialog>
 }

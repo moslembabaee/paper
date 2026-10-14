@@ -46,7 +46,9 @@ export async function createService(config: ServiceConfig) {
   async function providerJSON(url: string, init?: RequestInit) {
     const response = await requestFetch(url, { ...init, signal: AbortSignal.timeout(10_000) })
     if (!response.ok) throw httpError(502, 'Identity provider unavailable')
-    return response.json() as Promise<Record<string, unknown>>
+    const value: unknown = await response.json()
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw httpError(502, 'Invalid identity provider response')
+    return value as Record<string, unknown>
   }
   const handler = async (req: IncomingMessage, res: ServerResponse, parsed?: unknown) => {
     try {
@@ -83,28 +85,53 @@ export async function createService(config: ServiceConfig) {
       const callback = path.match(/^\/api\/auth\/(google|github)\/callback$/)
       if (callback && req.method === 'GET') {
         const provider = callback[1] as 'google' | 'github'
+        const isHtml = req.headers.accept?.includes('text/html')
+        const fail = (status: number, message: string) => {
+          res.setHeader('Set-Cookie', cookie('paper_oauth', '', 0))
+          if (isHtml) {
+            res.writeHead(302, { Location: `/?auth_error=${encodeURIComponent(message)}`, 'Set-Cookie': cookie('paper_oauth', '', 0), 'Cache-Control': 'no-store' })
+            res.end()
+            return
+          }
+          throw httpError(status, message)
+        }
         const state = url.searchParams.get('state') ?? ''
         const attempt = attempts.get(state)
+        if (!attempt || attempt.expires < now || attempt.provider !== provider || cookies(req).paper_oauth !== state) {
+          fail(400, 'Sign-in expired or invalid. Please try again.')
+          return
+        }
         attempts.delete(state)
-        if (!attempt || attempt.expires < now || attempt.provider !== provider || cookies(req).paper_oauth !== state) throw httpError(400, 'Sign-in expired or invalid. Please try again.')
+        const oauthError = url.searchParams.get('error_description') ?? url.searchParams.get('error')
+        if (oauthError) { fail(400, `Sign-in was cancelled or rejected by ${provider === 'google' ? 'Google' : 'GitHub'}`); return }
         const code = url.searchParams.get('code')
-        if (!code || !config[provider]) throw httpError(400, 'Sign-in cancelled')
-        const settings = config[provider]!
-        const token = await providerJSON(provider === 'google' ? 'https://oauth2.googleapis.com/token' : 'https://github.com/login/oauth/access_token', { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code, client_id: settings.clientId, client_secret: settings.clientSecret, redirect_uri: `${origin}/api/auth/${provider}/callback`, grant_type: 'authorization_code', code_verifier: attempt.verifier }).toString() })
-        if (typeof token.access_token !== 'string') throw httpError(400, 'Sign-in was rejected')
-        const headers = { Authorization: `Bearer ${token.access_token}`, Accept: 'application/json', 'User-Agent': 'Paper' }
-        const identity = await providerJSON(provider === 'google' ? 'https://openidconnect.googleapis.com/v1/userinfo' : 'https://api.github.com/user', { headers })
-        let email = typeof identity.email === 'string' ? identity.email : ''
-        if (provider === 'github') {
-          const response = await requestFetch('https://api.github.com/user/emails', { headers, signal: AbortSignal.timeout(10000) })
-          if (!response.ok) throw httpError(502, 'Could not verify account email')
-          const emails = await response.json() as { email: string; primary: boolean; verified: boolean }[]
-          email = (emails.find(e => e.verified && e.primary) ?? emails.find(e => e.verified))?.email ?? ''
-        } else if (identity.email_verified !== true) throw httpError(403, 'Verify your Google email before signing in')
-        const sub = provider === 'google' ? identity.sub : identity.id
-        if (!sub || !email) throw httpError(403, 'A verified account email is required')
-        const loggedIn = await auth.login(provider, { sub: String(sub), email, name: String(identity.name ?? identity.login ?? email), avatar: String(identity.picture ?? identity.avatar_url ?? '') })
-        res.writeHead(302, { Location: '/', 'Set-Cookie': [cookie('paper_session', loggedIn.session, 30 * 86400), cookie('paper_oauth', '', 0)], 'Cache-Control': 'no-store' }); res.end(); return
+        if (!code || !config[provider]) { fail(400, 'Sign-in cancelled'); return }
+        try {
+          const settings = config[provider]!
+          const token = await providerJSON(provider === 'google' ? 'https://oauth2.googleapis.com/token' : 'https://github.com/login/oauth/access_token', { method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code, client_id: settings.clientId, client_secret: settings.clientSecret, redirect_uri: `${origin}/api/auth/${provider}/callback`, grant_type: 'authorization_code', code_verifier: attempt.verifier }).toString() })
+          if (typeof token.access_token !== 'string') { fail(400, 'Sign-in was rejected'); return }
+          const headers = { Authorization: `Bearer ${token.access_token}`, Accept: 'application/json', 'User-Agent': 'Paper' }
+          const identity = await providerJSON(provider === 'google' ? 'https://openidconnect.googleapis.com/v1/userinfo' : 'https://api.github.com/user', { headers })
+          let email = typeof identity.email === 'string' ? identity.email : ''
+          if (provider === 'github') {
+            const response = await requestFetch('https://api.github.com/user/emails', { headers, signal: AbortSignal.timeout(10000) })
+            if (!response.ok) { fail(502, 'Could not verify account email'); return }
+            const value: unknown = await response.json()
+            if (!Array.isArray(value)) throw httpError(502, 'Could not verify account email')
+            const emails = value.filter((e): e is { email: string; primary: boolean; verified: boolean } => !!e && typeof e === 'object' && typeof e.email === 'string' && e.verified === true)
+            email = (emails.find(e => e.primary === true) ?? emails[0])?.email ?? ''
+          } else if (identity.email_verified !== true) { fail(403, 'Verify your Google email before signing in'); return }
+          const sub = provider === 'google' ? identity.sub : identity.id
+          if ((provider === 'google' ? typeof sub !== 'string' || !sub : typeof sub !== 'number' || !Number.isSafeInteger(sub) || sub <= 0) || !email) { fail(403, 'A verified account email is required'); return }
+          const name = identity.name ?? identity.login
+          const avatar = identity.picture ?? identity.avatar_url
+          const loggedIn = await auth.login(provider, { sub: String(sub), email, name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 80) : email, avatar: typeof avatar === 'string' && avatar.startsWith('https://') ? avatar : '' })
+          res.writeHead(302, { Location: '/?auth=success', 'Set-Cookie': [cookie('paper_session', loggedIn.session, 30 * 86400), cookie('paper_oauth', '', 0)], 'Cache-Control': 'no-store' }); res.end(); return
+        } catch (error) {
+          const failure = error as Error & { status?: number }
+          fail(failure.status ?? 502, failure.status ? failure.message : 'Sign-in could not complete. Please try again.')
+          return
+        }
       }
       if (path === '/mcp') {
         const match = req.headers.authorization?.match(/^Bearer (paper_[A-Za-z0-9_-]{43})$/)
@@ -172,8 +199,26 @@ export async function createService(config: ServiceConfig) {
       if (account && account !== user.id) throw httpError(403, 'Account changed. Reload Paper before syncing.')
       if (!['GET', 'HEAD'].includes(req.method ?? '') && req.headers['x-paper-client'] !== 'web') throw httpError(403, 'Missing request guard')
       if (path === '/api/auth/logout' && req.method === 'POST') { await auth.logout(sessionCookie); res.setHeader('Set-Cookie', cookie('paper_session', '', 0)); json(res, 200, { ok: true }); return }
-      if (path === '/api/auth/token/regenerate' && req.method === 'POST') { json(res, 200, { token: await auth.regenerate(user.id) }); return }
+      if (path === '/api/auth/token/regenerate' && req.method === 'POST') {
+        const token = await auth.regenerate(user.id)
+        json(res, 200, { token, user: auth.profile(auth.session(sessionCookie) || user) }); return
+      }
       if (path === '/api/auth/token' && req.method === 'GET') { json(res, 200, { token: auth.reveal(user.id) }); return }
+      if ((path === '/api/auth/token' && req.method === 'DELETE') || (path === '/api/auth/token/revoke' && req.method === 'POST')) {
+        const profile = await auth.revoke(user.id)
+        json(res, 200, { ok: true, user: profile })
+        return
+      }
+      if (path === '/api/auth/profile' && req.method === 'GET') { json(res, 200, { user: auth.profile(user) }); return }
+      if (path === '/api/auth/profile' && (req.method === 'PATCH' || req.method === 'PUT')) {
+        const input = await body(req, parsed)
+        const updated = await auth.updateProfile(user.id, {
+          name: input.name,
+          avatar: input.avatar,
+        })
+        json(res, 200, { user: updated })
+        return
+      }
       if (path === '/api/projects' && req.method === 'GET') { json(res, 200, { projects: await storage.list(user.id) }); return }
       if (path === '/api/events' && req.method === 'GET') {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' }); res.write(': connected\n\n')

@@ -5,8 +5,10 @@ export interface CloudUser {
   email: string
   name: string
   avatar: string
+  provider?: 'google' | 'github' | 'local'
   createdAt: number
   hasMcpToken: boolean
+  tokenRotatedAt?: number
 }
 export interface CloudProject {
   id: string

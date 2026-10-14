@@ -150,3 +150,64 @@
 .cloud-status { display: inline-flex; align-items: center; gap: 5px; color: var(--paper-muted); font: 9px var(--font-mono); white-space: nowrap; }
 .cloud-status[data-saved='true'] { color: var(--paper-blue, #81adec); }
 @media (max-width: 900px) { .cloud-status { display: none; } }
+
+.workspace-danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid #e06c7555;
+  border-radius: 5px;
+  background: transparent;
+  color: #e06c75;
+  font: 11px var(--font-sans);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.workspace-danger-button:hover {
+  background: #e06c7518;
+  border-color: #e06c75;
+}
+.workspace-danger-button:disabled { opacity: .45; cursor: default; }
+.workspace-danger-button:focus-visible, .mcp-config-guide summary:focus-visible { outline: 2px solid var(--workspace-blue); outline-offset: 3px; }
+.mcp-config-guide {
+  margin-top: 14px;
+  border: 1px solid var(--workspace-border);
+  border-radius: 6px;
+  background: var(--workspace-surface);
+  overflow: hidden;
+  font-size: 11px;
+}
+.mcp-config-guide summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--workspace-muted);
+  user-select: none;
+  font-size: 10px;
+}
+.mcp-config-guide summary:hover {
+  color: var(--workspace-ink);
+}
+.mcp-config-guide summary svg:last-child { margin-left: auto; transition: transform 120ms ease; }
+.mcp-config-guide[open] summary svg:last-child { transform: rotate(180deg); }
+.mcp-config-guide pre {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--workspace-raised);
+  border-top: 1px solid var(--workspace-border);
+  font: 10px var(--font-mono);
+  color: var(--workspace-blue);
+  overflow-x: auto;
+}
+.oauth-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
