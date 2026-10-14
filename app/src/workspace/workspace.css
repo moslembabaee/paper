@@ -147,9 +147,17 @@
 .cloud-identity strong { display: block; font-size: 12px; font-weight: 500; }
 .cloud-identity span { display: block; margin-top: 5px; color: var(--workspace-muted); font-size: 10px; overflow-wrap: anywhere; }
 .cloud-account code { color: var(--workspace-blue); font: 10px var(--font-mono); overflow-wrap: anywhere; }
-.cloud-status { display: inline-flex; align-items: center; gap: 5px; color: var(--paper-muted); font: 9px var(--font-mono); white-space: nowrap; }
-.cloud-status[data-saved='true'] { color: var(--paper-blue, #81adec); }
-@media (max-width: 900px) { .cloud-status { display: none; } }
+.cloud-status { display: inline-flex; align-items: center; gap: 5px; color: var(--paper-text-secondary); font: 9px var(--font-mono); white-space: nowrap; }
+.sync-indicator { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.cloud-status[data-state='synced'] { color: var(--paper-blue, #81adec); }
+.cloud-status[data-state='error'], .cloud-status[data-state='auth-required'] { color: var(--paper-text-secondary); }
+.sync-retry { display: grid; place-items: center; width: 24px; height: 24px; border: 1px solid var(--workspace-border); border-radius: 5px; background: transparent; color: var(--paper-text-secondary); cursor: pointer; }
+.sync-retry:hover { color: var(--paper-blue, #81adec); background: var(--workspace-raised); }
+.sync-retry:focus-visible { outline: 2px solid #81adec; outline-offset: 2px; }
+.sync-spinner { animation: sync-spin 1.2s linear infinite; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-spinner { animation: none; } }
+@media (max-width: 1000px) { .cloud-status { font-size: 0; gap: 0; } .cloud-status svg { width: 14px; height: 14px; } }
 
 .workspace-danger-button {
   display: inline-flex;

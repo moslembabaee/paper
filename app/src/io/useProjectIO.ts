@@ -7,6 +7,14 @@ import { importClipboard, importHTML, importSVG, insertImportedScene } from './i
 import { createProject, downloadFile, fileName, MAX_IMPORT_BYTES, parseProject, PROJECT_STORAGE_KEY, serializeProject } from './project'
 import type { PaperProject } from './project'
 import { pasteTokenCSS } from '../tokens/clipboard'
+import type { SceneDocument } from '../scene/types'
+
+/** Immutable document references let pointer/selection notifications stay O(1). */
+export function sameSceneDocument(a: SceneDocument, b: SceneDocument): boolean {
+  return a.elements === b.elements && a.rootIds === b.rootIds && a.tokens === b.tokens &&
+    a.styleLibrary === b.styleLibrary && a.backgroundShader === b.backgroundShader &&
+    a.comments === b.comments && a.prototype === b.prototype
+}
 
 export function createWorkspace() {
   let project: PaperProject | null = null
@@ -40,17 +48,48 @@ export function useProjectIO({ store, controller, name, grid, onOpen, onImport, 
   const busy = useRef(false)
   const revision = useRef(0)
   const autosaveTimer = useRef(0)
-  const dirty = useRef(false)
-  useLayoutEffect(() => { values.current = { name, grid, onOpen, onImport } })
+  const maxSaveTimer = useRef(0)
+  const dirty = useRef(true)
+  const acceptingRemote = useRef(false)
+  const observedCamera = useRef(controller.getSnapshot().camera)
+  const writes = useRef<Promise<void>>(Promise.resolve())
+  useLayoutEffect(() => {
+    if (values.current.name !== name || values.current.grid !== grid) { revision.current++; dirty.current = true }
+    values.current = { name, grid, onOpen, onImport }
+  })
+  const getEditVersion = useCallback(() => revision.current, [])
+  const hasPendingEdits = useCallback(() => dirty.current, [])
 
   const getProject = useCallback(() => createProject(store, values.current.name, controller.getSnapshot().camera, values.current.grid), [store, controller])
 
-  const persistProject = useCallback(async (project = getProject()) => {
-    window.clearTimeout(autosaveTimer.current)
-    dirty.current = false
+  /** Remote hydration is synchronous and cannot become another local canvas edit. */
+  const applyRemoteProject = useCallback((project: PaperProject, expectedVersion: number) => {
+    if (dirty.current || revision.current !== expectedVersion) return false
+    acceptingRemote.current = true
     try {
-      await onPersist(project)
-      if (!dirty.current) setStatus('Saved locally')
+      store.applyRemote(project.scene)
+      controller.setCamera(project.viewport, false)
+      // Camera notifications arrive on the next RAF, after the scene has hydrated.
+      observedCamera.current = controller.getSnapshot().camera
+      values.current = { ...values.current, name: project.name, grid: project.grid }
+      values.current.onOpen(project)
+    } finally { acceptingRemote.current = false }
+    return true
+  }, [store, controller])
+
+  const persistProject = useCallback(async (project?: PaperProject) => {
+    if (!project && !dirty.current) { await writes.current; return }
+    const document = project ?? getProject()
+    const version = revision.current
+    window.clearTimeout(autosaveTimer.current)
+    window.clearTimeout(maxSaveTimer.current)
+    maxSaveTimer.current = 0
+    dirty.current = false
+    const write = writes.current.catch(() => {}).then(() => onPersist(document))
+    writes.current = write
+    try {
+      await write
+      if (!dirty.current && revision.current === version) setStatus('Saved locally')
     } catch (error) {
       dirty.current = true
       setStatus('Save unavailable · save JSON')
@@ -68,15 +107,28 @@ export function useProjectIO({ store, controller, name, grid, onOpen, onImport, 
       setStatus('Saving locally…')
       window.clearTimeout(autosaveTimer.current)
       autosaveTimer.current = window.setTimeout(persist, 650)
+      if (!maxSaveTimer.current) maxSaveTimer.current = window.setTimeout(persist, 2000)
     }
-    const unsubscribeScene = store.subscribe(() => { revision.current++; schedule() })
-    const unsubscribeCamera = controller.subscribe(schedule)
+    let previous = store.getSnapshot()
+    const unsubscribeScene = store.subscribe(() => {
+      const next = store.getSnapshot()
+      if (!acceptingRemote.current && !sameSceneDocument(previous, next)) { revision.current++; schedule() }
+      previous = next
+    })
+    const unsubscribeCamera = controller.subscribe(snapshot => {
+      const next = snapshot.camera
+      const camera = observedCamera.current
+      if (!acceptingRemote.current && (camera.x !== next.x || camera.y !== next.y || camera.zoom !== next.zoom)) { revision.current++; schedule() }
+      observedCamera.current = next
+    })
     const hide = () => { if (document.hidden) persist() }
     window.addEventListener('pagehide', persist)
     document.addEventListener('visibilitychange', hide)
-    schedule()
+    if (dirty.current) schedule()
     return () => {
       window.clearTimeout(autosaveTimer.current)
+      window.clearTimeout(maxSaveTimer.current)
+      maxSaveTimer.current = 0
       unsubscribeScene()
       unsubscribeCamera()
       window.removeEventListener('pagehide', persist)
@@ -174,6 +226,6 @@ export function useProjectIO({ store, controller, name, grid, onOpen, onImport, 
     return () => window.clearTimeout(timer)
   }, [message])
 
-  return { status, message, setMessage, saveProject, importFile, importing, getProject, persistProject }
+  return { status, message, setMessage, saveProject, importFile, importing, getProject, getEditVersion, hasPendingEdits, persistProject, applyRemoteProject }
 }
 

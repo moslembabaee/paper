@@ -5,7 +5,7 @@ import { createProject, parseProject } from '../io/project'
 import type { PaperProject } from '../io/project'
 import { createWorkspace } from '../io/useProjectIO'
 import { SceneStore } from '../scene/store'
-import { activateProject, initializeProjects, localProject, projectSummary, readProject, updateLocalProject, writeProject } from './database'
+import { activateProject, initializeProjects, listLocalProjects, localProject, projectSummary, readProject, subscribeProjectChanges, updateLocalProject, writeProject } from './database'
 import type { LocalProject, ProjectSummary } from './types'
 import { canonical } from '../cloud/model'
 import { roomFromHash } from '../collaboration/room'
@@ -35,8 +35,16 @@ export function useWorkspace() {
   const initialization = useRef<ReturnType<typeof initializeProjects> | null>(null)
   const records = useRef(new Map<string, LocalProject>())
   const updateSummary = useCallback((summary: ProjectSummary) => {
-    setProjects(current => [...current.filter(project => project.id !== summary.id), summary].sort((a, b) => b.updatedAt - a.updatedAt))
+    setProjects(current => {
+      const previous = current.find(project => project.id === summary.id)
+      if (previous?.name === summary.name && previous.updatedAt === summary.updatedAt) return current
+      return [...current.filter(project => project.id !== summary.id), summary].sort((a, b) => b.updatedAt - a.updatedAt)
+    })
   }, [])
+
+  useEffect(() => subscribeProjectChanges(() => {
+    void listLocalProjects().then(records => setProjects(records.map(projectSummary).sort((a, b) => b.updatedAt - a.updatedAt))).catch(() => {})
+  }), [])
 
   useEffect(() => {
     let cancelled = false
@@ -118,11 +126,11 @@ export function useWorkspace() {
     updateSummary(projectSummary(record))
   }, [updateSummary])
 
-  const acceptCloud = useCallback(async (record: LocalProject, expected?: PaperProject) => {
+  const acceptCloud = useCallback(async (record: LocalProject, expected?: PaperProject, preserveConflict = false) => {
     const accepted = await updateLocalProject(record.id, previous => {
-      if (expected && previous && canonical(previous.document) !== canonical(expected)) return undefined
+      if (expected && (!previous || canonical(previous.document) !== canonical(expected))) return undefined
       return record
-    })
+    }, 'cloud', preserveConflict)
     if (!accepted) return false
     records.current.set(record.id, accepted)
     updateSummary(projectSummary(accepted))

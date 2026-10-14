@@ -4,6 +4,34 @@ import type { LocalProject, ProjectSummary } from './types'
 export const WORKSPACE_DATABASE = 'paper.workspaces'
 let connection: Promise<IDBDatabase> | undefined
 
+export interface ProjectChange { id: string; source: 'local' | 'cloud'; external?: boolean }
+const listeners = new Set<(change: ProjectChange) => void>()
+let channel: BroadcastChannel | undefined
+
+/** Notify only after a durable commit. Cloud acknowledgements never enqueue themselves. */
+export function subscribeProjectChanges(listener: (change: ProjectChange) => void): () => void {
+  listeners.add(listener)
+  if (!channel && typeof BroadcastChannel !== 'undefined') {
+    channel = new BroadcastChannel('paper.workspace.changes')
+    channel.onmessage = event => {
+      const change = event.data as ProjectChange
+      if (typeof change?.id === 'string' && ['local', 'cloud'].includes(change.source)) {
+        for (const notify of listeners) notify({ id: change.id, source: change.source, external: true })
+      }
+    }
+  }
+  return () => {
+    listeners.delete(listener)
+    if (!listeners.size) { channel?.close(); channel = undefined }
+  }
+}
+
+function notifyChange(id: string, source: ProjectChange['source']) {
+  const change = { id, source }
+  for (const notify of listeners) notify(change)
+  channel?.postMessage(change)
+}
+
 function database(): Promise<IDBDatabase> {
   if (connection) return connection
   connection = new Promise<IDBDatabase>((resolve, reject) => {
@@ -91,6 +119,7 @@ export async function writeProject(record: LocalProject, activate = false): Prom
   transaction.objectStore('projects').put(record)
   if (activate) transaction.objectStore('settings').put(record.id, 'activeProject')
   await done
+  notifyChange(record.id, 'local')
 }
 
 export async function activateProject(id: string): Promise<void> {
@@ -108,9 +137,10 @@ export async function renameProject(id: string, name: string): Promise<ProjectSu
   const projects = transaction.objectStore('projects')
   const record = await result(projects.get(id) as IDBRequest<LocalProject | undefined>)
   if (!record) { await done; throw new Error('This project could not be found.') }
-  const renamed = { ...record, name, updatedAt: Date.now(), document: { ...record.document, name } }
+  const renamed = { ...record, name, updatedAt: Date.now(), document: { ...record.document, name }, ...(record.cloud ? { cloud: { ...record.cloud, dirty: true } } : {}) }
   projects.put(renamed)
   await done
+  notifyChange(id, 'local')
   return projectSummary(renamed)
 }
 
@@ -120,22 +150,32 @@ export async function listLocalProjects(): Promise<LocalProject[]> {
 }
 
 /** Read/modify/write in one IndexedDB transaction, shared with other open tabs. */
-export async function updateLocalProject(id: string, update: (current: LocalProject | undefined) => LocalProject | undefined): Promise<LocalProject | undefined> {
+export async function updateLocalProject(id: string, update: (current: LocalProject | undefined) => LocalProject | undefined, source: ProjectChange['source'] = 'local', preserveConflict = false): Promise<LocalProject | undefined> {
   const db = await database()
   const transaction = db.transaction('projects', 'readwrite')
   const done = completed(transaction)
   const store = transaction.objectStore('projects')
+  let changed = false
   const record = await new Promise<LocalProject | undefined>((resolve, reject) => {
     const request = store.get(id) as IDBRequest<LocalProject | undefined>
     request.onerror = () => reject(request.error)
     request.onsuccess = () => {
       try {
         const next = update(request.result)
-        if (next) store.put(next)
+        changed = !!next && next !== request.result
+        if (changed && next) {
+          if (preserveConflict && request.result) {
+            const previous = request.result
+            const name = `${previous.name.slice(0, 175)} (conflict copy)`
+            store.put({ ...localProject({ ...previous.document, name }), name })
+          }
+          store.put(next)
+        }
         resolve(next)
       } catch (error) { transaction.abort(); reject(error) }
     }
   })
   await done
+  if (changed) notifyChange(id, source)
   return record
 }

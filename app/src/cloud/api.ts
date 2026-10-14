@@ -10,7 +10,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const response = await fetch(`/api${path}`, {
     ...options, credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', 'X-Paper-Client': 'web', ...options.headers },
-    signal: options.signal ?? AbortSignal.timeout(10_000),
+    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
   })
   if (!response.headers.get('content-type')?.includes('application/json')) throw new ApiError(503, 'Cloud is unavailable on this host')
   const value = await response.json()
