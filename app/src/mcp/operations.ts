@@ -12,6 +12,8 @@ import type { TokenInput } from '../tokens/types.ts'
 import { patchSchema, validateSchema } from './schema.ts'
 
 export { selectionContext, searchLayers } from './context.ts'
+export { executeTransaction, IdempotencyCache, validateTransaction } from './transaction.ts'
+export type { ApplyChangesResult, ApplyChangesOperation, CompactChangeSummary, ActionResult } from './transaction.ts'
 
 export type ToolArguments = Record<string, unknown>
 

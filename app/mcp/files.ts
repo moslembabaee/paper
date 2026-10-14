@@ -5,7 +5,7 @@ import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node
 import { createProject, MAX_IMPORT_BYTES, parseProject, serializeProject } from '../src/io/project.ts'
 import type { PaperProject } from '../src/io/project.ts'
 import { SceneStore } from '../src/scene/store.ts'
-import { basicInfo, exportCanvas, mutateCanvas, readCanvas, searchLayers, selectionContext } from '../src/mcp/operations.ts'
+import { basicInfo, executeTransaction, exportCanvas, IdempotencyCache, mutateCanvas, readCanvas, searchLayers, selectionContext, validateTransaction } from '../src/mcp/operations.ts'
 import { paperTools, validateSchema } from '../src/mcp/schema.ts'
 import type { ToolArguments } from '../src/mcp/operations.ts'
 
@@ -13,6 +13,8 @@ export interface WorkspaceOptions { workspace: string; file?: string }
 interface LoadedFile { project: PaperProject; revision: string | null; legacy: boolean; mode: number }
 const hash = (content: string): string => createHash('sha256').update(content).digest('hex')
 const hasCode = (error: unknown, code: string): boolean => !!error && typeof error === 'object' && 'code' in error && error.code === code
+
+const fileReceipts = new IdempotencyCache()
 
 /** A file-backed workspace, independent of the browser and of client sessions. */
 export class PaperFiles {
@@ -151,6 +153,48 @@ export class PaperFiles {
         output = relative(this.workspace, target)
       }
       return { file: displayPath, revision: loaded.revision, ...result, ...(output ? { output } : {}) }
+    }
+    if (name === 'apply_changes') {
+      validateTransaction(args)
+      const cached = fileReceipts.get(path, args)
+      if (cached) return cached
+      if (args.dry_run) {
+        const loaded = await this.load(path)
+        if (args.expected_revision !== loaded.revision) throw new Error('Revision mismatch. Read the latest canvas and retry.')
+        const result = executeTransaction(loaded.project, args)
+        return {
+          file: displayPath,
+          projectId: displayPath,
+          revision: loaded.revision,
+          dry_run: true,
+          changedIds: result.changedIds,
+          summary: result.summary,
+          warnings: result.warnings,
+          actionResults: result.actionResults,
+        }
+      }
+      return this.edit(path, async () => {
+        const cached = fileReceipts.get(path, args)
+        if (cached) return cached
+        const loaded = await this.load(path)
+        if (args.expected_revision !== loaded.revision) throw new Error('Revision mismatch. Read the latest canvas and retry.')
+        const result = executeTransaction(loaded.project, args)
+        const source = loaded.legacy ? JSON.stringify(result.project.scene, null, 2) : serializeProject(result.project)
+        parseProject(source)
+        const revision = await this.save(path, source, loaded)
+        const response = {
+          file: displayPath,
+          projectId: displayPath,
+          revision,
+          applied: true,
+          changedIds: result.changedIds,
+          summary: result.summary,
+          warnings: result.warnings,
+          actionResults: result.actionResults,
+        }
+        fileReceipts.set(path, args, response)
+        return response
+      })
     }
     return this.edit(path, async () => {
       const loaded = await this.load(path, name === 'create_frame', args.project_name as string | undefined)

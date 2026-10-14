@@ -283,3 +283,73 @@ test('stdio recovers from malformed JSON and reports startup errors only on stde
   assert.equal(stdout, '')
   assert.match(stderr, /Unknown option/)
 })
+
+test('apply_changes executes atomic transactions with dry-run, rollback, and idempotency over MCP', async t => {
+  const { workspace, success, call } = await fixture(t)
+  await success('create_frame', { id: 'base-frame' })
+  const initial = await success('get_canvas_elements')
+  const rev = initial.revision
+  const filePath = join(workspace, 'study.paper.json')
+  const beforeFile = await readFile(filePath, 'utf8')
+
+  // 1. Dry run returns compact before/after summary without mutating file
+  const dryRun = await success('apply_changes', {
+    expected_revision: rev,
+    dry_run: true,
+    operations: [
+      { action: 'create', type: 'frame', id: 'mcp-frame', width: 300, height: 200 },
+      { action: 'create', type: 'text', id: 'mcp-title', parentId: 'mcp-frame', text: 'MCP Art' },
+      { action: 'create_token', name: 'mcp-blue', type: 'color', value: '#81adec' },
+      { action: 'bind_token', element_id: 'mcp-title', property: 'fill', token_id: 'mcp-blue' },
+    ],
+  })
+  assert.equal(dryRun.dry_run, true)
+  assert.equal(dryRun.revision, rev)
+  assert.ok(dryRun.summary.createdCount >= 3)
+  assert.equal(await readFile(filePath, 'utf8'), beforeFile)
+
+  // 2. Middle operation failure rolls back entirely
+  const failed = await call('apply_changes', {
+    expected_revision: rev,
+    operations: [
+      { action: 'create', type: 'frame', id: 'rollback-frame', width: 300, height: 200 },
+      { action: 'create', type: 'rectangle', id: 'bad-rect', width: -100, height: 100 },
+      { action: 'create', type: 'text', id: 'rollback-text', text: 'Never created' },
+    ],
+  })
+  assert.equal(failed.isError, true)
+  assert.equal(await readFile(filePath, 'utf8'), beforeFile)
+
+  // 3. Successful apply with idempotency key
+  const applied = await success('apply_changes', {
+    expected_revision: rev,
+    idempotency_key: 'idem-mcp-tx-1',
+    operations: [
+      { action: 'create', type: 'frame', id: 'mcp-frame', width: 300, height: 200 },
+      { action: 'create', type: 'text', id: 'mcp-title', parentId: 'mcp-frame', text: 'MCP Art' },
+      { action: 'create_token', name: 'mcp-blue', type: 'color', value: '#81adec' },
+      { action: 'bind_token', element_id: 'mcp-title', property: 'fill', token_id: 'mcp-blue' },
+    ],
+  })
+  assert.equal(applied.applied, true)
+  assert.notEqual(applied.revision, rev)
+
+  const updatedFile = parseProject(await readFile(filePath, 'utf8'))
+  assert.ok(updatedFile.scene.elements['mcp-frame'])
+  assert.ok(updatedFile.scene.elements['mcp-title'])
+  assert.ok(updatedFile.scene.tokens.find(token => token.name === 'mcp-blue'))
+
+  // 4. Retrying with identical idempotency key returns cached result
+  const retried = await success('apply_changes', {
+    expected_revision: rev,
+    idempotency_key: 'idem-mcp-tx-1',
+    operations: [
+      { action: 'create', type: 'frame', id: 'mcp-frame', width: 300, height: 200 },
+      { action: 'create', type: 'text', id: 'mcp-title', parentId: 'mcp-frame', text: 'MCP Art' },
+      { action: 'create_token', name: 'mcp-blue', type: 'color', value: '#81adec' },
+      { action: 'bind_token', element_id: 'mcp-title', property: 'fill', token_id: 'mcp-blue' },
+    ],
+  })
+  assert.equal(retried.applied, true)
+  assert.equal(retried.revision, applied.revision)
+})

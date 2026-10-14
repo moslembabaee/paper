@@ -2,8 +2,20 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-16",
+  "current_task_id": "T-ISSUE-17",
   "tasks": [
+    {
+      "id": "T-ISSUE-17",
+      "phase": "Community & Issues",
+      "title": "Issue #17: feat(agent-first): Atomic multi-step design edits with dry-run and one undo",
+      "description": "## Goal\nGive agents one safe, inspectable transaction for a complete design edit instead of a sequence of fragile single-element mutations. Priority 2; start only after the smart read/context issue has passed its acceptance criteria.\n\n## Deliverables\n1. Add `apply_changes` to the shared Paper MCP contract (live editor and file-backed/remote), accepting ordered operations including create of supported scene element types (text/image/frame/shape), update/reparent, create/bind token, and component/auto-layout edits where supported by `SceneStore`. Preserve explicit ordering and allow a newly created ID to be referenced by later steps.\n2. Require a current `expected_revision`; stale revisions reject without effects. Validate the entire plan against the same scene invariants as UI edits; any invalid step rolls back the entire batch. Live application creates exactly one undoable history entry; offline writes are atomic.\n3. Implement `dry_run` returning compact structured before/after change summaries and warnings without mutating state, revisions, history, files, or human selection. An apply response reports changed IDs, new revision and action results.\n4. Idempotency for retried submissions (key or equivalent) so timeouts do not duplicate layers; enforce operation-count and size limits. Keep existing tools working unchanged.\n\n## Acceptance\n- TDD: first demonstrate failures for partial mutation, stale revision, dry-run side effects, retry duplication, and undo boundaries.\n- Tests for valid multi-step frame + text + token binding, malformed middle operation, nested/locked nodes, limit breaches, two simultaneous agents, live and offline modes.\n- End-to-end MCP call works with browser open and with headless project storage; existing commands remain compatible.\n- `npm test`, `npm run build`, MCP tests and relevant E2E pass; the summary is safe to present to the designer before application.\n\nDependency: the smart read/context issue must be completed and verified first. Owner requested sequential implementation in chat.\n\n\nReference: Closes #17",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 2,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 17,
+      "completed_at": "2026-10-14T20:49:02.202418"
+    },
     {
       "id": "T-ISSUE-16",
       "phase": "Community & Issues",
@@ -14,7 +26,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 16,
-      "completed_at": "2026-10-14T19:49:43.028773"
+      "completed_at": "2026-10-14T19:49:43.028773",
+      "closed_at": "2026-10-14T19:49:47Z"
     },
     {
       "id": "T-ISSUE-13",

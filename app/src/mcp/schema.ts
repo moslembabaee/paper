@@ -199,7 +199,45 @@ export function patchSchema(type: string): JsonSchema {
 }
 const allPatchFields = Object.assign({}, ...Object.values(specific)) as Record<string, JsonSchema>
 delete allPatchFields.children
-const tool = (name: string, description: string, inputSchema: JsonSchema, readOnly = false, outputSchema?: JsonSchema): PaperTool => ({ name, description, inputSchema, ...(outputSchema ? { outputSchema } : {}), annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly && name === 'update_element', idempotentHint: readOnly || name === 'update_element', openWorldHint: false } })
+const action = (names: string[]): JsonSchema => ({ type: 'string', enum: names })
+const indexSchema: JsonSchema = { type: 'integer', minimum: 0 }
+const target = { element_id: str(), id: str() }
+const parent = { parentId: nullable(str()), index: indexSchema }
+const targetOperations = (names: string[], fields: Record<string, JsonSchema> = {}, required: string[] = []): JsonSchema[] =>
+  ['element_id', 'id'].map(key => object({ action: action(names), ...target, ...fields }, ['action', key, ...required]))
+const masterOperations = (names: string[], fields: Record<string, JsonSchema> = {}, required: string[] = []): JsonSchema[] =>
+  ['master_id', 'masterId'].map(key => object({ action: action(names), master_id: str(), masterId: str(), ...fields }, ['action', key, ...required]))
+const tokenPatch = { name: { ...str(), pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$', maxLength: 100 }, value: { anyOf: [str(), num] }, aliasId: str(), palette: { type: 'string', maxLength: 100 } as JsonSchema, themeValues: { type: 'object', additionalProperties: { anyOf: [str(), num] } } as JsonSchema }
+export const operationSchema: JsonSchema = { anyOf: [
+  ...Object.keys(specific).map(type => object({
+    action: action(['create', 'create_element']), type: { type: 'string', enum: [type] },
+    ...creation, ...patchSchema(type).properties, index: indexSchema, tokenBindings, sharedStyleBindings,
+  }, ['action', 'type'])),
+  object({ action: action(['create_frame']), type: { type: 'string', enum: ['frame'] }, ...creation, clipContent: flag, cornerRadius: nonnegative, layout, index: indexSchema, tokenBindings, sharedStyleBindings }, ['action']),
+  object({ action: action(['add_shader_shape']), ...creation, shape: { type: 'string', enum: ['rectangle', 'ellipse'] }, cornerRadius: nonnegative, index: indexSchema, shader_kind: { type: 'string', enum: shaderKinds }, params: { type: 'object', additionalProperties: true }, motion: object(motionProperties) }, ['action', 'shader_kind']),
+  ...targetOperations(['update', 'update_element'], { ...mutable, ...allPatchFields, ...parent, patch: object({ ...mutable, ...allPatchFields }) }),
+  ...targetOperations(['reparent', 'reparent_element'], parent, ['parentId']),
+  ...targetOperations(['reorder', 'reorder_element'], { index: indexSchema }, ['index']),
+  ...targetOperations(['delete', 'delete_element', 'remove', 'remove_element']),
+  ...Object.keys(TOKEN_META).map(type => object({ action: action(['create_token', 'add_token']), id: str(), name: tokenPatch.name, type: { type: 'string', enum: [type] }, value: tokenValueSchema(type), aliasId: str(), palette: tokenPatch.palette, themeValues: { type: 'object', additionalProperties: tokenValueSchema(type) } }, ['action', 'name', 'type', 'value'])),
+  ...['token_id', 'id'].map(key => object({ action: action(['update_token']), token_id: str(), id: str(), ...tokenPatch, patch: object(tokenPatch) }, ['action', key])),
+  ...targetOperations(['bind_token'], { property: { type: 'string', enum: tokenProperties }, token_id: str(), tokenId: str() }, ['property']).flatMap(schema => ['token_id', 'tokenId'].map(key => ({ ...schema, required: [...schema.required!, key] }))),
+  ...targetOperations(['unbind_token', 'detach_token'], { property: { type: 'string', enum: tokenProperties } }, ['property']),
+  ...targetOperations(['create_component', 'detach_instance', 'detach_component_instance', 'reset_component_overrides']),
+  ...masterOperations(['create_instance', 'create_component_instance'], { x: num, y: num, parentId: parent.parentId }),
+  ...masterOperations(['set_component_properties'], { properties: { ...list(componentPropertySchema), maxItems: 100 } }, ['properties']),
+  ...targetOperations(['set_component_property'], { property_id: str(), propertyId: str(), value: { anyOf: [{ type: 'string' }, flag, { type: 'null' }] } }, ['value']).flatMap(schema => ['property_id', 'propertyId'].map(key => ({ ...schema, required: [...schema.required!, key] }))),
+  ...targetOperations(['set_layout', 'update_layout'], { layout }, ['layout']),
+] }
+
+const changeIdentity = object({ id: str(), name: { type: 'string' }, type: str() }, ['id', 'type'])
+export const applyChangesOutputSchema: JsonSchema = object({
+  ...readIdentity, applied: flag, dry_run: flag, changedIds: list(str()), warnings: list({ type: 'string' }),
+  actionResults: list(object({ step: nonnegative, action: str(), status: { type: 'string', enum: ['ok'] }, id: str(), type: str(), details: { type: 'object', additionalProperties: true } }, ['step', 'action', 'status'])),
+  summary: object({ totalOperations: nonnegative, createdCount: nonnegative, updatedCount: nonnegative, deletedCount: nonnegative, changedIds: list(str()), created: list(changeIdentity), updated: list(changeIdentity), deleted: list(changeIdentity), reparented: list(object({ id: str(), from: nullable(str()), to: nullable(str()) }, ['id', 'from', 'to'])), tokenBindings: list(object({ elementId: str(), property: str(), tokenId: nullable(str()) }, ['elementId', 'property', 'tokenId'])), before: { type: 'object', additionalProperties: true }, after: { type: 'object', additionalProperties: true }, truncated: flag, omittedCount: nonnegative }, ['totalOperations', 'createdCount', 'updatedCount', 'deletedCount', 'changedIds', 'created', 'updated', 'deleted', 'reparented', 'tokenBindings', 'before', 'after', 'truncated', 'omittedCount']),
+}, ['revision', 'changedIds', 'warnings', 'actionResults', 'summary'])
+
+const tool = (name: string, description: string, inputSchema: JsonSchema, readOnly = false, outputSchema?: JsonSchema): PaperTool => ({ name, description, inputSchema, ...(outputSchema ? { outputSchema } : {}), annotations: { readOnlyHint: readOnly, destructiveHint: !readOnly && (name === 'update_element' || name === 'apply_changes'), idempotentHint: readOnly || name === 'update_element' || name === 'apply_changes', openWorldHint: false } })
 export const paperTools: readonly PaperTool[] = [
   tool('get_basic_info', 'Identify the currently open file, artboards, selection, node count and revision before editing.', object(base), true),
   tool('get_selection_context', 'Read only the human selection in live mode; file/remote mode has no selection, so pass element_ids. Empty selection returns empty:true; any invalid ID is an error. Document order, root-to-parent ancestors, and up to five adjacent siblings per side. World AABB includes nested center rotations; effective flags include ancestors. Linked token aliases, style references and component masters are compact. Complete result is capped at 32 KiB: check truncated and omitted counters. Use returned opaque revision as expected_revision when editing.', object({ ...base, element_ids: { ...list(str()), maxItems: 200 } }), true, selectionContextOutputSchema),
@@ -216,6 +254,14 @@ export const paperTools: readonly PaperTool[] = [
   tool('create_frame', 'Create a frame in a Paper file. Creates a new project if the file does not exist. Defaults: 720×480px, cream fill, clipped content, 120px grid. Optional layout enables flex flow; sizing controls each axis. Parent must be an unlocked frame.', object({ ...base, expected_revision: revision, project_name: { ...str(), maxLength: 200 }, ...creation, clipContent: flag, cornerRadius: nonnegative, layout })),
   tool('add_shader_shape', 'Add a rectangle or ellipse with a native @paper-design/shaders-react paint. Supply shader_kind; optional params and motion override catalog defaults. Inspect paper://shaders for supported controls.', object({ ...base, expected_revision: revision, ...creation, shape: { type: 'string', enum: ['rectangle', 'ellipse'] }, cornerRadius: nonnegative, shader_kind: { type: 'string', enum: shaderKinds }, params: { type: 'object', additionalProperties: true }, motion: object(motionProperties) }, ['shader_kind'])),
   tool('update_element', 'Patch an existing element. Style fields merge; shader paints are complete values. Optionally reparent or reorder using parentId and index. Structural edits and validation are atomic. Locked elements must be unlocked first.', object({ ...base, expected_revision: revision, element_id: str(), patch: object({ ...mutable, ...allPatchFields }), parentId: nullable(str()), index: { type: 'integer', minimum: 0 } }, ['element_id', 'patch'])),
+  tool('apply_changes', 'Execute an atomic transaction of ordered design mutations with dry-run support, single-step undo in live mode, and full rollback on validation failure. Requires expected_revision. Use $0 (zero-based operation index) to reference an earlier create result; explicit IDs also work. Plans are limited to 100 operations and 512 KiB; summary previews are capped at 32 KiB with truncation warnings. With an idempotency_key, retry the identical plan and original revision; changed payloads under the same key reject. Receipts last up to 10 minutes / 200 transactions in the active editor or server process.', object({
+    ...base,
+    expected_revision: str('Required opaque revision from get_basic_info or get_canvas_elements. Rejects stale edits; pass it unchanged.'),
+    operations: { ...list(operationSchema), minItems: 1, maxItems: 100, description: 'Ordered list of operations to execute atomically.' },
+    dry_run: flag,
+    idempotency_key: { ...str('Optional unique key to ensure retried submissions do not duplicate layers or changes.'), maxLength: 200 },
+    idempotencyKey: { ...str('Alias of idempotency_key.'), maxLength: 200 },
+  }, ['expected_revision', 'operations']), false, applyChangesOutputSchema),
   tool('export_selection', 'Export element_ids and frame descendants as editable Paper JSON (default) or SVG. Omit element_ids for the whole canvas. Shader JSON is lossless; SVG shaders require supplied shader_snapshots from the browser. Returns content inline; optional output writes a new file without overwriting existing files.', object({ ...base, element_ids: { ...list(str()), minItems: 1 }, format: { type: 'string', enum: ['json', 'svg'] }, background: { type: 'string', enum: ['transparent', 'cream'] }, output: str('New export path within the workspace.'), shader_snapshots: { type: 'object', additionalProperties: { type: 'string', pattern: '^data:image/png;base64,[A-Za-z0-9+/=]+$' } } })),
 ]
 

@@ -199,7 +199,10 @@ test('stdio live backend negotiates HTTP MCP and receives actual browser mutatio
     const poll = send(`/api/paper/events?clientId=${live.clientId}`)
     const result = client.call(name, args)
     const request = (await poll).body.requests[0]
-    await send(`/api/paper/reply?clientId=${live.clientId}`, { id: request.id, result: live.call(request.name, request.args) })
+    let reply
+    try { reply = { result: live.call(request.name, request.args) } }
+    catch (error) { reply = { error: error.message } }
+    await send(`/api/paper/reply?clientId=${live.clientId}`, { id: request.id, ...reply })
     return result
   }
   const info = await issue('get_basic_info')
@@ -218,6 +221,35 @@ test('stdio live backend negotiates HTTP MCP and receives actual browser mutatio
   assert.equal(page.results[0].id, 'via-stdio')
   assert.equal(page.revision, selected.revision)
   assert.equal(store.getSnapshot().selection[0], 'via-stdio')
+
+  const plan = { expected_revision: selected.revision, idempotency_key: 'live-stdio-plan', operations: [
+    { action: 'create', type: 'frame', id: 'atomic-card' },
+    { action: 'create', type: 'text', parentId: '$0', text: 'Complete edit' },
+    { action: 'create_token', name: 'atomic-accent', type: 'color', value: '#81adec' },
+    { action: 'bind_token', element_id: '$1', property: 'fill', token_id: '$2' },
+  ] }
+  const before = store.getSnapshot(), history = store.getHistorySnapshot()
+  const preview = await issue('apply_changes', { ...plan, dry_run: true })
+  assert.equal(preview.dry_run, true)
+  assert.equal(preview.revision, selected.revision)
+  assert.equal(store.getSnapshot(), before)
+  assert.deepEqual(store.getHistorySnapshot(), history)
+  await assert.rejects(issue('apply_changes', { ...plan, operations: [plan.operations[0], { action: 'reparent', element_id: '$0', parentId: 'missing' }] }), /Unknown element/)
+  assert.equal(store.getSnapshot(), before)
+  const applied = await issue('apply_changes', plan)
+  assert.equal(applied.applied, true)
+  assert.equal(store.getSnapshot().elements[applied.actionResults[1].id].style.fill, '#81adec')
+  assert.equal(store.getHistorySnapshot().undoCount, history.undoCount + 1)
+  assert.deepEqual(store.getSnapshot().selection, ['via-stdio'])
+  assert.deepEqual(await issue('apply_changes', plan), applied)
+  await assert.rejects(issue('apply_changes', { ...plan, idempotency_key: 'stale-agent' }), /Revision mismatch/)
+  store.undo()
+  assert.equal(store.getSnapshot().elements['atomic-card'], undefined)
+  assert.equal(store.getSnapshot().tokens.some(token => token.name === 'atomic-accent'), false)
+  assert.deepEqual(store.getSnapshot().selection, ['via-stdio'])
+  store.redo()
+  assert.ok(store.getSnapshot().elements['atomic-card'])
+  assert.equal((await issue('get_selection_context', { element_ids: [applied.actionResults[1].id] })).linkedTokens[0].value, '#81adec')
 
   bridge.close()
   await send('/api/paper/connect', { clientId: live.clientId, projectId: 'project-a', focused: true })

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { PaperMcpServer } from '../mcp/server.ts'
 import type { PaperToolBackend } from '../mcp/server.ts'
-import { basicInfo, exportCanvas, mutateCanvas, readCanvas, searchLayers, selectionContext } from '../src/mcp/operations.ts'
+import { basicInfo, executeTransaction, exportCanvas, IdempotencyCache, mutateCanvas, readCanvas, searchLayers, selectionContext, validateTransaction } from '../src/mcp/operations.ts'
 import type { ToolArguments } from '../src/mcp/operations.ts'
 import { paperTools } from '../src/mcp/schema.ts'
 import type { PaperTool } from '../src/mcp/schema.ts'
@@ -33,15 +33,21 @@ const remoteTools: readonly PaperTool[] = [
 
 /** No caller-controlled paths: every operation uses the authenticated account directory. */
 class RemoteWorkspace implements PaperToolBackend {
-  constructor(private readonly storage: Storage, private readonly userId: string, private readonly authorized: () => boolean, private readonly changed: (user: string, project: CloudProject) => void) {}
+  constructor(private readonly storage: Storage, private readonly idempotency: IdempotencyCache, private readonly userId: string, private readonly authorized: () => boolean, private readonly changed: (user: string, project: CloudProject) => void) {}
 
   async call(name: string, args: ToolArguments): Promise<Record<string, unknown>> {
     if (!this.authorized()) throw httpError(401, 'Token revoked or MCP session expired')
     if (name === 'list_projects') return { projects: await this.storage.list(this.userId) }
     const id = safeId(args.project_id)
     const { project_id: _id, ...input } = args
-    return this.storage.locked(`${this.userId}/${id}`, async () => {
+    if (name === 'apply_changes') validateTransaction(input)
+    const receiptScope = `${this.userId}/${id}`
+    return this.storage.locked(receiptScope, async () => {
       if (!this.authorized()) throw httpError(401, 'Token revoked or MCP session expired')
+      if (name === 'apply_changes') {
+        const cached = this.idempotency.get(receiptScope, input)
+        if (cached) return cached
+      }
       let saved = await this.storage.read(this.userId, id)
       if (!saved && name !== 'create_frame') throw httpError(404, 'Project not found. Use create_frame to start a project.')
       if (input.expected_revision !== undefined && input.expected_revision !== saved?.revision) throw httpError(409, 'Revision conflict; read the project again')
@@ -53,7 +59,37 @@ class RemoteWorkspace implements PaperToolBackend {
       else if (name === 'get_canvas_elements') output = readCanvas(project, input.element_ids as string[] | undefined)
       else if (name === 'list_tokens') output = { tokens: (project.scene.tokens ?? []).filter(token => !input.type || token.type === input.type) }
       else if (name === 'export_selection') output = exportCanvas(project, input)
-      else {
+      else if (name === 'apply_changes') {
+        if (input.expected_revision !== saved?.revision) throw httpError(409, 'Revision conflict; read the project again')
+        if (input.dry_run) {
+          const result = executeTransaction(project, input)
+          return {
+            project_id: id,
+            revision: saved!.revision,
+            dry_run: true,
+            changedIds: result.changedIds,
+            summary: result.summary,
+            warnings: result.warnings,
+            actionResults: result.actionResults,
+          }
+        }
+        const result = executeTransaction(project, input)
+        if (!this.authorized()) throw httpError(401, 'Token revoked or MCP session expired')
+        const activity = { ids: [...result.changedIds], tool: name, until: Date.now() + 4000 }
+        saved = await this.storage.write(this.userId, id, result.project, Math.max(Date.now(), (saved?.updatedAt ?? 0) + 1), saved, activity)
+        this.changed(this.userId, saved)
+        const response = {
+          project_id: id,
+          revision: saved?.revision,
+          applied: true,
+          changedIds: result.changedIds,
+          summary: result.summary,
+          warnings: result.warnings,
+          actionResults: result.actionResults,
+        }
+        this.idempotency.set(receiptScope, input, response)
+        return response
+      } else {
         const mutated = mutateCanvas(project, name, input)
         if (!this.authorized()) throw httpError(401, 'Token revoked or MCP session expired')
         const activity = { ids: mutated.element ? [mutated.element.id] : [], tool: name, until: Date.now() + 4000 }
@@ -93,6 +129,7 @@ function accepts(header: string | undefined, type: string) {
 
 /** Streamable HTTP sessions are bound to both the account and the token generation. */
 export class RemoteMcpGateway {
+  private readonly idempotency = new IdempotencyCache()
   private readonly sessions = new Map<string, Session>()
   private readonly heartbeat: ReturnType<typeof setInterval>
   constructor(private readonly auth: Auth, private readonly storage: Storage, private readonly changed: (user: string, project: CloudProject) => void) {
@@ -169,9 +206,9 @@ export class RemoteMcpGateway {
       const newSession: Session = {
         userId: agent.id, tokenHash: hash(token!), version, ready: false, lastSeen: Date.now(),
         authorized: () => this.sessions.get(id) === newSession && Date.now() - newSession.lastSeen < sessionLifetime && this.auth.bearer(token)?.id === agent.id,
-        server: new PaperMcpServer(new RemoteWorkspace(this.storage, agent.id, () => newSession.authorized(), this.changed), {
+        server: new PaperMcpServer(new RemoteWorkspace(this.storage, this.idempotency, agent.id, () => newSession.authorized(), this.changed), {
           tools: remoteTools, protocolVersions: versions, serverInfo: { name: 'paper-cloud', version: '1.0.0' }, experimental: { 'paper/project-changed': {} },
-          instructions: 'Call list_projects, then pass project_id to each tool. Start with get_basic_info, then search_layers and get_selection_context with explicit element_ids (headless mode has no human selection). These bounded reads publish input/output schemas in tools/list; inspect truncation and continue using nextCursor with identical filters. Edits work with the browser closed. Pass the opaque revision from targeted context/search as expected_revision to guard against stale edits; restart reads after conflicts. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Exports return inline; filesystem paths are never accepted. GET /mcp can deliver optional notifications/paper/project_changed events; reconcile with list_projects after reconnecting.',
+          instructions: 'Call list_projects, then pass project_id to each tool. Start with get_basic_info, then search_layers and get_selection_context with explicit element_ids (headless mode has no human selection). These bounded reads publish input/output schemas in tools/list; inspect truncation and continue using nextCursor with identical filters. Edits work with the browser closed. Pass the opaque revision from targeted context/search as expected_revision to guard against stale edits; restart reads after conflicts. Use apply_changes for ordered multi-step edits: preview with dry_run:true, inspect summary/warnings, then apply with the same required expected_revision. Include a unique idempotency_key; retry the identical plan and original revision after an uncertain reply while the receipt is retained. Coordinates are relative to the parent frame; the grid is 120px. Read paper://schema and paper://shaders for the design contract. Exports return inline; filesystem paths are never accepted. GET /mcp can deliver optional notifications/paper/project_changed events; reconcile with list_projects after reconnecting.',
         }),
       }
       const reply = await newSession.server.handle(message)

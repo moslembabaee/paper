@@ -61,9 +61,10 @@ test('HTTP agent edits push to canvas, glow, preserve selection, undo and surviv
 test('BroadcastChannel mirrors agent and human edits across tabs, with active-project isolation', async ({ page, context, request }) => {
   await waitForCanvasReady(page)
   await expect(page.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
-  const { success } = await mcp(request)
+  const { call, success } = await mcp(request)
   const original = await success('get_basic_info')
   const peer = await context.newPage()
+  await mockStudioSession(peer)
   await peer.goto('/')
   await expect(peer.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
   await success('create_frame', { id: 'shared-frame', name: 'Shared frame' })
@@ -80,12 +81,65 @@ test('BroadcastChannel mirrors agent and human edits across tabs, with active-pr
   await projects.getByRole('textbox', { name: 'New project name' }).fill('Separate MCP canvas')
   await projects.getByRole('button', { name: 'Create project', exact: true }).click()
   await expect(peer.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
-  await expect.poll(async () => (await success('get_basic_info')).fileName).toBe('Separate MCP canvas')
+  await expect.poll(async () => {
+    const res = await call('get_basic_info')
+    return res.structuredContent?.fileName
+  }).toBe('Separate MCP canvas')
   const active = await success('get_basic_info')
   expect(active.projectId).not.toBe(original.projectId)
   await success('create_frame', { id: 'isolated-frame' })
   await expect(peer.locator('[data-element-id="isolated-frame"]')).toBeAttached()
   await expect(page.locator('[data-element-id="isolated-frame"]')).toHaveCount(0)
   await page.bringToFront()
-  await expect.poll(async () => (await success('get_basic_info')).projectId).toBe(original.projectId)
+  await page.getByTestId('canvas-viewport').focus()
+  await expect.poll(async () => {
+    const res = await call('get_basic_info')
+    return res.structuredContent?.projectId
+  }).toBe(original.projectId)
+})
+
+test('atomic MCP preview, guarded apply, retry and one undo preserve human selection', async ({ page, request }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await waitForCanvasReady(page)
+  await expect(page.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
+  await page.getByTestId('tool-rectangle').click()
+  const { call, success } = await mcp(request)
+  const context = await success('get_selection_context')
+  expect(context.elements).toHaveLength(1)
+  const selection = (await success('get_basic_info')).selection
+  const plan = { expected_revision: context.revision, idempotency_key: 'browser-atomic-plan', operations: [
+    { action: 'create', type: 'frame', id: 'atomic-frame', name: 'Atomic card', x: 120, y: 120, width: 360, height: 240 },
+    { action: 'create', type: 'text', id: 'atomic-title', parentId: '$0', text: 'One complete edit', fontSize: 24 },
+    { action: 'create_token', id: 'atomic-blue', name: 'atomic-blue', type: 'color', value: '#81adec' },
+    { action: 'bind_token', element_id: '$1', property: 'fill', token_id: '$2' },
+  ] }
+  const preview = await success('apply_changes', { ...plan, dry_run: true })
+  expect(preview.dry_run).toBe(true)
+  expect(preview.revision).toBe(context.revision)
+  expect(preview.summary.after['atomic-title'].style.fill).toBe('#81adec')
+  await expect(page.locator('[data-element-id="atomic-frame"]')).toHaveCount(0)
+  expect((await success('get_basic_info')).selection).toEqual(selection)
+  const failed = await call('apply_changes', { ...plan, operations: [plan.operations[0], { action: 'update', element_id: 'missing', patch: { text: 'Invalid' } }] })
+  expect(failed.isError).toBe(true)
+  expect((await success('get_basic_info')).revision).toBe(context.revision)
+  const applied = await success('apply_changes', plan)
+  expect(applied.applied).toBe(true)
+  expect(applied.revision).not.toBe(context.revision)
+  await expect(page.locator('[data-element-id="atomic-title"]')).toContainText('One complete edit')
+  expect((await success('get_basic_info')).selection).toEqual(selection)
+  expect(await success('apply_changes', plan)).toEqual(applied)
+  expect((await call('apply_changes', { ...plan, idempotency_key: 'different-plan' })).isError).toBe(true)
+  await page.getByTestId('history-undo').click()
+  await expect(page.locator('[data-element-id="atomic-frame"]')).toHaveCount(0)
+  expect((await success('list_tokens')).tokens.some((token: { id: string }) => token.id === 'atomic-blue')).toBe(false)
+  expect((await success('get_basic_info')).selection).toEqual(selection)
+  await page.getByTestId('history-redo').click()
+  await expect(page.locator('[data-element-id="atomic-title"]')).toBeAttached()
+  expect((await success('list_tokens')).tokens.some((token: { id: string }) => token.id === 'atomic-blue')).toBe(true)
+  await page.screenshot({ path: '/tmp/paper-atomic-edit.png' })
+  await page.reload()
+  await expect(page.getByTestId('bridge-status')).toHaveAttribute('data-connected', 'true')
+  expect((await success('get_selection_context', { element_ids: ['atomic-title'] })).linkedTokens.some((token: { id: string }) => token.id === 'atomic-blue')).toBe(true)
+  expect(errors).toEqual([])
 })

@@ -10,6 +10,7 @@ import { createService } from '../dist/server/service.js'
 import { canonical, newer } from '../dist/src/cloud/model.js'
 import { SceneStore } from '../dist/src/scene/store.js'
 import { SceneReplica } from '../dist/src/collaboration/model.js'
+import { paperTools } from '../dist/src/mcp/schema.js'
 
 const secret = 'a-persistent-secret-for-integration-tests-12345'
 async function fixture(t, extra = {}) {
@@ -498,7 +499,7 @@ test('remote MCP enforces lifecycle, validates transport, and binds sessions to 
   assert.equal((await f.request('/mcp', { headers: { ...headers, Accept: 'text/event-stream' } })).status, 400)
   assert.equal((await send({ jsonrpc: '2.0', method: 'notifications/initialized' }, headers)).status, 202)
   const tools = await send({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, headers)
-  assert.equal(tools.data.result.tools.length, 11)
+  assert.equal(tools.data.result.tools.length, paperTools.length + 1)
   for (const tool of tools.data.result.tools.slice(1)) {
     assert.ok(tool.inputSchema.required.includes('project_id'))
     assert.equal(tool.inputSchema.properties.file, undefined)
@@ -679,4 +680,54 @@ test('bounded remote reads publish schemas, match shared semantics and isolate a
   assert.equal((await f.tool(a.token, 'update_element', { project_id: 'study', element_id: 'heading', expected_revision: context.revision, patch: { text: 'Stale' } })).data.result.isError, true)
   assert.deepEqual(await f.storage.read(a.user.id, 'unrelated'), unrelated)
   assert.deepEqual(await f.storage.read(b.user.id, 'study'), otherUser)
+})
+
+test('remote atomic plans preview without disk effects, serialize agents, and replay across sessions', async t => {
+  const f = await fixture(t), a = await f.login('atomic-a'), b = await f.login('atomic-b')
+  const success = async (token, name, args) => {
+    const response = await f.tool(token, name, args)
+    assert.equal(response.status, 200)
+    assert.equal(response.data.result.isError, false, JSON.stringify(response.data))
+    return response.data.result.structuredContent
+  }
+  const project_id = 'atomic'
+  await success(a.token, 'create_frame', { project_id, id: 'seed' })
+  await success(b.token, 'create_frame', { project_id, id: 'seed' })
+  const info = await success(a.token, 'get_basic_info', { project_id })
+  const file = join(f.root, 'projects', a.user.id, `${project_id}.paper.json`)
+  const before = await readFile(file)
+  const plan = { project_id, expected_revision: info.revision, idempotency_key: 'retry-me', operations: [
+    { action: 'create', type: 'frame', id: 'card', width: 320, height: 240 },
+    { action: 'create', type: 'text', parentId: '$0', text: 'Atomic handoff' },
+    { action: 'create_token', name: 'accent', type: 'color', value: '#81adec' },
+    { action: 'bind_token', element_id: '$1', property: 'fill', token_id: '$2' },
+  ] }
+  const preview = await success(a.token, 'apply_changes', { ...plan, dry_run: true })
+  assert.equal(preview.dry_run, true)
+  assert.equal(preview.revision, info.revision)
+  assert.deepEqual(await readFile(file), before)
+  const invalid = await f.tool(a.token, 'apply_changes', { ...plan, operations: [plan.operations[0], { action: 'update', element_id: 'missing', patch: { name: 'Invalid' } }] })
+  assert.equal(invalid.data.result.isError, true)
+  assert.deepEqual(await readFile(file), before)
+  const [first, replay] = await Promise.all([success(a.token, 'apply_changes', plan), success(a.token, 'apply_changes', plan)])
+  assert.deepEqual(replay, first)
+  const after = await readFile(file)
+  f.sessions.delete(a.token) // A lost HTTP session must not lose its receipt.
+  assert.deepEqual(await success(a.token, 'apply_changes', plan), first)
+  assert.deepEqual(await readFile(file), after)
+  const changedPlan = await f.tool(a.token, 'apply_changes', { ...plan, operations: [{ action: 'create', type: 'text', text: 'Different' }] })
+  assert.equal(changedPlan.data.result.isError, true)
+  assert.match(changedPlan.data.result.content[0].text, /idempotency/i)
+  assert.deepEqual(await readFile(file), after)
+  assert.equal((await success(b.token, 'apply_changes', plan)).project_id, project_id)
+  assert.ok((await f.storage.read(b.user.id, project_id)).document.scene.elements.card)
+  await success(a.token, 'create_frame', { project_id: 'other', id: 'other' })
+  const otherInfo = await success(a.token, 'get_basic_info', { project_id: 'other' })
+  assert.equal((await success(a.token, 'apply_changes', { ...plan, project_id: 'other', expected_revision: otherInfo.revision })).project_id, 'other')
+  const revision = (await success(a.token, 'get_basic_info', { project_id })).revision
+  const results = await Promise.all(['agent-one', 'agent-two'].map(id => f.tool(a.token, 'apply_changes', { project_id, expected_revision: revision, operations: [{ action: 'create', type: 'text', id }] })))
+  assert.equal(results.filter(response => !response.data.result.isError).length, 1)
+  assert.equal(results.filter(response => response.data.result.isError).length, 1)
+  const persisted = await f.storage.read(a.user.id, project_id)
+  assert.equal(['agent-one', 'agent-two'].filter(id => persisted.document.scene.elements[id]).length, 1)
 })

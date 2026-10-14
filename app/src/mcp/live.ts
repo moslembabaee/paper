@@ -2,7 +2,7 @@ import { MAX_IMPORT_BYTES, parseProject } from '../io/project.ts'
 import type { PaperProject } from '../io/project.ts'
 import { equalValue } from '../scene/history.ts'
 import type { SceneStore } from '../scene/store.ts'
-import { basicInfo, exportCanvas, mutateCanvas, readCanvas, searchLayers, selectionContext } from './operations.ts'
+import { basicInfo, executeTransaction, exportCanvas, IdempotencyCache, mutateCanvas, readCanvas, searchLayers, selectionContext, validateTransaction } from './operations.ts'
 import type { ToolArguments } from './operations.ts'
 import type { AgentActivity } from './protocol.ts'
 import { paperTools, validateSchema } from './schema.ts'
@@ -36,6 +36,7 @@ export class LiveCanvas {
   private activityTimer?: ReturnType<typeof setTimeout>
   private deferred?: SyncMessage
   private activity: AgentActivity | null = null
+  private idempotency = new IdempotencyCache()
 
   private readonly options: LiveCanvasOptions
   constructor(options: LiveCanvasOptions) {
@@ -182,6 +183,46 @@ export class LiveCanvas {
       this.highlight(result.elementIds, name)
       this.broadcastActivity()
       return { ...context(), ...result }
+    }
+    if (name === 'apply_changes') {
+      validateTransaction(args)
+      const cached = this.idempotency.get(projectId, args)
+      if (cached) return cached
+      if (store.getHistorySnapshot().active) throw new Error('A canvas gesture is in progress. Retry after it finishes.')
+      if (args.expected_revision !== this.revision) throw new Error('Revision mismatch. Read the live canvas and retry.')
+
+      if (args.dry_run) {
+        const result = executeTransaction(project, args)
+        return {
+          ...context(),
+          dry_run: true,
+          changedIds: result.changedIds,
+          summary: result.summary,
+          warnings: result.warnings,
+          actionResults: result.actionResults,
+        }
+      }
+
+      const result = executeTransaction(project, args)
+      const source = JSON.stringify(result.project)
+      if (new TextEncoder().encode(source).length > MAX_IMPORT_BYTES) throw new Error('The edited project exceeds 16 MB')
+      const before = store.getSnapshot()
+      const changed = !equalValue(project.scene, result.project.scene)
+      if (changed) store.batch(() => { store.load(result.project.scene); store.select(before.selection) }, 'Agent: apply_changes')
+      if (changed && !this.unsubscribe) this.stamp = { clock: this.stamp.clock + 1, source: this.clientId }
+      this.highlight(result.changedIds, name)
+      if (changed) this.broadcast()
+      else this.broadcastActivity()
+      const response = {
+        ...context(),
+        applied: true,
+        changedIds: result.changedIds,
+        summary: result.summary,
+        warnings: result.warnings,
+        actionResults: result.actionResults,
+      }
+      this.idempotency.set(projectId, args, response)
+      return response
     }
     if (store.getHistorySnapshot().active) throw new Error('A canvas gesture is in progress. Retry after it finishes.')
     if (args.expected_revision !== undefined && args.expected_revision !== this.revision) throw new Error('Revision mismatch. Read the live canvas and retry.')
