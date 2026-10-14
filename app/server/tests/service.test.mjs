@@ -5,9 +5,11 @@ import { Duplex } from 'node:stream'
 import { mkdtemp, rm, readFile, mkdir, symlink, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createService } from '../dist/server/service.js'
 import { canonical, newer } from '../dist/src/cloud/model.js'
+import { SceneStore } from '../dist/src/scene/store.js'
+import { SceneReplica } from '../dist/src/collaboration/model.js'
 
 const secret = 'a-persistent-secret-for-integration-tests-12345'
 async function fixture(t, extra = {}) {
@@ -28,7 +30,8 @@ async function fixture(t, extra = {}) {
     const write = res.write.bind(res), end = res.end.bind(res)
     res.write = chunk => { text += String(chunk); return write(chunk) }
     res.end = chunk => { if (chunk) text += String(chunk); return end(chunk) }
-    await service.handler(req, res, options.body ? JSON.parse(options.body) : {})
+    if (options.rawBody) { req.push(options.body ?? ''); req.push(null) }
+    await service.handler(req, res, options.rawBody ? undefined : options.body ? JSON.parse(options.body) : {})
     const headers = new Headers()
     for (const line of res._header.split('\r\n').slice(1)) {
       const split = line.indexOf(':'); if (split > 0) headers.append(line.slice(0, split), line.slice(split + 1).trim())
@@ -66,6 +69,71 @@ async function fixture(t, extra = {}) {
   return { ...service, root, open, request, login, rpc, tool, sessions }
 }
 const empty = name => ({ format: 'paper', version: 1, name, viewport: { x: 0, y: 0, zoom: 1 }, grid: true, scene: { version: 1, elements: {}, rootIds: [] } })
+
+const collaborator = id => ({ id, name: 'Ada', color: '#81adec', status: 'active', cursor: { x: 120, y: 240 }, selection: ['rect'], viewport: { center: { x: 0, y: 0 }, zoom: 1, size: { width: 900, height: 600 } }, following: null })
+
+test('backend collaboration accepts parsed JSON, streams edits and closes sessions without cloud sign-in', { timeout: 5000 }, async t => {
+  const f = await fixture(t), room = randomUUID(), first = randomUUID(), second = randomUUID()
+  const path = `/__paper_collaboration/${room}`
+  // Nginx forwards $host without the public port. The configured origin is authoritative.
+  const headers = { Host: 'localhost', Origin: 'http://localhost:3000' }
+  const store = new SceneStore(); store.add('rectangle', { id: 'rect', x: 120 })
+  const credential = randomUUID()
+  const joined = await f.request(`${path}/join`, { method: 'POST', headers, body: JSON.stringify({ id: first, token: credential, presence: collaborator(first), document: store.toJSON() }) })
+  assert.equal(joined.status, 200)
+  assert.equal(joined.data.token, credential)
+  assert.ok(joined.data.registers.length > 0)
+  assert.deepEqual(joined.data.peers.map(peer => peer.id), [first])
+  const replica = new SceneReplica(first, joined.data.registers)
+  assert.equal(replica.document().elements.rect.x, 120)
+  // The shared service also accepts a raw HTTP body outside Fastify.
+  const other = await f.request(`${path}/join`, { method: 'POST', headers, rawBody: true, body: JSON.stringify({ id: second, presence: collaborator(second), document: new SceneStore().toJSON() }) })
+  assert.equal(other.status, 200)
+  assert.match(other.data.token, /^[a-f0-9-]{36}$/)
+  assert.equal(new SceneReplica(second, other.data.registers).document().elements.rect.x, 120)
+  const session = `${path}/events?id=${second}&token=${other.data.token}`
+  assert.equal((await f.request(`${path}/events?id=${second}&token=wrong`, { headers })).status, 401)
+  const stream = await f.open(session, { headers })
+  assert.equal(stream.status, 200)
+  assert.match(stream.headers.get('content-type'), /text\/event-stream/)
+  assert.equal(stream.headers.get('x-accel-buffering'), 'no')
+  assert.equal(stream.res.writableEnded, false)
+  assert.match(stream.text(), /event: state/)
+  const before = store.toJSON(); store.update('rect', 'rectangle', { x: 240 })
+  const changes = replica.change(before, store.toJSON())
+  assert.equal((await f.request(`${path}/update?id=${first}&token=${credential}`, { method: 'POST', headers, body: JSON.stringify({ changes, presence: { ...collaborator(first), cursor: { x: 240, y: 120 } } }) })).status, 200)
+  assert.match(stream.text(), /event: changes/)
+  assert.match(stream.text(), /"x":240/)
+  assert.equal(stream.res.writableEnded, false)
+  const rejoined = await f.request(`${path}/join`, { method: 'POST', headers, body: JSON.stringify({ id: first, token: credential, presence: collaborator(first) }) })
+  assert.equal(new SceneReplica(first, rejoined.data.registers).document().elements.rect.x, 240)
+  assert.equal((await f.request(`${path}/leave?id=${second}&token=${other.data.token}`, { method: 'POST', headers, body: '{}' })).status, 200)
+  assert.equal(stream.res.writableEnded, true)
+  assert.equal((await f.request(session, { headers })).status, 401)
+  const remaining = await f.open(`${path}/events?id=${first}&token=${credential}`, { headers })
+  assert.equal(remaining.res.writableEnded, false)
+  f.close()
+  assert.equal(remaining.res.writableEnded, true)
+})
+
+test('backend collaboration rejects invalid requests and always responds to the bare relay path', { timeout: 5000 }, async t => {
+  const f = await fixture(t), room = randomUUID(), id = randomUUID()
+  const headers = { Host: 'localhost', Origin: 'http://localhost:3000' }
+  const body = JSON.stringify({ id, presence: collaborator(id), document: new SceneStore().toJSON() })
+  assert.equal((await f.request('/__paper_collaboration', { headers })).status, 400)
+  assert.equal((await f.request('/__paper_collaboration/', { headers })).status, 400)
+  const path = `/__paper_collaboration/${room}/join`
+  for (const Origin of ['http://localhost:4000', 'https://evil.test']) {
+    assert.equal((await f.request(path, { method: 'POST', headers: { ...headers, Origin }, body })).status, 403)
+  }
+  assert.equal((await f.request(path, { method: 'POST', headers, body: '[]' })).status, 400)
+  assert.equal((await f.request(path, { method: 'POST', headers, body: '{', rawBody: true })).status, 400)
+  assert.equal((await f.request(path, { method: 'POST', headers: { ...headers, 'Content-Type': 'text/plain' }, body })).status, 400)
+  const large = await f.request(path, { method: 'POST', headers, body: JSON.stringify({ padding: 'x'.repeat(16 * 1024 * 1024) }) })
+  assert.equal(large.status, 400)
+  assert.match(large.data.error, /exceeds 16 MB/)
+  assert.equal((await f.request(path, { method: 'POST', headers, body })).status, 200)
+})
 
 test('session discovery is public; private endpoints require session and CSRF guard', async t => {
   const f = await fixture(t)

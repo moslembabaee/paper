@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-13",
+  "current_task_id": "T-ISSUE-14",
   "tasks": [
     {
       "id": "T-ISSUE-13",
@@ -22,10 +22,11 @@
       "title": "Issue #14: feat(collaboration): Mount Collaboration Relay in API Backend and Route in Nginx",
       "description": "### Problem Statement\nPaper includes an in-memory HTTP + SSE collaboration relay in `app/collaboration/server.ts` that handles real-time multiplayer editing, cursors, and presence. While this is used by the Vite dev/preview plugin, it was never mounted into the production Docker Fastify backend (`app/server/index.ts` / `service.ts`). Furthermore, `docker/nginx.conf` lacks a location block for `/__paper_collaboration/`, causing all collaboration requests in production to fall through to `index.html` and return `405 Method Not Allowed`.\n\n### Requirements & Scope (Phase 2 - Priority 2)\n1. **Mount Relay in Fastify / Backend Service:**\n   - Mount `CollaborationServer` in `app/server/` to handle all `/__paper_collaboration/*` requests:\n     - `POST /__paper_collaboration/:room/join`\n     - `GET /__paper_collaboration/:room/events` (SSE streaming)\n     - `POST /__paper_collaboration/:room/update`\n     - `POST /__paper_collaboration/:room/leave`\n   - Update `app/tsconfig.server.json` if needed to ensure collaboration server files compile into `server/dist`.\n2. **Reverse Proxy Configuration in Nginx:**\n   - In `docker/nginx.conf`, add:\n     ```nginx\n     location /__paper_collaboration/ {\n         proxy_pass http://paper-api:3001;\n         proxy_http_version 1.1;\n         proxy_set_header Host $host;\n         proxy_set_header X-Forwarded-Proto $scheme;\n         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n         proxy_buffering off;\n         proxy_cache off;\n         proxy_read_timeout 3600s;\n         proxy_send_timeout 3600s;\n         client_max_body_size 17m;\n     }\n     ```\n3. **Verification:**\n   - Test that `POST /__paper_collaboration/<room>/join` returns `200 OK` with session credentials and registers.\n   - Test that `GET /__paper_collaboration/<room>/events` opens an active SSE stream.\n   - Run `npm run build` and `npm test` (including `collaboration.test.mjs`).\n\nReference: Closes #14",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 14
+      "github_issue_number": 14,
+      "completed_at": "2026-10-14T12:58:58.416807"
     },
     {
       "id": "T-ISSUE-15",

@@ -1,6 +1,6 @@
 # Multiplayer canvas
 
-Paper's collaboration relay runs automatically with `npm run dev` and `npm run preview`. It shares the app's origin, has no hosted-service dependency, and works across browsers and devices. For another device on your network, serve Paper with `npm run dev -- --host 0.0.0.0` or, after `npm run build`, `npm run preview -- --host 0.0.0.0`. Open that host's address on both devices. Static file hosting alone does not run the relay.
+Paper's collaboration relay runs automatically with `npm run dev`, `npm run preview`, and the Docker Compose API service. It shares the app's origin, has no hosted-service dependency, and works across browsers and devices. For another device on your network, serve Paper with `npm run dev -- --host 0.0.0.0` or, after `npm run build`, `npm run preview -- --host 0.0.0.0`. Open that host's address on both devices. Static file hosting alone does not run the relay.
 
 Open **Canvas collaborators** in the header and copy the invitation link. Each project has a distinct room. Opening an invitation creates or opens a separate local project with that room ID, preserving the visitor's other projects. Anyone with the invitation can edit the room. Profile names appear on presence chips, cursor labels, and selection outlines. The invite URL is available to select manually when clipboard permissions are unavailable.
 
@@ -21,6 +21,8 @@ Click **Follow** beside another designer to track their world-space viewport cen
 The relay is an active-session service: rooms remain in server memory and expire after 30 minutes without connected clients. Restarting the server clears its rooms. The first browser to rejoin seeds the room from its locally saved document. Local workspace autosave and JSON exports remain the durable copies; unsent edits survive network interruptions while that editor remains open. Project names and engineering-grid preferences remain local to each browser (the existing MCP tab channel shares these between local tabs).
 
 A reverse proxy must forward `/__paper_collaboration/` to the same Paper process and permit long-running SSE responses without buffering. Room invitations act as capability links; deploy behind your existing access-controlled host if needed. The relay checks request origins, issues per-session tokens, bounds request sizes/room membership, and disconnects streams that cannot keep up. It does not implement account permissions or durable server-side project storage.
+
+Docker Compose routes `/__paper_collaboration/` through Nginx to `paper-api:3001`, with buffering, caching, and compression disabled and one-hour streaming timeouts. Set `PAPER_PUBLIC_URL` to the browser-facing origin, including its scheme and any non-default port, so backend origin checks accept your deployment. Collaboration invitation links and session tokens work independently of cloud account sign-in. The API closes collaboration streams when it shuts down.
 
 ## Verification
 

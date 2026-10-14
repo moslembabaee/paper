@@ -3,6 +3,7 @@ import { randomBytes, createHash } from 'node:crypto'
 import { Auth } from './auth.ts'
 import { Storage, httpError, safeId } from './storage.ts'
 import { RemoteMcpGateway } from './mcp.ts'
+import { CollaborationServer } from '../collaboration/server.ts'
 import type { CloudProject } from '../src/cloud/model.ts'
 
 export interface ServiceConfig {
@@ -32,6 +33,7 @@ export async function createService(config: ServiceConfig) {
   const auth = new Auth(config.root, config.secret)
   await auth.initialize(config.root)
   const storage = new Storage(config.root)
+  const collaboration = new CollaborationServer(origin)
   const requestFetch = config.fetch ?? fetch
   const streams = new Map<string, Set<ServerResponse>>()
   const attempts = new Map<string, { provider: string; verifier: string; expires: number }>()
@@ -56,6 +58,8 @@ export async function createService(config: ServiceConfig) {
       // Origins are checked before all routing, including remote MCP, to prevent DNS rebinding/CSRF.
       if (req.headers.origin && req.headers.origin !== origin) throw httpError(403, 'Origin rejected')
       if (path === '/healthz') { json(res, 200, { ok: true }); return }
+      // Fastify has already consumed JSON bodies. Pass its parsed value to the relay.
+      if (await collaboration.handle(req, res, parsed)) return
       const rateKey = req.socket.remoteAddress ?? 'unknown'
       const now = Date.now()
       if (rates.size > 10000) for (const [key, rate] of rates) if (rate.until < now) rates.delete(key)
@@ -181,5 +185,5 @@ export async function createService(config: ServiceConfig) {
       json(res, failure.status ?? 500, { error: failure.status ? failure.message : 'Server could not complete the request', ...(failure.status === 409 ? { current: failure.current ?? null } : {}) })
     }
   }
-  return { handler, auth, storage, close: () => { mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
+  return { handler, auth, storage, collaboration, close: () => { collaboration.close(); mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
 }

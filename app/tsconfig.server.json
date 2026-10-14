@@ -5,5 +5,5 @@
     "skipLibCheck": true, "rewriteRelativeImportExtensions": true,
     "rootDir": ".", "outDir": "server/dist"
   },
-  "include": ["server/*.ts"]
+  "include": ["server/*.ts", "collaboration/server.ts"]
 }

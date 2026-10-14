@@ -18,16 +18,21 @@ function presence(value: unknown, id: string): Presence {
   const color = PRESENCE_COLORS[parseInt(id.replace(/-/g, '').slice(0, 6), 16) % PRESENCE_COLORS.length] ?? PRESENCE_COLORS[0]
   return { ...value, id, name: value.name.trim().slice(0, 80) || 'Designer', color } as unknown as Presence
 }
-async function read(request: IncomingMessage): Promise<Record<string, unknown>> {
+async function read(request: IncomingMessage, parsed?: unknown): Promise<Record<string, unknown>> {
   if (!request.headers['content-type']?.startsWith('application/json')) throw new Error('Expected JSON')
-  const chunks: Buffer[] = []; let size = 0
-  for await (const chunk of request) {
-    const bytes = Buffer.from(chunk); size += bytes.length
-    if (size > 16 * 1024 * 1024) throw new Error('Room message exceeds 16 MB')
-    chunks.push(bytes)
+  let value = parsed
+  if (value === undefined) {
+    const chunks: Buffer[] = []; let size = 0
+    for await (const chunk of request) {
+      const bytes = Buffer.from(chunk); size += bytes.length
+      if (size > 16 * 1024 * 1024) throw new Error('Room message exceeds 16 MB')
+      chunks.push(bytes)
+    }
+    const text = Buffer.concat(chunks).toString()
+    try { value = JSON.parse(text) } catch { throw new Error('Invalid JSON') }
   }
-  const value: unknown = JSON.parse(Buffer.concat(chunks).toString())
   if (!record(value)) throw new Error('Invalid room message')
+  if (parsed !== undefined && Buffer.byteLength(JSON.stringify(value)) > 16 * 1024 * 1024) throw new Error('Room message exceeds 16 MB')
   return value
 }
 
@@ -35,11 +40,14 @@ async function read(request: IncomingMessage): Promise<Record<string, unknown>> 
 export class CollaborationServer {
   private rooms = new Map<string, Room>()
   private timer: ReturnType<typeof setInterval>
-  constructor() {
+  private readonly origin?: string
+  // Production checks the configured public origin; Vite checks the request host.
+  constructor(origin?: string) {
+    this.origin = origin === undefined ? undefined : new URL(origin).origin
     this.timer = setInterval(() => {
       for (const [id, room] of this.rooms) {
         for (const [peerId, peer] of room.peers) {
-          if (peer.stream && !peer.stream.destroyed) { peer.stream.write(': heartbeat\n\n'); peer.seen = Date.now(); room.seen = Date.now() }
+          if (peer.stream && !peer.stream.destroyed && !peer.stream.writableEnded) { peer.stream.write(': heartbeat\n\n'); peer.seen = Date.now(); room.seen = Date.now() }
           else if (Date.now() - peer.seen > 30_000) { room.peers.delete(peerId); this.broadcast(room, 'peers', this.peers(room)) }
         }
         if (!room.peers.size && Date.now() - room.seen > 30 * 60_000) this.rooms.delete(id)
@@ -47,28 +55,47 @@ export class CollaborationServer {
     }, 10_000)
     this.timer.unref()
   }
-  close() { clearInterval(this.timer); for (const room of this.rooms.values()) for (const peer of room.peers.values()) peer.stream?.end(); this.rooms.clear() }
+  close() {
+    clearInterval(this.timer)
+    for (const room of this.rooms.values()) {
+      for (const peer of room.peers.values()) peer.stream?.end()
+      room.peers.clear()
+    }
+    this.rooms.clear()
+  }
   private peers(room: Room) { return [...room.peers.values()].map(peer => peer.presence) }
   private broadcast(room: Room, event: string, data: unknown) {
     const packet = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
-    for (const peer of room.peers.values()) if (peer.stream && !peer.stream.destroyed) {
+    for (const peer of room.peers.values()) if (peer.stream && !peer.stream.destroyed && !peer.stream.writableEnded) {
       if (peer.stream.writableLength > 2 * 1024 * 1024) peer.stream.destroy()
       else peer.stream.write(packet)
     }
   }
+  handle = async (request: IncomingMessage, response: ServerResponse, parsed?: unknown): Promise<boolean> => {
+    const url = new URL(request.url ?? '/', 'http://localhost')
+    if (url.pathname !== COLLAB_PATH && !url.pathname.startsWith(`${COLLAB_PATH}/`)) return false
+    try {
+      await this.dispatch(request, response, url, parsed)
+    } catch (error) {
+      if (!response.headersSent) reply(response, 400, { error: error instanceof Error ? error.message : 'Invalid collaboration request' })
+    }
+    return true
+  }
   middleware = (request: IncomingMessage, response: ServerResponse, next: () => void) => {
     const url = new URL(request.url ?? '/', 'http://localhost')
-    if (!url.pathname.startsWith(`${COLLAB_PATH}/`)) return next()
-    void this.handle(request, response, url).catch(error => { if (!response.headersSent) reply(response, 400, { error: error instanceof Error ? error.message : 'Invalid collaboration request' }) })
+    if (url.pathname !== COLLAB_PATH && !url.pathname.startsWith(`${COLLAB_PATH}/`)) return next()
+    void this.handle(request, response)
   }
-  private async handle(request: IncomingMessage, response: ServerResponse, url: URL) {
+  private async dispatch(request: IncomingMessage, response: ServerResponse, url: URL, parsed?: unknown) {
     const origin = request.headers.origin
-    if (origin && new URL(origin).host !== request.headers.host) { reply(response, 403, { error: 'Collaboration requires the same origin' }); return }
+    if (origin && (this.origin ? origin !== this.origin : new URL(origin).host !== request.headers.host)) {
+      reply(response, 403, { error: 'Collaboration requires the same origin' }); return
+    }
     const [, , roomId, route] = url.pathname.split('/')
     if (!/^[a-f0-9-]{36}$/.test(roomId ?? '')) throw new Error('Invalid room ID')
     let room = this.rooms.get(roomId)
     if (route === 'join' && request.method === 'POST') {
-      const data = await read(request)
+      const data = await read(request, parsed)
       if (typeof data.id !== 'string' || !/^[a-f0-9-]{36}$/.test(data.id)) throw new Error('Invalid session ID')
       const user = presence(data.presence, data.id)
       if (!room) {
@@ -102,7 +129,7 @@ export class CollaborationServer {
       room.peers.delete(id); peer.stream?.end(); this.broadcast(room, 'peers', this.peers(room)); reply(response, 200, {}); return
     }
     if (route === 'update' && request.method === 'POST') {
-      const data = await read(request)
+      const data = await read(request, parsed)
       const nextPresence = data.presence ? presence(data.presence, id) : peer.presence
       if (data.changes !== undefined) {
         if (!Array.isArray(data.changes) || data.changes.length > 100_000) throw new Error('Invalid changes')
