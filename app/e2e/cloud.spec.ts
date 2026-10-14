@@ -15,15 +15,13 @@ async function localRecords(page: Page) {
   })
 }
 
-test('static hosting keeps guest projects local and never probes cloud APIs', async ({ page }) => {
-  const cloudRequests: string[] = []
-  page.on('request', request => { if (/\/api\/(auth|projects|events)/.test(request.url())) cloudRequests.push(request.url()) })
+test('a host without auth fails closed with a retryable login gate', async ({ page }) => {
+  await page.route('**/api/auth/session', route => route.fulfill({ contentType: 'text/html', body: '<html>Static host</html>' }))
   await page.goto('/')
-  await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toBeVisible()
-  const settings = await openProfile(page)
-  await expect(settings.getByText('This host supports local workspaces. Your projects stay on this device.')).toBeVisible()
-  await expect(settings.getByRole('link', { name: 'Sign in with Google' })).toHaveCount(0)
-  expect(cloudRequests).toEqual([])
+  await expect(page.getByRole('heading', { name: 'Paper — Space to think.' })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('couldn’t connect')
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+  await expect(page.getByTestId('canvas-viewport')).toHaveCount(0)
 })
 
 test('migration, edits, headless pulls and remote token rotation work in the browser', async ({ page }) => {
@@ -74,14 +72,14 @@ test('migration, edits, headless pulls and remote token rotation work in the bro
   expect(errors).toEqual([])
 })
 
-test('cloud login offers configured providers without changing guest rendering', async ({ page }) => {
+test('signed-out visitors see the login gate with configured providers', async ({ page }) => {
   await page.route('**/cloud.json', route => route.fulfill({ json: { cloud: true } }))
   await page.route('**/api/auth/session', route => route.fulfill({ json: { user: null, providers: { google: true, github: true } } }))
   await page.goto('/')
-  await expect(page.locator('[data-element-id="space"]')).toBeVisible()
-  const settings = await openProfile(page)
-  await expect(settings.getByRole('link', { name: 'Sign in with Google' })).toHaveAttribute('href', '/api/auth/google')
-  await expect(settings.getByRole('link', { name: 'Sign in with GitHub' })).toHaveAttribute('href', '/api/auth/github')
+  await expect(page.getByTestId('canvas-viewport')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Paper — Space to think.' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Sign in with Google' })).toHaveAttribute('href', '/api/auth/google')
+  await expect(page.getByRole('link', { name: 'Sign in with GitHub' })).toHaveAttribute('href', '/api/auth/github')
 })
 
 test('profile settings reveal, hide, copy, rotate and revoke server tokens without storing credentials locally', async ({ page, context }) => {
@@ -163,11 +161,11 @@ test('profile settings reveal, hide, copy, rotate and revoke server tokens witho
   expect(errors).toEqual([])
 })
 
-test('OAuth callback errors open account settings and are decoded only once', async ({ page }) => {
+test('OAuth callback errors appear on the login gate and are decoded only once', async ({ page }) => {
   await page.route('**/cloud.json', route => route.fulfill({ json: { cloud: true } }))
   await page.route('**/api/auth/session', route => route.fulfill({ json: { user: null, providers: { google: true, github: true } } }))
   await page.goto('/?auth_error=Sign-in%20failed%20%28100%25%29')
-  await expect(page.getByRole('dialog', { name: 'Profile & account', exact: true })).toBeVisible()
-  await expect(page.getByRole('alert')).toHaveText('Sign-in failed (100%)')
+  await expect(page.getByRole('heading', { name: 'Paper — Space to think.' })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('Sign-in failed (100%)')
   await expect(page).not.toHaveURL(/auth_error/)
 })

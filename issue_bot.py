@@ -74,7 +74,7 @@ def save_roadmap(data: dict):
 def sync_closed_issues(roadmap: dict) -> bool:
     # REST pagination covers the entire closed backlog, not gh issue list's first 30.
     endpoint = f"repos/{REPO}/issues?state=closed&per_page=100"
-    code, out = run_cmd(f"gh api --paginate --slurp {shlex.quote(endpoint)}")
+    code, out = run_cmd(f"gh api --paginate {shlex.quote(endpoint)}")
     if code != 0:
         log(f"Error fetching closed issues: {out}")
         return False
@@ -85,19 +85,27 @@ def sync_closed_issues(roadmap: dict) -> bool:
         return False
 
     modified = False
-    for page in pages:
-        for issue in page:
-            if "pull_request" in issue:
-                continue
-            num = issue["number"]
-            if label_names(issue) & {"in-progress", "blocked"}:
-                code, output = run_cmd(
-                    f'gh issue edit {num} --repo {REPO} --remove-label "in-progress,blocked"',
-                    timeout=30,
-                )
-                if code != 0:
-                    log(f"Failed to clean labels on closed Issue #{num}: {output}")
-            modified = mark_issue_closed(roadmap, num, issue.get("closed_at")) or modified
+    issues = []
+    if isinstance(pages, list):
+        if pages and isinstance(pages[0], dict):
+            issues = pages
+        elif pages and isinstance(pages[0], list):
+            issues = [item for page in pages for item in page]
+
+    for issue in issues:
+        if not isinstance(issue, dict) or "pull_request" in issue:
+            continue
+        num = issue.get("number")
+        if not num:
+            continue
+        if label_names(issue) & {"in-progress", "blocked"}:
+            code, output = run_cmd(
+                f'gh issue edit {num} --repo {REPO} --remove-label "in-progress,blocked"',
+                timeout=30,
+            )
+            if code != 0:
+                log(f"Failed to clean labels on closed Issue #{num}: {output}")
+        modified = mark_issue_closed(roadmap, num, issue.get("closed_at")) or modified
     return modified
 
 def fetch_open_issues() -> list:

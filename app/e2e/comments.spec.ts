@@ -1,3 +1,4 @@
+import { mockStudioSession } from './studio-session'
 import { expect, test } from '@playwright/test'
 import { waitForCanvasReady, waitForViewportSettled } from './helpers'
 import type { Page } from '@playwright/test'
@@ -68,6 +69,7 @@ test('invited browsers share threads and replies with private unread state and o
   try {
     await context.addInitScript(() => localStorage.setItem('paper.profile.v1', JSON.stringify({ version: 1, name: 'Mira Chen' })))
     const peer = await context.newPage()
+    await mockStudioSession(peer)
     await peer.goto(invite)
     await expect(peer.getByTestId('canvas-viewport')).toBeVisible()
     await expect(page.locator('.presence-avatar[title^="Mira Chen"]')).toBeVisible()

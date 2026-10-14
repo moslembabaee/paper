@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Check, Cloud, Copy, Eye, EyeOff, FolderOpen, HardDrive, KeyRound, Settings2, Upload, UserRound, X } from 'lucide-react'
+import { ArrowUpRight, Check, Cloud, Copy, Eye, EyeOff, FolderOpen, HardDrive, KeyRound, LogOut, Settings2, Upload, UserRound, X } from 'lucide-react'
 import { getTheme, setTheme } from '../design-system/theme'
 import type { StudioTheme } from '../design-system/tokens'
 import { Dialog } from './Dialog'
@@ -21,6 +21,9 @@ export function ProfileMenu({ profile, onSave, onOpenProjects, account, sync }: 
 }) {
   const [open, setOpen] = useState(false)
   const [settings, setSettings] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
+  const [signOutError, setSignOutError] = useState('')
+  const logoutPending = useRef(false)
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const close = () => { setOpen(false); trigger.current?.focus() }
@@ -36,7 +39,7 @@ export function ProfileMenu({ profile, onSave, onOpenProjects, account, sync }: 
   }, [open])
 
   return <div className="account-control" ref={root}>
-    <button ref={trigger} className="account-trigger" aria-label="User profile menu" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? 'profile-menu' : undefined} title={`${account.user?.name ?? profile.name} · ${account.user ? "Cloud workspace" : "Local workspace"}`} onClick={() => setOpen(!open)}><Avatar profile={profile} user={account.user} /><i className="account-status" /></button>
+    <button ref={trigger} className="account-trigger" aria-label="User profile menu" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? 'profile-menu' : undefined} title={`${account.user?.name ?? profile.name} · ${account.user ? "Cloud workspace" : "Local workspace"}`} onClick={() => setOpen(!open)}><Avatar profile={profile} user={account.user} />{account.user && <span className="account-header-name">{account.user.name}</span>}</button>
     {open && <div id="profile-menu" className="account-menu workspace-surface" role="menu" aria-label="Your account" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }} onKeyDown={event => {
       const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
@@ -48,6 +51,16 @@ export function ProfileMenu({ profile, onSave, onOpenProjects, account, sync }: 
       <div className="account-menu-identity"><Avatar profile={profile} user={account.user} /><div><strong>{account.user?.name ?? profile.name}</strong><span>{account.user?.email ?? "Self-hosted · On this device"}</span></div></div>
       <button role="menuitem" onClick={() => { close(); setSettings(true) }}><UserRound size={15} />Profile & account<Settings2 size={13} /></button>
       <button role="menuitem" onClick={() => { close(); onOpenProjects() }}><FolderOpen size={15} />Local projects<ArrowUpRight size={13} /></button>
+      {account.user && <button role="menuitem" disabled={signingOut} onClick={async () => {
+        if (logoutPending.current) return
+        logoutPending.current = true
+        setSigningOut(true)
+        setSignOutError('')
+        try { await account.logout() }
+        catch { setSignOutError('Could not sign out. Please try again.') }
+        finally { logoutPending.current = false; setSigningOut(false) }
+      }}><LogOut size={15} />{signingOut ? 'Signing out…' : 'Sign out'}</button>}
+      {signOutError && <p className="account-signout-error" role="alert">{signOutError}</p>}
       <div className="account-menu-footer"><HardDrive size={12} /><span>{profile.workspaceName}</span><i /></div>
     </div>}
     {settings && <ProfileDialog key={account.user?.id ?? 'local'} profile={profile} onSave={onSave} account={account} sync={sync} onClose={() => { setSettings(false); trigger.current?.focus() }} />}

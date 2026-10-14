@@ -2,8 +2,53 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-8",
+  "current_task_id": "T-ISSUE-9",
   "tasks": [
+    {
+      "id": "T-ISSUE-9",
+      "phase": "Community & Issues",
+      "title": "Issue #9: feat(auth): Figma-style Login Gate and Seamless Session Guard",
+      "description": "### Problem Statement\nCurrently, unauthenticated visitors enter an ambiguous empty canvas labeled 'Local workspace' with no clear indication that they are not signed in or where data is saved. The login buttons are buried deep inside the profile modal.\n\n### Requirements & Scope (Step 1/4)\n1. **Login Gate Screen (`LoginGate.tsx`):**\n   - When the user visits Paper without an active session (`/api/auth/session` returns `user: null`), display a clean, high-craft, Figma-like welcome/login screen instead of the blank canvas.\n   - Design: Minimalist dark/light surface, Paper brand typography ('Paper \u2014 Space to think'), concise value proposition ('A personal, high-craft space for your design ideas. Sign in to access your cloud workspaces and AI agent integration.').\n   - Two prominent, stylish OAuth buttons:\n     - `Sign in with Google` (link to `/api/auth/google`)\n     - `Sign in with GitHub` (link to `/api/auth/github`)\n   - Include studio appearance (dark/light theme) preview toggle.\n2. **Session Guard (`App.tsx`):**\n   - Check `/api/auth/session` on startup. Display a subtle minimal loader while authenticating.\n   - If authenticated (`user !== null`), render the full Studio canvas.\n   - If not authenticated, render `LoginGate`.\n3. **Header User Indicator:**\n   - In the Studio header, clearly show the authenticated user's avatar, name, and an easily accessible 'Sign out' action.\n\n### Acceptance & Verification\n- `cd /root/projects/paper/app && npm run build` succeeds with 0 errors.\n- Visiting the site without login presents the Login Gate.\n- Logging in opens the canvas smoothly.\n\nReference: Closes #9",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 2,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 9,
+      "completed_at": "2026-10-14T11:04:53.800233"
+    },
+    {
+      "id": "T-ISSUE-10",
+      "phase": "Community & Issues",
+      "title": "Issue #10: feat(ux): Streamline Settings & Unify AI Agent (MCP) Token Interface",
+      "description": "### Problem Statement\nThe settings modal currently displays confusing dual-mode concepts: 'Local MCP auth token', 'Self-host preferences (LOCAL)', 'Only on this device', alongside remote MCP settings.\n\n### Requirements & Scope (Step 2/4 - Depends on #9)\n1. **Unify MCP Token:**\n   - Remove 'Local MCP auth token' and all client-only token generation.\n   - Replace with a single, clear section: 'AI Agent Access (Model Context Protocol)'.\n   - Display the server-authenticated Cloud MCP Token with Reveal, Copy, Rotate, and Revoke controls.\n   - Show the quick-copy configuration snippet for connecting AI agents (Claude, Codex, Cursor) to `https://paper.141.11.32.213.nip.io/mcp`.\n2. **Clean Profile Dialog:**\n   - Show authenticated user info (Email, Name, Avatar from Google/GitHub).\n   - Studio preferences: Theme (Dark/Light) and Engineering grid toggle.\n   - Remove confusing labels like 'LOCAL', 'Only on this device', etc.\n\n### Acceptance & Verification\n- `cd /root/projects/paper/app && npm run build` succeeds with 0 errors.\n- Profile dialog shows clean, unified settings without local-vs-cloud dichotomy.\n\nReference: Closes #10",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 10
+    },
+    {
+      "id": "T-ISSUE-11",
+      "phase": "Community & Issues",
+      "title": "Issue #11: refactor(sync): Eliminate Migration Dialogs & Enable Silent Cloud-First Persistence",
+      "description": "### Problem Statement\nBecause Paper previously had a dual Local/Cloud architecture, it includes MigrationDialog ('Bring your projects along') and local/cloud project reconciliation prompts which confuse users.\n\n### Requirements & Scope (Step 3/4 - Depends on #10)\n1. **Remove Migration Dialogs:**\n   - Delete `MigrationDialog` and all prompts asking the user whether to migrate local projects to cloud.\n2. **Silent Cloud Persistence:**\n   - In a Figma-like model, all user projects belong to the authenticated account on the server.\n   - IndexedDB acts strictly as a transparent offline-first cache for instantaneous loading and offline resilience.\n   - When a project is updated, it automatically persists to the cloud API (`/api/projects/:id`).\n3. **Status Indicator:**\n   - Replace local/cloud workspace toggle tags with a subtle, clean 'Saved to Cloud' sync indicator in the header (like Figma / Google Docs).\n\n### Acceptance & Verification\n- `cd /root/projects/paper/app && npm run build` succeeds with 0 errors.\n- No migration dialogs appear; projects silently persist to cloud for the authenticated user.\n\nReference: Closes #11",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 11
+    },
+    {
+      "id": "T-ISSUE-12",
+      "phase": "Community & Issues",
+      "title": "Issue #12: test(e2e): Update Test Suite and Harden Cloud-First APIs",
+      "description": "### Requirements & Scope (Step 4/4 - Depends on #11)\n1. **API Hardening:**\n   - Verify all `/api/projects` endpoints reject unauthenticated access with 401.\n   - Verify Remote MCP Gateway properly authenticates via Bearer tokens.\n2. **E2E & Unit Tests:**\n   - Update Playwright e2e specs (`cloud.spec.ts`, `sync.spec.ts`) to account for the Login Gate.\n   - Ensure all automated tests pass (`npm run test`, `npm run build`, `npm run lint`).\n\n### Acceptance & Verification\n- `cd /root/projects/paper/app && npm run build` passes.\n- `cd /root/projects/paper/app && npm test` passes.\n\nReference: Closes #12",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 12
+    },
     {
       "id": "T-ISSUE-8",
       "phase": "Community & Issues",
@@ -14,7 +59,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 8,
-      "completed_at": "2026-10-14T09:32:50.404459"
+      "completed_at": "2026-10-14T09:32:50.404459",
+      "closed_at": "2026-10-14T09:32:54Z"
     },
     {
       "id": "T-ISSUE-6-1",
@@ -28,7 +74,8 @@
       "github_issue_number": 6,
       "subtask_index": 1,
       "total_subtasks": 4,
-      "completed_at": "2026-10-14T07:22:19.581686"
+      "completed_at": "2026-10-14T07:22:19.581686",
+      "closed_at": "2026-10-14T09:28:21Z"
     },
     {
       "id": "T-ISSUE-6-2",
@@ -42,7 +89,8 @@
       "github_issue_number": 6,
       "subtask_index": 2,
       "total_subtasks": 4,
-      "completed_at": "2026-10-14T07:45:18.377959"
+      "completed_at": "2026-10-14T07:45:18.377959",
+      "closed_at": "2026-10-14T09:28:21Z"
     },
     {
       "id": "T-ISSUE-6-3",
@@ -56,7 +104,8 @@
       "github_issue_number": 6,
       "subtask_index": 3,
       "total_subtasks": 4,
-      "completed_at": "2026-10-14T08:35:29.460694"
+      "completed_at": "2026-10-14T08:35:29.460694",
+      "closed_at": "2026-10-14T09:28:21Z"
     },
     {
       "id": "T-ISSUE-6-4",
@@ -70,7 +119,8 @@
       "github_issue_number": 6,
       "subtask_index": 4,
       "total_subtasks": 4,
-      "completed_at": "2026-10-14T09:10:41.313456"
+      "completed_at": "2026-10-14T09:10:41.313456",
+      "closed_at": "2026-10-14T09:28:21Z"
     },
     {
       "id": "T-ISSUE-2",
@@ -81,7 +131,8 @@
       "status": "completed",
       "retry_count": 74,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "completed_at": "2026-10-13T19:40:04.283182"
+      "completed_at": "2026-10-13T19:40:04.283182",
+      "closed_at": "2026-10-13T19:20:09Z"
     },
     {
       "id": "T-ISSUE-1",
@@ -92,7 +143,8 @@
       "status": "completed",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "completed_at": "2026-10-13T05:30:59.872966"
+      "completed_at": "2026-10-13T05:30:59.872966",
+      "closed_at": "2026-10-13T20:40:29Z"
     },
     {
       "id": "T01-project-init",

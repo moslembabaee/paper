@@ -1,3 +1,4 @@
+import { mockStudioSession } from './studio-session'
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { waitForCanvasReady } from './helpers'
 

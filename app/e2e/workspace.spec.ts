@@ -1,3 +1,4 @@
+import { mockStudioSession } from './studio-session'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { waitForViewportSettled } from './helpers'
@@ -34,6 +35,7 @@ test('creates, renames, switches and restores independent IndexedDB projects', a
   test.setTimeout(60000)
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
+  await mockStudioSession(page)
   await page.goto('/')
   await expect(page.locator('[data-element-id="space"]')).toBeVisible()
   await waitForViewportSettled(page)
@@ -76,26 +78,19 @@ test('creates, renames, switches and restores independent IndexedDB projects', a
   expect(errors).toEqual([])
 })
 
-test('profile drafts cancel and saved avatar, preferences and token survive reload', async ({ page }) => {
+test('profile drafts cancel and saved account avatar and local preferences survive reload', async ({ page }) => {
   test.setTimeout(60000)
+  await mockStudioSession(page)
   await page.goto('/')
   let profile = await openProfile(page)
   await profile.getByRole('textbox', { name: 'Display name' }).fill('Discarded name')
-  await profile.getByRole('button', { name: 'Generate token', exact: true }).click()
   await profile.getByRole('button', { name: 'Cancel', exact: true }).click()
   profile = await openProfile(page)
   await expect(profile.getByRole('textbox', { name: 'Display name' })).toHaveValue('Paper Designer')
-  await expect(profile.getByLabel('Local MCP auth token')).toHaveValue('')
   await profile.getByRole('textbox', { name: 'Display name' }).fill('Ada Designer')
   await profile.getByRole('textbox', { name: 'Workspace name' }).fill('Ada’s studio')
   await profile.getByRole('button', { name: 'Light', exact: true }).click()
   await profile.getByRole('checkbox', { name: /Engineering grid/ }).uncheck()
-  await profile.getByRole('button', { name: 'Generate token', exact: true }).click()
-  const token = await profile.getByLabel('Local MCP auth token').inputValue()
-  expect(token).toMatch(/^paper_[a-f0-9]{64}$/)
-  await expect(profile.getByLabel('Local MCP auth token')).toHaveAttribute('type', 'password')
-  await profile.getByRole('button', { name: 'Show token' }).click()
-  await expect(profile.getByLabel('Local MCP auth token')).toHaveAttribute('type', 'text')
   await profile.getByLabel('Upload profile image').setInputFiles({ name: 'avatar.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNoXPvmPwAG5wMaPGE1WAAAAABJRU5ErkJggg==', 'base64') })
   await expect(profile.locator('.account-avatar img')).toBeVisible()
   await profile.getByRole('button', { name: 'Save changes', exact: true }).click()
@@ -104,7 +99,6 @@ test('profile drafts cancel and saved avatar, preferences and token survive relo
   profile = await openProfile(page)
   await expect(profile.getByRole('textbox', { name: 'Display name' })).toHaveValue('Ada Designer')
   await expect(profile.getByRole('textbox', { name: 'Workspace name' })).toHaveValue('Ada’s studio')
-  await expect(profile.getByLabel('Local MCP auth token')).toHaveValue(token)
   await expect(profile.locator('.account-avatar img')).toBeVisible()
   await profile.getByRole('button', { name: 'Close account settings' }).click()
   const projects = await openProjects(page)
@@ -113,12 +107,12 @@ test('profile drafts cancel and saved avatar, preferences and token survive relo
   await projects.getByRole('textbox', { name: 'New project name' }).fill('Quiet canvas')
   await projects.getByRole('button', { name: 'Create project', exact: true }).click()
   await expect(page.getByTestId('viewport-grid')).toBeHidden()
-  expect(JSON.stringify(await records(page))).not.toContain(token)
 })
 
 test('migrates the existing local document without overwriting its recovery copy', async ({ page }) => {
   const legacy = { format: 'paper', version: 1, name: 'Legacy canvas', scene: { version: 1, elements: {}, rootIds: [] }, viewport: { x: 120, y: -240, zoom: .75 }, grid: false }
   await page.addInitScript(project => { localStorage.setItem('paper.project.v1', JSON.stringify(project)) }, legacy)
+  await mockStudioSession(page)
   await page.goto('/')
   await expect(page.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('Legacy canvas')
   await expect(page.getByTestId('viewport-grid')).toBeHidden()
@@ -136,6 +130,7 @@ test('migrates the existing local document without overwriting its recovery copy
 
 test('storage failures retain an editable canvas and JSON export', async ({ page }) => {
   await page.addInitScript(() => { indexedDB.open = () => { throw new Error('IndexedDB unavailable') } })
+  await mockStudioSession(page)
   await page.goto('/')
   await expect(page.getByTestId('canvas-viewport')).toBeVisible()
   await expect(page.getByText(/Changes are in memory/)).toBeVisible()

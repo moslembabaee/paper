@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
 import type { CloudSession } from './api'
 import type { CloudUser } from './model'
@@ -7,13 +7,42 @@ export function useCloudAccount() {
   const [session, setSession] = useState<CloudSession>({ user: null, providers: { google: false, github: false } })
   const [available, setAvailable] = useState(false)
   const [checked, setChecked] = useState(false)
+  const request = useRef<AbortController | null>(null)
+  const [sessionError, setSessionError] = useState<string | null>(null)
   const [authNotice, setAuthNotice] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    // Static hosts never probe /api; a self-hosted server opts in with a tiny capability file.
-    if (!available) return
-    setSession(await api<CloudSession>('/auth/session'))
-  }, [available])
+    request.current?.abort()
+    const abort = new AbortController()
+    request.current = abort
+    setChecked(false)
+    setSessionError(null)
+    try {
+      const next = await api<CloudSession>('/auth/session', {
+        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(4000)]),
+        cache: 'no-store',
+      })
+      if (!abort.signal.aborted) {
+        // A successful HTTP response alone must never unlock the studio.
+        if (!next || !Object.hasOwn(next, 'user') || !next.providers ||
+          typeof next.providers.google !== 'boolean' || typeof next.providers.github !== 'boolean' ||
+          (next.user !== null && (typeof next.user !== 'object' || typeof next.user.id !== 'string' || !next.user.id ||
+            typeof next.user.name !== 'string' || typeof next.user.email !== 'string' || typeof next.user.avatar !== 'string'))) {
+          throw new Error('Invalid session response')
+        }
+        setSession(next)
+        setAvailable(true)
+      }
+    } catch {
+      if (!abort.signal.aborted) {
+        setSession({ user: null, providers: { google: false, github: false } })
+        setAvailable(false)
+        setSessionError('We couldn’t connect to your Paper server. Please try again.')
+      }
+    } finally {
+      if (!abort.signal.aborted) setChecked(true)
+    }
+  }, [])
 
   useEffect(() => {
     try {
@@ -34,21 +63,12 @@ export function useCloudAccount() {
   }, [])
 
   useEffect(() => {
-    let stopped = false
-    const abort = new AbortController()
-    void (async () => {
-      try {
-        const response = await fetch(`${import.meta.env.BASE_URL}cloud.json`, { signal: AbortSignal.any([abort.signal, AbortSignal.timeout(4000)]), cache: 'no-cache' })
-        if (!response.ok || !response.headers.get('content-type')?.includes('application/json') || (await response.json()).cloud !== true) return
-        const next = await api<CloudSession>('/auth/session', { signal: AbortSignal.any([abort.signal, AbortSignal.timeout(4000)]) })
-        if (!stopped) { setSession(next); setAvailable(true) }
-      } catch { /* Local workspace remains available. */ }
-      finally { if (!stopped) setChecked(true) }
-    })()
-    return () => { stopped = true; abort.abort() }
-  }, [])
+    void refresh()
+    return () => request.current?.abort()
+  }, [refresh])
 
   const logout = useCallback(async () => {
+    request.current?.abort()
     await api('/auth/logout', { method: 'POST', headers: { 'X-Paper-Account': session.user?.id ?? '' } })
     setSession(current => ({ ...current, user: null }))
   }, [session.user?.id])
@@ -86,6 +106,7 @@ export function useCloudAccount() {
     available,
     checked,
     authNotice,
+    sessionError,
     clearAuthNotice,
     refresh,
     logout,

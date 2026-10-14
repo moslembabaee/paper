@@ -1,3 +1,4 @@
+import { mockStudioSession } from './studio-session'
 import { expect, test } from '@playwright/test'
 
 const fixture = {
@@ -12,6 +13,7 @@ const fixture = {
 test('roadmap searches, filters, refreshes and returns keyboard focus without editing the canvas', async ({ page }) => {
   let feed = fixture
   await page.route('**/roadmap.json', route => route.fulfill({ json: feed }))
+  await mockStudioSession(page)
   await page.goto('/')
   const trigger = page.getByRole('button', { name: 'Open development roadmap' })
   await trigger.click()
@@ -46,6 +48,7 @@ test('failed refresh retains data, recovers on retry and fits a narrow light-mod
   let fail = false
   await page.route('**/roadmap.json', route => fail ? route.fulfill({ status: 503, json: {} }) : route.fulfill({ json: { ...fixture, mode: 'snapshot' } }))
   await page.setViewportSize({ width: 390, height: 844 })
+  await mockStudioSession(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Clean Slate light theme' }).click()
   await page.getByRole('button', { name: 'Open development roadmap' }).click()

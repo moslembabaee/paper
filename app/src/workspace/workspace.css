@@ -20,7 +20,10 @@
 }
 .workspace-loading { display: flex; align-items: center; justify-content: center; gap: 16px; min-height: 100dvh; background: var(--paper-surface); color: var(--paper-text-secondary); font-size: 12px; }
 .account-control { position: relative; flex-shrink: 0; }
-.account-trigger { display: block; position: relative; padding: 3px; border: 1px solid transparent; border-radius: 50%; background: transparent; cursor: pointer; }
+.account-trigger { display: flex; align-items: center; gap: 8px; position: relative; padding: 3px 7px 3px 3px; border: 1px solid transparent; border-radius: 6px; background: transparent; cursor: pointer; }
+.account-header-name { max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.account-signout-error { margin: 8px 18px; font-size: 11px; line-height: 1.5; color: var(--paper-danger); }
+.account-menu > button:disabled { opacity: .5; cursor: wait; }
 .account-trigger:hover, .account-trigger[aria-expanded='true'] { border-color: var(--paper-border-strong); }
 .account-avatar { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #81adec; color: #080808; font: 500 10px var(--font-sans); overflow: hidden; flex-shrink: 0; letter-spacing: -.02em; }
 .account-avatar img { width: 100%; height: 100%; object-fit: cover; }

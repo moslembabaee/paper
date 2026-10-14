@@ -1,3 +1,4 @@
+import { mockStudioSession } from './studio-session'
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 import { SceneStore } from '../src/scene/store'
@@ -30,6 +31,7 @@ function fixture(trigger: InteractionTrigger = 'click', kind: TransitionKind = '
 
 async function open(page: Page, trigger: InteractionTrigger = 'click', kind: TransitionKind = 'dissolve', horizontal = false) {
   await page.addInitScript(project => localStorage.setItem('paper.project.v1', JSON.stringify(project)), fixture(trigger, kind, horizontal))
+  await mockStudioSession(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Present prototype', exact: true }).click()
   await expect(page.getByTestId('prototype-display')).toHaveAttribute('data-frame-id', 'a')
@@ -66,6 +68,7 @@ test('dragging a wire authors a persistent, undoable interaction and exposes tra
 
 test('spring authoring previews motion, persists physics and restores previous settings with undo', async ({ page }) => {
   await page.addInitScript(project => localStorage.setItem('paper.project.v1', JSON.stringify(project)), fixture())
+  await mockStudioSession(page)
   await page.goto('/')
   await page.getByTestId('prototype-mode-toggle').click()
   await page.locator('.viewport-world [data-element-id="a-button"]').click()
@@ -100,7 +103,8 @@ for (const kind of ['smart', 'slide-in', 'slide-out'] as const) {
     const prototype = project.scene.prototype!
     const springProject = { ...project, scene: { ...project.scene, prototype: { ...prototype, interactions: prototype.interactions.map(item => ({ ...item, transition: { ...item.transition, easing: 'spring', spring: SPRING_PRESETS.bouncy.spring } })) } } }
     await page.addInitScript(value => localStorage.setItem('paper.project.v1', JSON.stringify(value)), springProject)
-    await page.goto('/')
+    await mockStudioSession(page)
+  await page.goto('/')
     await page.getByRole('button', { name: 'Present prototype', exact: true }).click()
     const player = page.locator('.prototype-player')
     await player.locator('[data-element-id="a-button"]').click()
@@ -131,6 +135,7 @@ test('spring preview respects reduced motion and mobile presentation fits its vi
   await page.emulateMedia({ reducedMotion: 'reduce' })
   const project = fixture('click', 'smart'), prototype = project.scene.prototype!
   await page.addInitScript(value => localStorage.setItem('paper.project.v1', JSON.stringify(value)), { ...project, scene: { ...project.scene, prototype: { ...prototype, interactions: prototype.interactions.map(item => ({ ...item, transition: { ...item.transition, easing: 'spring', spring: SPRING_PRESETS.bouncy.spring } })) } } })
+  await mockStudioSession(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Present prototype', exact: true }).click()
   await page.locator('.prototype-player [data-element-id="a-button"]').click()
@@ -274,6 +279,7 @@ test('resuming an After Delay interaction preserves its remaining countdown', as
   const prototype = project.scene.prototype!
   const delayedProject = { ...project, scene: { ...project.scene, prototype: { ...prototype, interactions: prototype.interactions.map(item => item.id === 'main' ? { ...item, delay: 2400 } : item) } } }
   await page.addInitScript(value => localStorage.setItem('paper.project.v1', JSON.stringify(value)), delayedProject)
+  await mockStudioSession(page)
   await page.goto('/')
   await page.getByRole('button', { name: 'Present prototype', exact: true }).click()
   await expect(page.getByTestId('prototype-display')).toHaveAttribute('data-frame-id', 'a')

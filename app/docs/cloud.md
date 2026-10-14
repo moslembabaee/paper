@@ -1,6 +1,6 @@
 # Self-hosted accounts, cloud sync, and remote MCP
 
-Paper remains usable without an account. IndexedDB is the primary database, including during a network outage. Static deployments ship `cloud.json` with `cloud:false` and never request the cloud API. The self-hosted Nginx configuration advertises cloud support.
+Paper checks `/api/auth/session` on startup before opening the studio. Signed-out visitors see a welcome screen with the configured Google and GitHub sign-in options and a persistent appearance preview. Failed checks offer a retry; static-only deployments need an auth API to open the studio. IndexedDB remains the primary local database, including during network outages in an open studio. The header shows your account name and avatar, with **Sign out** in the profile menu; signing out saves pending local edits and returns to the welcome screen.
 
 ## Deployment
 

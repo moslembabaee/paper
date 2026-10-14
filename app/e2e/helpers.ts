@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test'
+import { mockStudioSession } from './studio-session'
 
 /**
  * Utility helpers for Paper E2E tests.
@@ -14,6 +15,7 @@ export interface CameraTransform {
  * Wait for canvas viewport, grid, rulers, and world elements to be mounted and ready.
  */
 export async function waitForCanvasReady(page: Page, resetStorage = true) {
+  await mockStudioSession(page)
   // Clear any persisted localStorage to guarantee clean seed state
   if (resetStorage) await page.addInitScript(() => {
     localStorage.clear()

@@ -1,3 +1,4 @@
+import { mockStudioSession } from './studio-session'
 import { test, expect } from '@playwright/test'
 import { getViewportTransform, waitForCanvasReady, waitForViewportSettled } from './helpers'
 
@@ -10,6 +11,7 @@ test('invited browsers share edits, live cursors, selection outlines and viewpor
   try {
     await context.addInitScript(() => localStorage.setItem('paper.profile.v1', JSON.stringify({ version: 1, name: 'Mira Chen' })))
     const peer = await context.newPage()
+    await mockStudioSession(peer)
     await peer.goto(invite)
     await expect(peer.getByTestId('canvas-viewport')).toBeVisible()
     await expect(peer.locator('[data-element-id="space"]')).toBeAttached()
