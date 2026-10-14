@@ -14,7 +14,7 @@ def generate_roadmap_markdown(roadmap_data: dict) -> str:
     total = len(tasks)
     completed = [t for t in tasks if t.get("status") == "completed"]
     in_progress = [t for t in tasks if t.get("status") == "in_progress"]
-    pending = [t for t in tasks if t.get("status") in ("pending", "failed")]
+    pending = [t for t in tasks if t.get("status") in ("pending", "failed", "approved")]
     
     pct = int((len(completed) / total * 100)) if total > 0 else 0
     filled_bars = int(pct / 5)

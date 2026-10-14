@@ -5,8 +5,9 @@ import { createProject, parseProject } from '../io/project'
 import type { PaperProject } from '../io/project'
 import { createWorkspace } from '../io/useProjectIO'
 import { SceneStore } from '../scene/store'
-import { activateProject, initializeProjects, localProject, projectSummary, readProject, renameProject, writeProject } from './database'
+import { activateProject, initializeProjects, localProject, projectSummary, readProject, updateLocalProject, writeProject } from './database'
 import type { LocalProject, ProjectSummary } from './types'
+import { canonical } from '../cloud/model'
 import { roomFromHash } from '../collaboration/room'
 
 interface EditorWorkspace {
@@ -77,12 +78,16 @@ export function useWorkspace() {
 
   const save = useCallback(async (id: string, document: PaperProject) => {
     if (!persistent) throw new Error('Local storage is unavailable. Save a JSON copy before closing Paper.')
-    const previous = records.current.get(id)
-    if (!previous) throw new Error('The open project could not be found.')
-    const record = { ...previous, document, name: document.name, updatedAt: Date.now() }
-    await writeProject(record)
+    let changed = false
+    const record = await updateLocalProject(id, previous => {
+      if (!previous) throw new Error('The open project could not be found.')
+      changed = canonical(previous.document) !== canonical(document)
+      if (!changed) return previous
+      return { ...previous, document, name: document.name, updatedAt: Date.now(), ...(previous.cloud ? { cloud: { ...previous.cloud, dirty: true } } : {}) }
+    })
+    if (!record) return
     records.current.set(id, record)
-    updateSummary(projectSummary(record))
+    if (changed) updateSummary(projectSummary(record))
   }, [persistent, updateSummary])
 
   const open = useCallback(async (id: string) => {
@@ -93,9 +98,10 @@ export function useWorkspace() {
     setActive(workspace)
   }, [])
 
-  const create = useCallback(async (name: string, grid: boolean) => {
+  const create = useCallback(async (name: string, grid: boolean, cloudOwner?: string) => {
     const document = createProject(new SceneStore(), name, { x: 0, y: 0, zoom: 1 }, grid)
     const record = localProject(document)
+    if (cloudOwner) record.cloud = { owner: cloudOwner, projectId: record.id, revision: null, syncedAt: 0, dirty: true }
     await writeProject(record, true)
     records.current.set(record.id, record)
     updateSummary(projectSummary(record))
@@ -103,8 +109,25 @@ export function useWorkspace() {
   }, [updateSummary])
 
   const rename = useCallback(async (id: string, name: string) => {
-    updateSummary(await renameProject(id, name))
+    const record = await updateLocalProject(id, previous => {
+      if (!previous) throw new Error('This project could not be found.')
+      return { ...previous, name, updatedAt: Date.now(), document: { ...previous.document, name }, ...(previous.cloud ? { cloud: { ...previous.cloud, dirty: true } } : {}) }
+    })
+    if (!record) return
+    records.current.set(id, record)
+    updateSummary(projectSummary(record))
   }, [updateSummary])
 
-  return { active, projects, persistent, error, save, open, create, rename }
+  const acceptCloud = useCallback(async (record: LocalProject, expected?: PaperProject) => {
+    const accepted = await updateLocalProject(record.id, previous => {
+      if (expected && previous && canonical(previous.document) !== canonical(expected)) return undefined
+      return record
+    })
+    if (!accepted) return false
+    records.current.set(record.id, accepted)
+    updateSummary(projectSummary(accepted))
+    return true
+  }, [updateSummary])
+
+  return { active, projects, persistent, error, save, open, create, rename, acceptCloud }
 }

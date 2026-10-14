@@ -9,18 +9,39 @@ services:
     restart: unless-stopped
     ports:
       - "${PORT:-3000}:80"
-    volumes:
-      # Persist user projects and canvas state on the host
-      - paper_projects:/data/projects
-    environment:
-      - NODE_ENV=production
+    depends_on:
+      paper-api:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 30s
       timeout: 5s
       start_period: 10s
       retries: 3
-
+  paper-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    image: paper-api:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PAPER_DATA_DIR: /data
+      PAPER_PUBLIC_URL: ${PAPER_PUBLIC_URL:-http://localhost:3000}
+      PAPER_SESSION_SECRET: ${PAPER_SESSION_SECRET:-30ce48371867cc169955c3ec7c69ab8501407bbcf77b0e46f20f13861496d983}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+    volumes:
+      - paper_projects:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/healthz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
 volumes:
   paper_projects:
     driver: local

@@ -7,13 +7,16 @@
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "test:e2e": "playwright test",
     "dev": "vite",
-    "build": "tsc -b && vite build && npm run build:mcp",
+    "build": "tsc -b && vite build && npm run build:mcp && npm run build:server",
     "build:mcp": "tsc -p tsconfig.mcp.json",
     "mcp": "node ../mcp-server/bin/paper-mcp.mjs",
     "test:mcp": "npm --prefix ../mcp-server test",
     "lint": "oxlint",
     "preview": "vite preview",
-    "bridge": "node ../mcp-server/dist/mcp/bridge-cli.js"
+    "bridge": "node ../mcp-server/dist/mcp/bridge-cli.js",
+    "build:server": "tsc -p tsconfig.server.json",
+    "test:cloud": "npm run build:server && node --test server/tests/*.test.mjs",
+    "dev:server": "node server/dist/server/index.js"
   },
   "dependencies": {
     "@paper-design/shaders-react": "^0.0.81",

@@ -1,4 +1,4 @@
-export const taskStatuses = ['in_progress', 'pending', 'failed', 'completed'] as const
+export const taskStatuses = ['in_progress', 'approved', 'pending', 'waiting_approval', 'failed', 'completed'] as const
 export type TaskStatus = typeof taskStatuses[number]
 export type RoadmapFilter = 'all' | TaskStatus
 

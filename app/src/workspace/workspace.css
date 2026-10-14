@@ -137,3 +137,16 @@
 }
 @media (max-width: 380px) { .workspace-dialog-footer > span { display: none; } .workspace-dialog-footer { justify-content: flex-end; } }
 @media (prefers-reduced-motion: reduce) { .account-menu, .profile-dialog, .projects-dialog { animation: none; } .workspace-primary, .workspace-secondary { transition: none; } }
+
+.cloud-signin { display: flex; flex-wrap: wrap; gap: 8px; }
+.cloud-signin a { text-decoration: none; color: var(--workspace-ink); }
+.google-mark { font-weight: 650; color: var(--workspace-blue); font-size: 14px; }
+.cloud-identity { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.cloud-identity img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; }
+.cloud-identity > div { flex: 1; min-width: 0; }
+.cloud-identity strong { display: block; font-size: 12px; font-weight: 500; }
+.cloud-identity span { display: block; margin-top: 5px; color: var(--workspace-muted); font-size: 10px; overflow-wrap: anywhere; }
+.cloud-account code { color: var(--workspace-blue); font: 10px var(--font-mono); overflow-wrap: anywhere; }
+.cloud-status { display: inline-flex; align-items: center; gap: 5px; color: var(--paper-muted); font: 9px var(--font-mono); white-space: nowrap; }
+.cloud-status[data-saved='true'] { color: var(--paper-blue, #81adec); }
+@media (max-width: 900px) { .cloud-status { display: none; } }

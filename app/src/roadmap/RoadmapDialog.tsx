@@ -7,7 +7,7 @@ import { useRoadmap } from './useRoadmap'
 import './roadmap.css'
 
 const statusLabels: Record<TaskStatus, string> = {
-  in_progress: 'In progress', pending: 'Upcoming', failed: 'Needs attention', completed: 'Completed',
+  in_progress: 'In progress', approved: 'Approved', pending: 'Upcoming', waiting_approval: 'Awaiting approval', failed: 'Needs attention', completed: 'Completed',
 }
 const filters: { id: RoadmapFilter; label: string }[] = [
   { id: 'all', label: 'All tasks' },

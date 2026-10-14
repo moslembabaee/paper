@@ -12,6 +12,7 @@ export function useLiveBridge(options: Omit<LiveCanvasOptions, 'onActivity'>) {
   const [activity, setActivity] = useState<AgentActivity | null>(null)
   const [connected, setConnected] = useState(false)
   useEffect(() => {
+    if (!import.meta.env.DEV && !import.meta.env.VITE_PAPER_BRIDGE_URL) return
     const canvas = new LiveCanvas({ ...values.current, projectId, store, getProject: () => values.current.getProject(), onSettings: project => values.current.onSettings(project), onActivity: setActivity })
     live.current = canvas
     canvas.start()

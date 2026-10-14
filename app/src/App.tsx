@@ -16,6 +16,10 @@ import { ProfileMenu } from './workspace/ProfileMenu'
 import { ProjectSwitcher } from './workspace/ProjectSwitcher'
 import { readProfile } from './workspace/profile'
 import type { UserProfile } from './workspace/types'
+import { useCloudAccount } from './cloud/useCloudAccount'
+import { useCloudSync } from './cloud/useCloudSync'
+import { MigrationDialog } from './cloud/CloudAccount'
+import type { CloudAccountState } from './cloud/CloudAccount'
 import { useWorkspace } from './workspace/useWorkspace'
 import { RoadmapDialog } from './roadmap/RoadmapDialog'
 import { useLiveBridge } from './mcp/useLiveBridge'
@@ -48,14 +52,16 @@ function PaperMark() {
 
 export default function App() {
   const manager = useWorkspace()
+  const account = useCloudAccount()
   const [profile, setProfile] = useState(readProfile)
   if (!manager.active) return <div className="workspace-loading" role="status"><PaperMark /><span>Opening your workspace…</span></div>
-  return <Editor key={manager.active.record.id} workspace={manager.active} manager={manager} profile={profile} onProfileSave={setProfile} />
+  return <Editor key={manager.active.record.id} workspace={manager.active} manager={manager} account={account} profile={profile} onProfileSave={setProfile} />
 }
 
-function Editor({ workspace, manager, profile, onProfileSave }: {
+function Editor({ workspace, manager, profile, onProfileSave, account }: {
   workspace: NonNullable<ReturnType<typeof useWorkspace>['active']>
   manager: ReturnType<typeof useWorkspace>
+  account: CloudAccountState
   profile: UserProfile
   onProfileSave: (profile: UserProfile) => void
 }) {
@@ -77,6 +83,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
   const onPersist = useCallback((project: Parameters<typeof saveLocalProject>[1]) => saveLocalProject(workspace.record.id, project), [saveLocalProject, workspace.record.id])
   const io = useProjectIO({ store, controller, name, grid, onPersist, initialMessage: manager.error, onOpen: project => { setName(project.name); setGrid(project.grid) }, onImport: () => setTool('select') })
 
+  const cloud = useCloudSync(manager, io, account.user, remote => { setName(remote.document.name); setGrid(remote.document.grid) })
   const bridge = useLiveBridge({ projectId: workspace.record.id, store, documentSync: false, getProject: io.getProject, onSettings: project => { setName(project.name); setGrid(project.grid) } })
   const collaboration = useCollaboration(workspace.record.id, store, controller, profile.name)
   const comments = useComments(workspace.record.id, store, controller, profile.name)
@@ -160,9 +167,10 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
   return <div className="paper-app">
     <header className="app-header">
       <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span></div>
-      <ProjectSwitcher name={name} activeId={workspace.record.id} projects={manager.projects.map(project => project.id === workspace.record.id ? { ...project, name: name.trim() || 'Untitled' } : project)} workspaceName={profile.workspaceName} persistent={manager.persistent} disabled={changing || io.importing} open={projectsOpen} onToggle={setProjectsOpen} onNameChange={setName} onSwitch={id => changeProject(() => manager.open(id))} onCreate={next => changeProject(() => manager.create(next, profile.defaultGrid))} onRename={renameProject} />
-      <div className="header-end">{collaboration && <PresenceBar session={collaboration} />}<span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!bridge.activity} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : 'MCP offline'}</span><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => { setDevMode(!devMode); setPrototypeMode(false); setTool('select') }}><Code2 size={14} /><span>Dev</span></button><button className={`prototype-mode-toggle ${prototypeMode ? 'active' : ''}`} data-testid="prototype-mode-toggle" aria-label="Toggle prototype mode" aria-pressed={prototypeMode} onClick={() => { setPrototypeMode(!prototypeMode); comments.setOpen(false); setTool('select'); setDevMode(false); setInteractionId(null) }}><GitBranch size={14} /><span>Prototype</span></button><button className="prototype-present-button" aria-label="Present prototype" title="Present prototype" onClick={() => setPresenting(true)}><Play size={14} fill="currentColor" /></button><ProfileMenu profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
+      <ProjectSwitcher name={name} activeId={workspace.record.id} projects={manager.projects.map(project => project.id === workspace.record.id ? { ...project, name: name.trim() || 'Untitled' } : project)} workspaceName={profile.workspaceName} persistent={manager.persistent} disabled={changing || io.importing} open={projectsOpen} onToggle={setProjectsOpen} onNameChange={setName} onSwitch={id => changeProject(() => manager.open(id))} onCreate={next => changeProject(() => manager.create(next, profile.defaultGrid, account.user?.id))} onRename={renameProject} />
+      <div className="header-end">{account.user && <span className="cloud-status" role="status" data-saved={cloud.status === 'Saved to cloud'} title={cloud.error || 'Your private cloud workspace'}>{cloud.status}</span>}{collaboration && <PresenceBar session={collaboration} />}<span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!(bridge.activity || cloud.activity)} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity || cloud.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : account.user?.hasMcpToken && cloud.status === 'Saved to cloud' ? 'MCP ready' : 'MCP offline'}</span><ThemeSwitcher /><span className="local-status" role="status"><i />{io.status}</span><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => { setDevMode(!devMode); setPrototypeMode(false); setTool('select') }}><Code2 size={14} /><span>Dev</span></button><button className={`prototype-mode-toggle ${prototypeMode ? 'active' : ''}`} data-testid="prototype-mode-toggle" aria-label="Toggle prototype mode" aria-pressed={prototypeMode} onClick={() => { setPrototypeMode(!prototypeMode); comments.setOpen(false); setTool('select'); setDevMode(false); setInteractionId(null) }}><GitBranch size={14} /><span>Prototype</span></button><button className="prototype-present-button" aria-label="Present prototype" title="Present prototype" onClick={() => setPresenting(true)}><Play size={14} fill="currentColor" /></button><ProfileMenu account={account} sync={cloud} profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
     </header>
+    {cloud.migrationOpen && <MigrationDialog sync={cloud} />}
     <div className="editor-layout" inert={changing}>
       {layersVisible && <DocumentSidebar store={store} controller={controller} onHide={() => setLayersVisible(false)} />}
       <main className="canvas-stage">
@@ -179,7 +187,7 @@ function Editor({ workspace, manager, profile, onProfileSave }: {
           <button className={`tool-button comment-tool ${comments.open ? 'active' : ''}`} data-testid="tool-comments" aria-label="Toggle comments" aria-pressed={comments.open} aria-expanded={comments.open} aria-controls={comments.open ? "paper-comments" : undefined} title="Comments · Place a pin with C" onClick={() => comments.open ? closeComments() : comments.setOpen(true)}><MessageSquare size={16} />{!!comments.unread.size && <span className="comment-tool-unread">{comments.unread.size}</span>}</button>
           <HistoryControls store={store} />
         </div>
-        <SceneCanvas commentMode={tool === 'comment'} annotationOverlay={comments.open ? <CommentOverlay store={store} controller={controller} threads={comments.threads} unread={comments.unread} activeId={comments.activeId} draft={comments.draft} placing={tool === 'comment'} onSelect={thread => { setTool('select'); comments.select(thread) }} onPlace={anchor => { comments.setDraft(anchor); comments.setActiveId(null); setTool('select') }} /> : undefined} collaboration={collaboration} prototypeOverlay={prototypeMode ? <ConnectionWires store={store} controller={controller} panMode={tool === 'hand'} selectedId={interactionId} onSelect={setInteractionId} /> : undefined} agentActivity={bridge.activity} store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
+        <SceneCanvas commentMode={tool === 'comment'} annotationOverlay={comments.open ? <CommentOverlay store={store} controller={controller} threads={comments.threads} unread={comments.unread} activeId={comments.activeId} draft={comments.draft} placing={tool === 'comment'} onSelect={thread => { setTool('select'); comments.select(thread) }} onPlace={anchor => { comments.setDraft(anchor); comments.setActiveId(null); setTool('select') }} /> : undefined} collaboration={collaboration} prototypeOverlay={prototypeMode ? <ConnectionWires store={store} controller={controller} panMode={tool === 'hand'} selectedId={interactionId} onSelect={setInteractionId} /> : undefined} agentActivity={cloud.activity || bridge.activity} store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
         {comments.open && <CommentsSidebar comments={comments} store={store} session={collaboration} placing={tool === 'comment'} onNew={startComment} onCancel={cancelComment} onClose={closeComments} />}
         {prototypeMode && <div className="prototype-canvas-status"><GitBranch size={12} /><span>PROTOTYPE</span><span>Select a layer · Drag a connection</span></div>}
       </main>

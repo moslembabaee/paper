@@ -113,3 +113,29 @@ export async function renameProject(id: string, name: string): Promise<ProjectSu
   await done
   return projectSummary(renamed)
 }
+
+export async function listLocalProjects(): Promise<LocalProject[]> {
+  const db = await database()
+  return result(db.transaction('projects').objectStore('projects').getAll() as IDBRequest<LocalProject[]>)
+}
+
+/** Read/modify/write in one IndexedDB transaction, shared with other open tabs. */
+export async function updateLocalProject(id: string, update: (current: LocalProject | undefined) => LocalProject | undefined): Promise<LocalProject | undefined> {
+  const db = await database()
+  const transaction = db.transaction('projects', 'readwrite')
+  const done = completed(transaction)
+  const store = transaction.objectStore('projects')
+  const record = await new Promise<LocalProject | undefined>((resolve, reject) => {
+    const request = store.get(id) as IDBRequest<LocalProject | undefined>
+    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      try {
+        const next = update(request.result)
+        if (next) store.put(next)
+        resolve(next)
+      } catch (error) { transaction.abort(); reject(error) }
+    }
+  })
+  await done
+  return record
+}

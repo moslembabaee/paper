@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": null,
+  "current_task_id": "T-ISSUE-6-1",
   "tasks": [
     {
       "id": "T-ISSUE-6-1",
@@ -10,12 +10,13 @@
       "title": "Issue #6 (Part 1/4): Fastify Backend Storage & Cloud Sync Service",
       "description": "Implement lightweight Fastify/Node backend service under app/server/ with project storage, atomic revision checks, REST endpoints (GET /api/projects, GET /api/projects/:id, PUT /api/projects/:id), and automated unit tests.\n\nParent Issue: #6\nReference: Closes #6",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 6,
       "subtask_index": 1,
-      "total_subtasks": 4
+      "total_subtasks": 4,
+      "completed_at": "2026-10-14T07:22:19.581686"
     },
     {
       "id": "T-ISSUE-6-2",
@@ -23,7 +24,7 @@
       "title": "Issue #6 (Part 2/4): OAuth Authentication & Profile Token Management",
       "description": "Implement Google and GitHub OAuth flow, user profile entity, and UI profile settings dialog to generate, reveal, copy, and rotate secure MCP Auth Tokens with server-side revocation.\n\nParent Issue: #6\nReference: Closes #6",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
+      "status": "approved",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 6,
@@ -36,7 +37,7 @@
       "title": "Issue #6 (Part 3/4): Frontend Local-First Sync Engine with IndexedDB",
       "description": "Implement reactive client sync engine preserving IndexedDB for zero-latency 60fps canvas edits, background syncing upon changes, conflict resolution, offline guest mode fallback, and top navbar sync status indicators.\n\nParent Issue: #6\nReference: Closes #6",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
+      "status": "approved",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 6,
@@ -49,7 +50,7 @@
       "title": "Issue #6 (Part 4/4): Remote Streamable MCP Gateway and Production Packaging",
       "description": "Expose streamable HTTP/SSE remote MCP server at /mcp with Bearer token authentication, scoped workspace isolation to user directories, headless offline project mutation, and updated docker-compose.yml with Caddy/Nginx reverse proxying.\n\nParent Issue: #6\nReference: Closes #6",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
+      "status": "approved",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 6,

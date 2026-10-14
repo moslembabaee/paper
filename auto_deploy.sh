@@ -45,9 +45,9 @@ fi
 if [ "$CURRENT_COMMIT" != "$LAST_DEPLOYED" ]; then
     log "Update detected! Current: $CURRENT_COMMIT, Deployed: ${LAST_DEPLOYED:-none}. Rebuilding Docker image..."
     
-    if docker compose -f "$PROJECT_DIR/docker-compose.yml" build >> "$LOG_FILE" 2>&1; then
-        log "Build succeeded. Deploying updated container..."
-        if docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d --force-recreate >> "$LOG_FILE" 2>&1; then
+    if docker compose -f "$PROJECT_DIR/docker-compose.yml" config --quiet >> "$LOG_FILE" 2>&1 && docker compose -f "$PROJECT_DIR/docker-compose.yml" build >> "$LOG_FILE" 2>&1; then
+        log "Build succeeded. Starting web and cloud services and waiting for health checks..."
+        if docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d --wait --wait-timeout 120 --remove-orphans >> "$LOG_FILE" 2>&1; then
             echo "$CURRENT_COMMIT" > "$DEPLOYED_FILE"
             log "✅ Deployment successful for commit: $CURRENT_COMMIT"
         else

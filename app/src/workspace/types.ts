@@ -9,6 +9,7 @@ export interface ProjectSummary {
 
 export interface LocalProject extends ProjectSummary {
   document: PaperProject
+  cloud?: { owner: string; projectId: string; revision: string | null; syncedAt: number; dirty: boolean }
 }
 
 export interface UserProfile {

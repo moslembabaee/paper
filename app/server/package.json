@@ -1,0 +1,4 @@
+{
+  "name": "paper-cloud", "private": true, "type": "module",
+  "dependencies": { "fastify": "^5.6.1" }
+}

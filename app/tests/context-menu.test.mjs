@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { SceneStore } from '../src/scene/store.ts'
-import { getWorldBounds } from '../src/scene/geometry.ts'
 import { deleteSelection, duplicateSelection, orderSelection } from '../src/scene/arrange.ts'
 import { measurementHit } from '../src/scene/measurementGeometry.ts'
 
