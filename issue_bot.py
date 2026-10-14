@@ -10,6 +10,7 @@ Autonomous GitHub Issue Bot for Paper
 import os
 import sys
 import json
+import re
 import shlex
 import subprocess
 from datetime import datetime
@@ -103,6 +104,59 @@ Format your response as a professional GitHub markdown comment. Start directly w
     has_conflict = "conflict" in analysis_text.lower() or "contradict" in analysis_text.lower()
     return has_conflict, analysis_text
 
+def decompose_issue_into_subtasks(issue: dict) -> list[dict]:
+    body = issue.get("body", "")
+    title = issue.get("title", "")
+    has_subsections = ("####" in body) or (body.count("###") >= 3) or ("1." in body and "2." in body and "3." in body)
+    if len(body) < 500 and not has_subsections:
+        return [{
+            "title": title,
+            "description": body
+        }]
+    
+    prompt = f"""You are the Lead Systems Architect for 'Paper' (React, Vite, TypeScript, Canvas design tool).
+A GitHub Issue has been approved for development:
+Title: {title}
+Description:
+{body}
+
+This issue is large or multi-faceted. Decompose it into 2 to 4 small, focused, verifiable, sequential sub-tasks.
+Each sub-task must be focused on a single responsibility (e.g. backend service, frontend UI, protocol integration, testing/build) that an AI agent can execute in under 15-20 turns and verify with 'cd /root/projects/paper/app && npm run build'.
+
+Output ONLY a valid JSON array of objects with keys "title" and "description" (no markdown backticks, no other text):
+[
+  {{
+    "title": "Short descriptive title of sub-task",
+    "description": "Specific requirements and acceptance criteria for this sub-task"
+  }}
+]"""
+
+    cmd = f'claude -p {shlex.quote(prompt)} --max-turns 2'
+    code, out = run_cmd(cmd, timeout=120)
+    if code != 0 or not out.strip():
+        cmd = f'codex exec --sandbox workspace-write {shlex.quote(prompt)}'
+        code, out = run_cmd(cmd, timeout=120)
+    
+    try:
+        raw = out.strip()
+        if "```json" in raw:
+            raw = raw.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "```" in raw:
+            raw = raw.split("```", 1)[1].split("```", 1)[0].strip()
+        
+        match = re.search(r'\[\s*\{.*\}\s*\]', raw, re.DOTALL)
+        if match:
+            subtasks = json.loads(match.group(0))
+            if isinstance(subtasks, list) and len(subtasks) > 0:
+                return subtasks
+    except Exception as e:
+        log(f"Failed to decompose issue with AI ({e}). Falling back to single task.")
+        
+    return [{
+        "title": title,
+        "description": body
+    }]
+
 def process_issues():
     maintainers_cfg = load_maintainers()
     authorized_users = [u.lower() for u in maintainers_cfg.get("authorized_approvers", ["moslembabaee"])]
@@ -128,13 +182,19 @@ def process_issues():
         
         # Check if already completed in roadmap
         task_id = f"T-ISSUE-{num}"
-        existing_task = next((t for t in roadmap["tasks"] if t["id"] == task_id), None)
+        matching_tasks = [
+            t for t in roadmap["tasks"]
+            if t.get("github_issue_number") == num
+            or t.get("id") == task_id
+            or t.get("id", "").startswith(f"T-ISSUE-{num}-")
+        ]
         
-        if existing_task and existing_task.get("status") == "completed":
-            log(f"Issue #{num} task {task_id} is completed! Closing GitHub issue...")
+        if matching_tasks and all(t.get("status") == "completed" for t in matching_tasks):
+            log(f"Issue #{num} (all {len(matching_tasks)} task(s)) is completed! Closing GitHub issue...")
             close_comment = f"✅ **Implemented & Verified!**\n\nThe Tri-Agent Orchestra has completed and verified the implementation of Issue #{num}. Changes are committed to `main`.\n\nThank you for contributing to Paper!"
             run_cmd(f'gh issue comment {num} --repo {REPO} -b {shlex.quote(close_comment)}')
             run_cmd(f'gh issue close {num} --repo {REPO}')
+            run_cmd(f'gh issue edit {num} --repo {REPO} --remove-label "in-progress,blocked"')
             continue
             
         # Check approval status
@@ -190,42 +250,73 @@ def process_issues():
             
         # 2. Approved issue ready for implementation
         if is_approved:
-            # Check if this issue is already in roadmap (either as T-ISSUE-X or by github_issue_number)
-            matched_task = None
-            for t in roadmap["tasks"]:
-                if t.get("id") == task_id or t.get("github_issue_number") == num:
-                    matched_task = t
-                    break
-                    
-            if matched_task:
-                if matched_task.get("status") in ("waiting_approval", "pending_approval", "pending"):
-                    matched_task["status"] = "approved"
-                    roadmap_modified = True
-                    log(f"Issue #{num} task {matched_task['id']} is now APPROVED by maintainer!")
-                    if "in-progress" not in labels:
-                        run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress"')
-            elif not existing_task:
-                log(f"Issue #{num} is APPROVED. Adding to active ROADMAP...")
-                new_task = {
-                    "id": task_id,
-                    "phase": "Community & Issues",
-                    "title": f"Issue #{num}: {title}",
-                    "description": issue.get("body", "") + f"\n\nReference: Closes #{num}",
-                    "assigned_agent": "codex",
-                    "status": "approved",
-                    "retry_count": 0,
-                    "verification_cmd": "cd /root/projects/paper/app && npm run build",
-                    "github_issue_number": num
-                }
-                # Put approved issue task next in queue
-                roadmap["tasks"].insert(0, new_task)
-                roadmap_modified = True
-                
+            if matching_tasks:
+                reactivated = False
+                for t in matching_tasks:
+                    if t.get("status") in ("waiting_approval", "pending_approval", "pending", "failed"):
+                        t["status"] = "approved"
+                        t["retry_count"] = 0
+                        roadmap_modified = True
+                        reactivated = True
+                        log(f"Issue #{num} task {t['id']} is now APPROVED/RE-APPROVED by maintainer!")
+                if "blocked" in labels:
+                    run_cmd(f'gh issue edit {num} --repo {REPO} --remove-label "blocked"')
                 if "in-progress" not in labels:
+                    run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress"')
+            else:
+                log(f"Issue #{num} is APPROVED. Analyzing complexity and decomposing into sub-tasks...")
+                subtasks = decompose_issue_into_subtasks(issue)
+                if len(subtasks) > 1:
+                    log(f"Issue #{num} decomposed into {len(subtasks)} modular sub-tasks.")
+                    new_tasks = []
+                    for idx, sub in enumerate(subtasks):
+                        sub_id = f"T-ISSUE-{num}-{idx+1}"
+                        new_tasks.append({
+                            "id": sub_id,
+                            "phase": "Community & Issues",
+                            "title": f"Issue #{num} (Part {idx+1}/{len(subtasks)}): {sub['title']}",
+                            "description": f"{sub['description']}\n\nParent Issue: #{num}\nReference: Closes #{num}",
+                            "assigned_agent": "claude",
+                            "status": "approved",
+                            "retry_count": 0,
+                            "verification_cmd": "cd /root/projects/paper/app && npm run build",
+                            "github_issue_number": num,
+                            "subtask_index": idx + 1,
+                            "total_subtasks": len(subtasks)
+                        })
+                    for t in reversed(new_tasks):
+                        roadmap["tasks"].insert(0, t)
+                    roadmap_modified = True
+                    
+                    subtask_list_md = "\n".join([f"{i+1}. **Part {i+1}/{len(subtasks)}:** `{s['title']}` (`T-ISSUE-{num}-{i+1}`)" for i, s in enumerate(subtasks)])
+                    ack_msg = f"""🚀 **Scheduled for Autonomous Development!**
+
+To ensure reliable execution and avoid session turn limits, this issue has been decomposed into **{len(subtasks)} modular sub-tasks**:
+
+{subtask_list_md}
+
+The Tri-Agent Orchestra is beginning execution on **Part 1**..."""
+                    run_cmd(f'gh issue comment {num} --repo {REPO} -b {shlex.quote(ack_msg)}')
+                    run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress" --remove-label "blocked"')
+                else:
+                    new_task = {
+                        "id": task_id,
+                        "phase": "Community & Issues",
+                        "title": f"Issue #{num}: {title}",
+                        "description": issue.get("body", "") + f"\n\nReference: Closes #{num}",
+                        "assigned_agent": "claude",
+                        "status": "approved",
+                        "retry_count": 0,
+                        "verification_cmd": "cd /root/projects/paper/app && npm run build",
+                        "github_issue_number": num
+                    }
+                    roadmap["tasks"].insert(0, new_task)
+                    roadmap_modified = True
+                    
                     ack_msg = f"🚀 **Scheduled for Autonomous Development!**\n\nThis issue has been authorized and queued into the Tri-Agent Orchestra as `{task_id}`. Implementation is starting..."
                     run_cmd(f'gh issue comment {num} --repo {REPO} -b {shlex.quote(ack_msg)}')
-                    run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress"')
-                log(f"Issue #{num} dispatched into ROADMAP as task {task_id}.")
+                    run_cmd(f'gh issue edit {num} --repo {REPO} --add-label "in-progress" --remove-label "blocked"')
+                log(f"Issue #{num} dispatched into ROADMAP.")
             
     if roadmap_modified:
         save_roadmap(roadmap)

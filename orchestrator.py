@@ -80,19 +80,19 @@ def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple
     log(f"Dispatching task to agent [{agent.upper()}] (retry={is_retry})...")
     
     if agent == "claude":
-        # Run Claude Code in non-interactive print mode with generous turns and model window override
-        cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 50'
-        return run_cmd(cmd, timeout=1200)
+        # Run Claude Code in non-interactive print mode (clamped to 25 turns for decomposed sub-tasks)
+        cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 25'
+        return run_cmd(cmd, timeout=600)
         
     elif agent == "codex":
         # Run OpenAI Codex non-interactively in workspace-write sandbox
         cmd = f'codex exec --sandbox workspace-write -c \'model_reasoning_effort="high"\' {shlex.quote(prompt)}'
-        return run_cmd(cmd, timeout=900)
+        return run_cmd(cmd, timeout=600)
         
     elif agent == "antigravity":
         # Run Antigravity CLI with Gemini 3.8 Flash High
-        cmd = f'agy -p {shlex.quote(prompt)} --model gemini-3.8-flash-high --effort high --dangerously-skip-permissions --print-timeout 15m'
-        return run_cmd(cmd, timeout=900)
+        cmd = f'agy -p {shlex.quote(prompt)} --model gemini-3.8-flash-high --effort high --dangerously-skip-permissions --print-timeout 10m'
+        return run_cmd(cmd, timeout=600)
         
     else:
         return -1, f"Unknown agent: {agent}"
@@ -230,6 +230,9 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                 time.sleep(30)
                 continue
             
+        if not pending_task:
+            continue
+
         task_id = pending_task["id"]
         log(f"\n--- Starting Task: {task_id} - {pending_task['title']} ---")
         pending_task["status"] = "in_progress"
@@ -298,19 +301,55 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
             else:
                 log(f"Warning: Git push returned {p_code}: {p_out}")
                 
-            # Close associated GitHub Issue if applicable
+            # Handle associated GitHub Issue if applicable
             if issue_num:
                 try:
-                    close_comment = f"✅ **Implemented & Verified!**\n\nThe Tri-Agent Orchestra has completed and verified task `{pending_task['id']}` ({pending_task['title']}) in commit `{commit_msg}`.\n\nChanges are deployed and live on `main`."
-                    run_cmd(f'gh issue comment {issue_num} --repo moslembabaee/paper -b {shlex.quote(close_comment)}')
-                    run_cmd(f'gh issue close {issue_num} --repo moslembabaee/paper')
-                    log(f"Closed GitHub Issue #{issue_num} for completed task {pending_task['id']}")
+                    # Check if there are other sibling sub-tasks for this issue that are still not completed
+                    sibling_tasks = [
+                        t for t in roadmap["tasks"]
+                        if (t.get("github_issue_number") == issue_num or t.get("id", "").startswith(f"T-ISSUE-{issue_num}"))
+                        and t.get("id") != pending_task["id"]
+                    ]
+                    incomplete_siblings = [t for t in sibling_tasks if t.get("status") != "completed"]
+                    
+                    if incomplete_siblings:
+                        progress_comment = f"✅ **Sub-task Completed!**\n\nTask `{pending_task['id']}` (**{pending_task['title']}**) has been verified and committed to `main` in `{commit_msg}`.\n\nRemaining sub-tasks for Issue #{issue_num}: {len(incomplete_siblings)} pending."
+                        run_cmd(f'gh issue comment {issue_num} --repo moslembabaee/paper -b {shlex.quote(progress_comment)}')
+                        log(f"Posted sub-task completion progress on Issue #{issue_num}")
+                    else:
+                        close_comment = f"✅ **All Sub-tasks Implemented & Verified!**\n\nThe Tri-Agent Orchestra has completed and verified task `{pending_task['id']}` ({pending_task['title']}) in commit `{commit_msg}`.\n\nAll requirements for Issue #{issue_num} are deployed and live on `main`."
+                        run_cmd(f'gh issue comment {issue_num} --repo moslembabaee/paper -b {shlex.quote(close_comment)}')
+                        run_cmd(f'gh issue close {issue_num} --repo moslembabaee/paper')
+                        run_cmd(f'gh issue edit {issue_num} --repo moslembabaee/paper --remove-label "in-progress,blocked"')
+                        log(f"Closed GitHub Issue #{issue_num} for completed task {pending_task['id']}")
                 except Exception as ex:
-                    log(f"Warning: Failed to close GitHub issue #{issue_num}: {ex}")
+                    log(f"Warning: Failed to update GitHub issue #{issue_num}: {ex}")
         else:
-            log(f"⚠️ Task {task_id} failed across all agents. Pausing for 10s before retry.")
+            log(f"⚠️ Task {task_id} failed across all agents.")
             pending_task["status"] = "failed"
             save_roadmap(roadmap)
+            
+            if issue_num:
+                try:
+                    # Remove in-progress, add blocked label
+                    run_cmd(f'gh issue edit {issue_num} --repo moslembabaee/paper --remove-label "in-progress" --add-label "blocked"')
+                    
+                    err_snippet = (error_output[-500:] if error_output else "Task failed across all agents or timed out.").replace("```", "'''").strip()
+                    blocked_msg = f"""⚠️ **Execution Blocked / Attention Required**
+
+The Tri-Agent Orchestra attempted to implement task `{pending_task['id']}` (**{pending_task['title']}**), but execution was blocked across the failover chain.
+
+- **Attempted Failover Chain:** Claude Code ➔ OpenAI Codex ➔ Google Antigravity
+- **Latest Blocker Output:**
+```text
+{err_snippet}
+```
+- **Status:** The issue has been labeled `blocked` and execution is paused for review.
+- **To Resume:** Resolve the blocker (e.g. rate limit reset or scope adjustment) and reply with `/approve` or re-apply the `approved` label."""
+                    run_cmd(f'gh issue comment {issue_num} --repo moslembabaee/paper -b {shlex.quote(blocked_msg)}')
+                    log(f"Labeled Issue #{issue_num} as 'blocked' and posted notification comment.")
+                except Exception as ex:
+                    log(f"Warning: Failed to mark GitHub issue #{issue_num} as blocked: {ex}")
             time.sleep(10)
             
         time.sleep(5)

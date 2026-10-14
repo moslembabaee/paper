@@ -41,12 +41,17 @@ def mark_task_approved(issue_num: int):
                 task.get("github_issue_number") == issue_num
                 or task_id == f"T-ISSUE-{issue_num}"
             )
-            if is_match and task.get("status") in ("waiting_approval", "pending_approval", "pending"):
+            if is_match and task.get("status") in ("waiting_approval", "pending_approval", "pending", "failed"):
                 task["status"] = "approved"
+                task["retry_count"] = 0
                 modified = True
                 log(f"✅ Task {task_id} marked as APPROVED (matched Issue #{issue_num})")
                 
         if modified:
+            try:
+                subprocess.run(f'gh issue edit {issue_num} --repo moslembabaee/paper --remove-label "blocked"', shell=True)
+            except Exception:
+                pass
             with open(ROADMAP_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             try:
