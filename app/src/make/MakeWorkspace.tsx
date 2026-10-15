@@ -1,7 +1,8 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowLeft, Code2, FileCode2, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
 import { PreviewFrame, type PreviewFrameStatus } from './PreviewFrame'
 import { createMakeWorkspaceStore, formatDiagnostic } from './workspace-model'
+import { PlanInspection } from './PlanInspection'
 import './make.css'
 
 export default function MakeWorkspace({ accountId, onDesign }: { accountId?: string; onDesign: () => void }) {
@@ -9,12 +10,14 @@ export default function MakeWorkspace({ accountId, onDesign }: { accountId?: str
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const [frameStatus, setFrameStatus] = useState<PreviewFrameStatus>('idle')
   const [openingId, setOpeningId] = useState<string | null>(null)
+  const promptInput = useRef<HTMLInputElement>(null)
   useEffect(() => {
     void store.loadProjects()
     void store.loadBudget()
     return () => store.suspend()
   }, [store])
   const busy = state.projectStatus !== 'idle'
+  const planBusy = state.planStatus === 'generating' || state.planStatus === 'approving'
   const running = state.previewStatus === 'ready' && frameStatus === 'ready'
   const loading = state.previewStatus === 'loading' || (state.assets !== null && !running)
   const status = state.previewStatus === 'error' ? 'Error' : running ? 'Running' : loading ? 'Loading' : 'Stopped'
@@ -80,7 +83,61 @@ export default function MakeWorkspace({ accountId, onDesign }: { accountId?: str
         <div className="make-preview-toolbar"><div className="make-preview-label"><span className="make-status-dot" data-status={status} /><span>Preview</span><span className="make-preview-status" data-testid="make-preview-status" role="status">{status}</span></div>
           {state.assets || state.previewStatus === 'loading' ? <button className="make-button" onClick={store.stopPreview}><Square size={12} fill="currentColor" />Stop preview</button> : state.previewStatus !== 'error' ? <button className="make-button make-primary" disabled={busy} onClick={() => { void store.runPreview() }}><Play size={13} fill="currentColor" />Run preview</button> : null}
         </div>
+        <div className="make-prompt-bar" role="region" aria-label="Prompt planner">
+          <form
+            className="make-prompt-form"
+            onSubmit={e => {
+              e.preventDefault()
+              void store.generatePlan()
+            }}
+            aria-label="App plan prompt"
+            aria-busy={planBusy}
+          >
+            <Sparkles size={14} className="make-prompt-icon" />
+            <input
+              type="text"
+              ref={promptInput}
+              className="make-prompt-input"
+              data-testid="make-prompt-input"
+              placeholder="Prompt an app or feature to inspect the plan (files, interactions, risks)…"
+              value={state.planPrompt}
+              onChange={e => store.setPlanPrompt(e.target.value)}
+              aria-label="Prompt for app planning"
+              aria-describedby="make-planning-status"
+              maxLength={64 * 1024}
+              disabled={planBusy || busy}
+            />
+            <button
+              type="submit"
+              className="make-button make-primary make-plan-submit"
+              data-testid="make-plan-submit"
+              disabled={!state.planPrompt.trim() || planBusy || busy}
+              aria-label={state.planStatus === 'generating' ? 'Planning in progress' : 'Generate plan'}
+            >
+              {state.planStatus === 'generating' ? <span className="make-loader-inline" /> : <Sparkles size={13} />}
+              <span>{state.planStatus === 'generating' ? 'Planning…' : 'Plan'}</span>
+            </button>
+            {state.planStatus === 'generating' ? <button type="button" className="make-button" onClick={() => { store.cancelPlanning(); requestAnimationFrame(() => promptInput.current?.focus()) }}>Cancel planning</button> : null}
+          </form>
+          <p id="make-planning-status" className="make-planning-status" role="status">{state.planStatus === 'generating' ? 'Planning your app…' : state.planStatus === 'approving' ? 'Approving plan…' : 'Plan only · Review before making changes.'}</p>
+          {state.planError && !state.currentPlan ? <p className="make-plan-alert" role="alert">{state.planError}</p> : null}
+        </div>
         <div className="make-preview-canvas" aria-busy={loading || state.projectStatus === 'loading'}>
+          {state.currentPlan ? (
+            <PlanInspection
+              key={state.currentPlan.planId}
+              plan={state.currentPlan}
+              currentRevision={active.revision}
+              planStatus={state.planStatus}
+              planError={state.planError}
+              onApprove={() => { void store.approveCurrentPlan().catch(() => {}) }}
+              onRevise={newPrompt => {
+                void store.reviseCurrentPlan(newPrompt)
+              }}
+              onDismiss={() => { store.clearPlan(); promptInput.current?.focus() }}
+              busy={planBusy || busy}
+            />
+          ) : null}
           {state.assets ? <PreviewFrame assets={state.assets} onStatusChange={setFrameStatus} onError={store.reportRuntimeError} /> : null}
           {state.projectStatus === 'loading' || loading ? <div className="make-empty make-loading" role="status"><span className="make-loader" /><h2>{state.projectStatus === 'loading' ? 'Opening app…' : state.assets ? 'Starting preview…' : 'Compiling your app…'}</h2><p>{state.projectStatus === 'loading' ? 'Reading the saved revision.' : 'Preparing an interactive preview.'}</p></div> : null}
           {!state.assets && !loading && state.projectStatus !== 'loading' ? <div className="make-empty">

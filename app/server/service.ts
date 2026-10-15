@@ -9,7 +9,8 @@ import { APP_PROJECT_LIMITS, AppProjectValidationError, generateAppProjectId, pa
 import { compileAppProject, compileSourceFiles } from '../src/make/compiler.ts'
 import { ServerModelGateway, type ModelGatewayConfig } from './model-gateway.ts'
 import { MODEL_GATEWAY_LIMITS } from '../src/make/model-protocol.ts'
-import type { ModelRequest } from '../src/make/types.ts'
+import type { AppPlan, AppPlanApprovalRequest, AppPlanRequest, ModelRequest } from '../src/make/types.ts'
+import { formatPlanPrompt, parseModelPlanResponse, validateAppPlan, approvePlan, isPlanStale, PlanValidationError } from '../src/make/plan.ts'
 
 export interface ServiceConfig {
   root: string
@@ -94,6 +95,22 @@ export async function createService(config: ServiceConfig) {
     ? config.modelGateway
     : new ServerModelGateway({ fetch: requestFetch, ...config.modelGateway })
   await modelGateway.initialize(config.root)
+  // Approval is bound to the exact server-issued plan. Expiry/restart requires replanning.
+  const pendingPlans = new Map<string, { userId: string; plan: AppPlan; expiresAt: number }>()
+  function rememberPlan(userId: string, plan: AppPlan) {
+    for (const [id, item] of pendingPlans) {
+      if (item.expiresAt < Date.now() || (item.userId === userId && item.plan.appId === plan.appId)) pendingPlans.delete(id)
+    }
+    while (pendingPlans.size >= 1000) pendingPlans.delete(pendingPlans.keys().next().value!)
+    pendingPlans.set(plan.planId, { userId, plan, expiresAt: Date.now() + 30 * 60_000 })
+  }
+  function parsePlan(content: string, options: { prompt: string; appId?: string; baseRevision: number }) {
+    try { return parseModelPlanResponse(content, options) }
+    catch (error) {
+      if (error instanceof PlanValidationError) throw httpError(502, `Invalid model plan: ${error.message}`)
+      throw error
+    }
+  }
   async function generate(req: IncomingMessage, res: ServerResponse, userId: string, request: ModelRequest) {
     const controller = new AbortController()
     const onDisconnect = () => { if (!res.writableEnded) controller.abort() }
@@ -345,6 +362,25 @@ export async function createService(config: ServiceConfig) {
         return
       }
 
+      if (path === '/api/model/plan' && req.method === 'POST') {
+        const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as AppPlanRequest
+        if (!input || typeof input !== 'object' || Array.isArray(input)) throw httpError(400, 'Expected request object')
+        if (typeof input.prompt !== 'string' || !input.prompt.trim()) throw httpError(400, 'Prompt is required')
+        const project = input.project === undefined ? undefined : validateAppProject(input.project)
+        const { systemPrompt, userPrompt } = formatPlanPrompt(input.prompt, project)
+        const turn = await generate(req, res, user.id, {
+          prompt: userPrompt,
+          systemPrompt,
+          context: { mode: 'plan' },
+        })
+        const plan = parsePlan(turn.content, {
+          prompt: input.prompt,
+          baseRevision: 0,
+        })
+        json(res, 200, { plan, turnId: turn.turnId, usage: turn.usage, budget: turn.budget })
+        return
+      }
+
       if (path === '/api/model/budget' && req.method === 'GET') {
         json(res, 200, { budget: modelGateway.getBudget(user.id) })
         return
@@ -373,6 +409,73 @@ export async function createService(config: ServiceConfig) {
           const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as ModelRequest
           const result = await generate(req, res, user.id, { ...input, appId: id })
           json(res, 200, result)
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      const appPlanRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/plan$/)
+      if (appPlanRoute) {
+        if (req.method === 'POST') {
+          const id = safeId(decodeAppPath(appPlanRoute[2]), 'app ID')
+          const record = await storage.apps.read(user.id, id)
+          if (!record) throw httpError(404, 'App project not found')
+          const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as AppPlanRequest
+          if (!input || typeof input !== 'object' || Array.isArray(input)) throw httpError(400, 'Expected request object')
+          if (typeof input.prompt !== 'string' || !input.prompt.trim()) throw httpError(400, 'Prompt is required')
+          if (input.expectedRevision !== undefined && input.expectedRevision !== record.revision) {
+            throw Object.assign(httpError(409, 'Revision mismatch'), { current: record.revision })
+          }
+          const { systemPrompt, userPrompt } = formatPlanPrompt(input.prompt, record)
+          const turn = await generate(req, res, user.id, {
+            prompt: userPrompt,
+            systemPrompt,
+            appId: id,
+            expectedRevision: record.revision,
+            context: { mode: 'plan' },
+          })
+          const plan = parsePlan(turn.content, {
+            prompt: input.prompt,
+            appId: id,
+            baseRevision: record.revision,
+          })
+          rememberPlan(user.id, plan)
+          json(res, 200, { plan, turnId: turn.turnId, usage: turn.usage, budget: turn.budget })
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      const appPlanApproveRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/plan\/approve$/)
+      if (appPlanApproveRoute) {
+        if (req.method === 'POST') {
+          const id = safeId(decodeAppPath(appPlanApproveRoute[2]), 'app ID')
+          const record = await storage.apps.read(user.id, id)
+          if (!record) throw httpError(404, 'App project not found')
+          const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as AppPlanApprovalRequest
+          if (!input || typeof input !== 'object' || !input.plan) throw httpError(400, 'Expected plan approval object')
+          let plan: AppPlan
+          try {
+            plan = validateAppPlan(input.plan)
+          } catch (err) {
+            throw httpError(400, `Malformed plan: ${(err as Error).message}`)
+          }
+          if (plan.appId !== id) {
+            throw httpError(400, 'Plan app ID does not match URL')
+          }
+          const issued = pendingPlans.get(plan.planId)
+          if (!issued || issued.userId !== user.id || issued.expiresAt < Date.now() || JSON.stringify(issued.plan) !== JSON.stringify(plan)) {
+            throw httpError(409, 'Plan is expired, superseded or changed. Generate a new plan before approval.')
+          }
+          if (isPlanStale(plan, record.revision) || (input.expectedRevision !== undefined && input.expectedRevision !== record.revision)) {
+            throw Object.assign(httpError(409, 'Stale plan approval: app revision has changed'), {
+              currentRevision: record.revision,
+              planRevision: plan.baseRevision,
+            })
+          }
+          const approved = approvePlan(plan, record.revision)
+          pendingPlans.delete(plan.planId)
+          json(res, 200, { ok: true, plan: approved, approvedAt: approved.approvedAt })
           return
         }
         throw httpError(405, 'Method not allowed')

@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-24",
+  "current_task_id": "T-ISSUE-25",
   "tasks": [
     {
       "id": "T-ISSUE-17",
@@ -746,7 +746,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 24,
-      "completed_at": "2026-10-15T04:11:16.414279"
+      "completed_at": "2026-10-15T04:11:16.414279",
+      "closed_at": "2026-10-15T04:11:20Z"
     },
     {
       "id": "T-ISSUE-25",
@@ -754,10 +755,11 @@
       "title": "Issue #25: feat(make 08): Prompt planning mode and approval UI",
       "description": "Scope: Turn a user prompt into a concise, inspectable app plan (files, interactions, risks) without writing artifacts; allow user to approve or revise the plan.\nAcceptance: Plan-only leaves revision and files unchanged; reject malformed plan and stale approval; accessible prompt/approval states tested.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 25
+      "github_issue_number": 25,
+      "completed_at": "2026-10-15T04:51:37.448786"
     },
     {
       "id": "T-ISSUE-26",

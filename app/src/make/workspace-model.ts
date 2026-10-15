@@ -1,8 +1,9 @@
-import type { AppProject, AppProjectSummary, ModelBudget } from './types.ts'
-import { api } from '../cloud/api.ts'
+import type { AppPlan, AppProject, AppProjectSummary, ModelBudget } from './types.ts'
+import { api, ApiError } from '../cloud/api.ts'
 import { createAppProject } from './manifest.ts'
 import type { CompileDiagnostic, CompilePreviewAssets, CompileResult } from './compiler.ts'
-import { fetchModelBudget } from './model-gateway.ts'
+import { fetchModelBudget, requestModelPlan, approveModelPlan } from './model-gateway.ts'
+import { approvePlan, isPlanStale, StalePlanApprovalError, validateAppPlan, PlanValidationError } from './plan.ts'
 
 export interface ActionableDiagnostic {
   readonly title: string
@@ -407,6 +408,11 @@ export interface MakeWorkspaceState {
   previewTheme: PreviewTheme
   selectedDiagnosticIndex: number | null
   budget: ModelBudget | null
+  planMode: 'idle' | 'planning' | 'inspecting' | 'revising'
+  currentPlan: AppPlan | null
+  planPrompt: string
+  planError: string
+  planStatus: 'idle' | 'generating' | 'approving' | 'approved' | 'stale'
 }
 
 export interface MakeRepository {
@@ -432,6 +438,7 @@ export interface MakeWorkspaceStoreOptions {
   accountId?: string
   repository?: MakeRepository
   compiler?: (project: AppProject) => Promise<CompileResult>
+  planner?: (prompt: string, project: AppProject) => Promise<AppPlan>
 }
 
 export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}) {
@@ -450,13 +457,29 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     previewTheme: { mode: 'dark', background: '#080808', foreground: '#edebe1', accent: '#81adec', grid: '#222222' },
     selectedDiagnosticIndex: null,
     budget: null,
+    planMode: 'idle',
+    currentPlan: null,
+    planPrompt: '',
+    planError: '',
+    planStatus: 'idle',
   }
   const listeners = new Set<() => void>()
-  let previewGeneration = 0, projectGeneration = 0, listGeneration = 0
+  let previewGeneration = 0, projectGeneration = 0, listGeneration = 0, planGeneration = 0
   let previewRequest: AbortController | undefined
   let projectRequest: AbortController | undefined
   let listRequest: AbortController | undefined
   let budgetRequest: AbortController | undefined
+  let planRequest: AbortController | undefined
+  let planSource: string | null = null
+  const sourceKey = (project: AppProject) => JSON.stringify(project)
+  function cancelPlan() {
+    planGeneration++
+    planRequest?.abort()
+  }
+  function invalidatePlan() {
+    cancelPlan()
+    setState({ planStatus: state.currentPlan ? 'stale' : 'idle', planError: state.currentPlan ? 'Stale plan approval: the app has changed. Generate a new plan.' : '' })
+  }
   const message = (error: unknown) => error instanceof Error ? error.message : 'Request failed. Please try again.'
   function setState(patch: Partial<MakeWorkspaceState>) {
     state = { ...state, ...patch }
@@ -474,10 +497,18 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
   function selectProject(project: AppProject) {
     cancelProject()
     stopPreview()
+    cancelPlan()
+    const switched = project.id !== state.activeProject.id
+    const stale = !switched && state.currentPlan && sourceKey(project) !== planSource
     setState({
       projects: [project, ...state.projects.filter(item => item.id !== project.id)],
       activeProject: project, activeFilePath: project.preview.entryPoint,
       projectStatus: 'idle', projectError: '',
+      currentPlan: switched ? null : state.currentPlan,
+      planStatus: stale ? 'stale' : state.currentPlan && !switched && state.currentPlan.status === 'approved' ? 'approved' : 'idle',
+      planError: stale ? 'Stale plan approval: the app has changed. Generate a new plan.' : '',
+      planMode: switched ? 'idle' : state.planMode,
+      planPrompt: switched ? '' : state.planPrompt,
     })
   }
   const store = {
@@ -502,6 +533,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     },
     async openSavedProject(id: string) {
       cancelProject()
+      invalidatePlan()
       stopPreview()
       const generation = projectGeneration
       projectRequest = new AbortController()
@@ -535,11 +567,13 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       return project
     },
     renameActiveProject: (name: string) => {
+      invalidatePlan()
       stopPreview()
       const updated = { ...state.activeProject, name, updatedAt: new Date().toISOString() }
       setState({ projects: state.projects.map(project => project.id === updated.id ? updated : project), activeProject: updated })
     },
     updateActiveFile: (path: string, content: string) => {
+      invalidatePlan()
       stopPreview()
       const updated = { ...state.activeProject, files: { ...state.activeProject.files, [path]: { path, content } }, updatedAt: new Date().toISOString() }
       setState({ projects: state.projects.map(project => project.id === updated.id ? updated : project), activeProject: updated })
@@ -584,15 +618,130 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       }
     },
     setBudget: (budget: ModelBudget | null) => setState({ budget }),
+    setPlanPrompt: (prompt: string) => setState({ planPrompt: prompt }),
+    setPlanMode: (planMode: 'idle' | 'planning' | 'inspecting' | 'revising') => setState({ planMode }),
+    async generatePlan(promptText?: string) {
+      const prompt = (promptText ?? state.planPrompt).trim()
+      if (!prompt || state.projectStatus !== 'idle') return null
+      cancelPlan()
+      const generation = planGeneration
+      planRequest = new AbortController()
+      const project = state.activeProject
+      const source = sourceKey(project)
+      const saved = state.savedProjects.some(item => item.id === project.id)
+      setState({
+        currentPlan: null,
+        planPrompt: prompt,
+        planMode: 'inspecting',
+        planStatus: 'generating',
+        planError: '',
+      })
+      try {
+        let plan: AppPlan
+        if (options.planner) {
+          plan = await options.planner(prompt, structuredClone(project))
+        } else {
+          const res = await requestModelPlan(
+            {
+              prompt,
+              ...(saved ? { appId: project.id, expectedRevision: project.revision } : { project }),
+            },
+            {
+              signal: planRequest.signal,
+              accountId: options.accountId,
+            }
+          )
+          plan = res.plan
+          if (!saved) plan = { ...plan, appId: project.id, baseRevision: project.revision }
+          if (generation === planGeneration && res.budget) setState({ budget: res.budget })
+        }
+        if (generation === planGeneration) {
+          plan = validateAppPlan(plan)
+          if (plan.appId !== project.id || plan.baseRevision !== project.revision || plan.prompt !== prompt || plan.status !== 'draft') {
+            throw new PlanValidationError('Plan does not match the requested app, prompt or revision')
+          }
+          planSource = source
+          setState({
+            currentPlan: plan,
+            planStatus: 'idle',
+            planError: '',
+          })
+          return plan
+        }
+        return null
+      } catch (error) {
+        if (generation === planGeneration) {
+          setState({
+            planStatus: 'idle',
+            planError: message(error),
+          })
+        }
+        return null
+      }
+    },
+    async approveCurrentPlan() {
+      const plan = state.currentPlan
+      if (!plan) return null
+      if (state.planStatus === 'generating' || state.planStatus === 'approving' || state.projectStatus !== 'idle') return null
+      if (isPlanStale(plan, state.activeProject.revision) || plan.appId !== state.activeProject.id || planSource !== sourceKey(state.activeProject)) {
+        setState({
+          planStatus: 'stale',
+          planError: 'Stale plan approval: the app has changed. Generate a new plan.',
+        })
+        throw new StalePlanApprovalError(
+          'Stale plan approval: the app no longer matches the source used for this plan.'
+        )
+      }
+      const generation = planGeneration
+      try {
+        let approved = approvePlan(plan, state.activeProject.revision)
+        if (state.savedProjects.some(p => p.id === state.activeProject.id)) {
+          planRequest = new AbortController()
+          setState({ planStatus: 'approving', planError: '' })
+          const result = await approveModelPlan(state.activeProject.id, plan, { accountId: options.accountId, signal: planRequest.signal })
+          if (!result.ok || result.plan.status !== 'approved' || result.plan.planId !== plan.planId) throw new PlanValidationError('Server did not approve this plan')
+          approved = result.plan
+        }
+        if (generation !== planGeneration) return null
+        setState({ currentPlan: approved, planStatus: 'approved', planError: '' })
+        return approved
+      } catch (error) {
+        if (generation === planGeneration) setState({ planStatus: error instanceof ApiError && error.status === 409 ? 'stale' : 'idle', planError: message(error) })
+        throw error
+      }
+    },
+    async reviseCurrentPlan(newPrompt: string) {
+      setState({
+        planPrompt: newPrompt,
+        planMode: 'revising',
+      })
+      return store.generatePlan(newPrompt)
+    },
+    cancelPlanning() {
+      cancelPlan()
+      setState({ currentPlan: null, planMode: 'idle', planStatus: 'idle', planError: '' })
+    },
+    clearPlan() {
+      cancelPlan()
+      planSource = null
+      setState({
+        currentPlan: null,
+        planMode: 'idle',
+        planStatus: 'idle',
+        planError: '',
+        planPrompt: '',
+      })
+    },
     stopPreview,
     retryPreview: () => store.runPreview(),
     suspend() {
+      cancelPlan()
       budgetRequest?.abort()
       cancelProject()
       listGeneration++
       listRequest?.abort()
       stopPreview()
-      setState({ projectStatus: 'idle', listStatus: 'idle' })
+      setState({ projectStatus: 'idle', listStatus: 'idle', planStatus: state.planStatus === 'generating' || state.planStatus === 'approving' ? 'idle' : state.planStatus })
     },
   }
   return store

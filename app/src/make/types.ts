@@ -151,3 +151,54 @@ export interface ModelGatewayLimits {
   readonly DEFAULT_ACCOUNT_TURN_BUDGET: number
   readonly DEFAULT_ACCOUNT_TOKEN_BUDGET: number
 }
+
+export type AppPlanAction = 'create' | 'modify' | 'delete'
+
+export interface AppPlanFileTarget {
+  readonly path: string
+  readonly description: string
+  readonly action?: AppPlanAction
+}
+
+export type AppPlanStatus = 'draft' | 'approved' | 'rejected' | 'revised'
+
+export interface AppPlan {
+  readonly planId: string
+  readonly appId?: string
+  readonly baseRevision: number
+  readonly prompt: string
+  readonly summary: string
+  readonly files: readonly AppPlanFileTarget[]
+  readonly interactions: readonly string[]
+  readonly risks: readonly string[]
+  readonly status: AppPlanStatus
+  readonly createdAt: string
+  readonly approvedAt?: string
+  readonly revisedPrompt?: string
+}
+
+export interface AppPlanRequest {
+  readonly prompt: string
+  readonly appId?: string
+  readonly expectedRevision?: number
+  readonly context?: Record<string, unknown>
+  readonly project?: AppProject
+}
+
+export interface AppPlanResponse {
+  readonly plan: AppPlan
+  readonly turnId?: string
+  readonly usage?: ModelTurnUsage
+  readonly budget?: ModelBudget
+}
+
+export interface AppPlanApprovalRequest {
+  readonly plan: AppPlan
+  readonly expectedRevision?: number
+}
+
+export interface AppPlanApprovalResult {
+  readonly ok: boolean
+  readonly plan: AppPlan
+  readonly approvedAt: string
+}

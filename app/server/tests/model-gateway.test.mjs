@@ -604,3 +604,59 @@ test('per-turn metering and budget enforcement decrement turns and reject when b
   assert.equal(turns.status, 200)
   assert.equal(turns.data.turns.length, 3) // 2 success + 1 budget_exceeded
 })
+
+const planOutput = {
+  summary: 'Add a reset control',
+  files: [{ path: 'src/App.tsx', description: 'Reset state', action: 'modify' }],
+  interactions: ['Reset clears the count'], risks: [],
+}
+
+test('planning and approval preserve stored artifacts and enforce ownership, CSRF and stale revisions', async t => {
+  const f = await fixture(t)
+  const a = await f.login('plan-alice'), b = await f.login('plan-bob')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject({ name: 'Plan app' }) }) })
+  const path = `/api/apps/${app.id}/plan`
+  const post = (url, body, headers = a.headers) => f.request(url, { method: 'POST', headers, body: JSON.stringify(body) })
+  assert.equal((await post(path, { prompt: 'Reset' }, {})).status, 401)
+  assert.equal((await post(path, { prompt: 'Reset' }, { Cookie: a.headers.Cookie })).status, 403)
+  assert.equal((await post(path, { prompt: 'Reset' }, b.headers)).status, 404)
+  const planned = await post(path, { prompt: 'Reset', expectedRevision: app.revision })
+  assert.equal(planned.status, 200)
+  const plan = planned.data.plan
+  assert.equal(plan.status, 'draft')
+  assert.deepEqual((await f.request(`/api/apps/${app.id}`, { headers: a.headers })).data, app)
+  assert.equal((await post(`${path}/approve`, { plan: { ...plan, summary: 'Tampered plan' } })).status, 409)
+  assert.equal((await post(`${path}/approve`, { plan: { ...plan, files: [] } })).status, 400)
+  assert.equal((await post(`${path}/approve`, { plan }, b.headers)).status, 404)
+  const approved = await post(`${path}/approve`, { plan, expectedRevision: app.revision })
+  assert.equal(approved.status, 200)
+  assert.equal(approved.data.plan.status, 'approved')
+  assert.equal((await post(`${path}/approve`, { plan })).status, 409, 'approval cannot be replayed')
+  assert.deepEqual((await f.request(`/api/apps/${app.id}`, { headers: a.headers })).data, app)
+  const second = await post(path, { prompt: 'Add undo', expectedRevision: app.revision })
+  const updated = await f.request(`/api/apps/${app.id}`, { method: 'PUT', headers: a.headers, body: JSON.stringify({ project: { ...app, name: 'Edited' }, expectedRevision: app.revision }) })
+  assert.equal(updated.status, 200)
+  assert.equal((await post(`${path}/approve`, { plan: second.data.plan })).status, 409)
+})
+
+test('malformed provider planning output fails validation without updating the app', async t => {
+  const f = await fixture(t, { modelGateway: { customAdapter: async () => ({ content: '{}' }) } })
+  const a = await f.login('malformed-planner')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject({ name: 'Untouched' }) }) })
+  const result = await f.request(`/api/apps/${app.id}/plan`, { method: 'POST', headers: a.headers, body: JSON.stringify({ prompt: 'Reset', expectedRevision: app.revision }) })
+  assert.equal(result.status, 502)
+  assert.match(result.data.error, /plan/i)
+  assert.deepEqual((await f.request(`/api/apps/${app.id}`, { headers: a.headers })).data, app)
+})
+
+test('draft planning reads supplied context without creating an app or permitting output artifacts', async t => {
+  let observed
+  const f = await fixture(t, { modelGateway: { customAdapter: async request => { observed = request; return { content: JSON.stringify(planOutput) } } } })
+  const a = await f.login('draft-planner')
+  const project = createAppProject({ name: 'Unsaved', files: { 'src/App.tsx': 'export default function App() { return null }', 'src/Timer.tsx': 'export const Timer = () => null' } })
+  const result = await f.request('/api/model/plan', { method: 'POST', headers: a.headers, body: JSON.stringify({ prompt: 'Add reset', project }) })
+  assert.equal(result.status, 200)
+  assert.match(observed.systemPrompt, /src\/Timer.tsx/)
+  assert.equal(observed.appId, undefined)
+  assert.deepEqual((await f.request('/api/apps', { headers: a.headers })).data.apps, [])
+})

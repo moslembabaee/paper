@@ -249,8 +249,33 @@ export class ServerModelGateway {
   }
 
   private async mockGenerate(request: ModelRequest): Promise<AdapterResult> {
-    const content = JSON.stringify({ message: `Generated response for: ${request.prompt.slice(0, 100)}` })
-    return { content, usage: { promptTokens: Math.ceil(Buffer.byteLength(request.prompt) / 4), completionTokens: Math.ceil(Buffer.byteLength(content) / 4) } }
+    let content: string
+    if (request.systemPrompt?.includes('Paper Make App Planner') || request.context?.mode === 'plan') {
+      content = JSON.stringify({
+        summary: `Plan: ${request.prompt.slice(0, 80)}`,
+        files: [
+          { path: 'src/App.tsx', description: 'Application UI and state logic', action: 'modify' },
+          { path: 'src/styles.css', description: 'Component styling and layout rules', action: 'modify' },
+        ],
+        interactions: [
+          `Interactive state updates responding to prompt: "${request.prompt.slice(0, 50)}"`,
+          'User visual feedback rendered with CSS transitions',
+        ],
+        risks: [
+          'State resets on preview reload unless saved to account storage',
+          'Only pre-approved modules from allowlist can be imported',
+        ],
+      })
+    } else {
+      content = JSON.stringify({ message: `Generated response for: ${request.prompt.slice(0, 100)}` })
+    }
+    return {
+      content,
+      usage: {
+        promptTokens: Math.ceil(Buffer.byteLength(request.prompt) / 4),
+        completionTokens: Math.ceil(Buffer.byteLength(content) / 4),
+      },
+    }
   }
 
   private async remoteHttpGenerate(request: ModelRequest, signal: AbortSignal): Promise<AdapterResult> {
