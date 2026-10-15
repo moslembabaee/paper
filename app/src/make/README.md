@@ -152,3 +152,54 @@ node --experimental-strip-types tests/app-compiler.test.mjs
 npx playwright test app-compiler.spec.ts --config=playwright.compiler.config.ts
 ```
 
+## Credential-isolated preview
+
+Render compiled assets with `<PreviewFrame assets={result.assets} />` from
+`src/make/PreviewFrame.tsx`. The compiler stays host-only; this component's
+compiler import is type-only. Never mount `assets.html` directly into the host
+DOM, or use a single iframe as the production security boundary.
+
+The component creates two opaque-origin `sandbox="allow-scripts"` frames. Only
+trusted relay code runs in the outer frame. Its `frame-src 'none'` policy blocks
+network navigation by the generated inner frame, including self-navigation via
+links, `location` and meta refresh. Both frames deny forms, popups, downloads,
+top navigation, same-origin privileges and sensitive permissions. The outer
+policy is inherited by `about:srcdoc`; it cannot be relaxed by generated markup.
+The compiled script and styles use local data URLs. `connect-src 'none'`,
+resource-specific policies and `worker-src 'none'` deny external loads. The
+policy also includes `webrtc 'block'` and disables DNS prefetch; enforcement of
+those features varies by browser, so the supported-browser security suite is a
+release gate, not an assumption that CSP controls every browser network API.
+
+Messages carry a versioned channel, direction, ID, timestamp and validated typed
+payload. Receivers verify the exact sending window; the host also requires the
+opaque origin `null`. Messages are bounded to 64 KiB UTF-8, 16 levels, 4096 visited
+values and 120 messages/second per receiver. Cycles, accessors, prototype keys,
+non-JSON values, malformed payloads and unknown envelope fields are rejected.
+Only ping, theme and reset controls leave the host; no credentials, session data
+or scene objects are sent. A new revision or reload creates a fresh browsing
+context, rejects outstanding pings and resets diagnostics. The preview exposes
+ready/error events, bounded ping deadlines and a 10-second readiness timeout.
+
+Protocol and compiler regression checks:
+
+```sh
+node --experimental-strip-types tests/app-preview-iframe.test.mjs
+npm test && npm run build
+```
+
+Browser acceptance (requires localhost listeners and a working Chromium):
+
+```sh
+npx playwright test --config=playwright.preview.config.ts
+```
+
+This suite mounts the actual React component from `/e2e/fixtures/preview.html`,
+checks desktop/mobile interaction and lifecycle, and attacks DOM/session access,
+forged messages, resource loads, popups, forms, top navigation and self-navigation.
+It records exfiltration requests before aborting them, so network failure alone
+cannot satisfy an assertion. Screenshots go to `/tmp/paper-preview-{desktop,mobile}.png`.
+The node VM tests check only the trusted protocol, never browser SOP/CSP enforcement.
+
+Policy references: [CSP inheritance](https://www.w3.org/TR/CSP3/#security-inherit-csp),
+[iframe sandbox](https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox).

@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-21",
+  "current_task_id": "T-ISSUE-22",
   "tasks": [
     {
       "id": "T-ISSUE-17",
@@ -707,7 +707,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 21,
-      "completed_at": "2026-10-15T01:57:02.607383"
+      "completed_at": "2026-10-15T01:57:02.607383",
+      "closed_at": "2026-10-15T01:57:06Z"
     },
     {
       "id": "T-ISSUE-22",
@@ -715,10 +716,11 @@
       "title": "Issue #22: feat(make 05): Credential-isolated preview iframe",
       "description": "Scope: Run compiled output in an opaque-origin sandboxed iframe with restrictive CSP, no parent DOM/storage/cookie access and bounded message protocol.\nAcceptance: Browser test proves UI interaction works and malicious code cannot access parent session, navigate top or exfiltrate via network.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 22
+      "github_issue_number": 22,
+      "completed_at": "2026-10-15T02:34:56.132829"
     },
     {
       "id": "T-ISSUE-23",

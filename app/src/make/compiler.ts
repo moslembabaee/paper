@@ -1,11 +1,11 @@
 // Host-only compiler. Generated modules are transformed as text and never executed here.
 import ts from 'typescript'
 import postcss from 'postcss'
-import { Buffer } from 'node:buffer'
 import { DEFAULT_ALLOWED_PACKAGES, getPreviewRuntime } from './compiler-runtime.ts'
 export { DEFAULT_ALLOWED_PACKAGES } from './compiler-runtime.ts'
 import type { AppProject, AppSourceFile } from './types.ts'
 import { APP_PROJECT_LIMITS, normalizeAndValidatePath } from './manifest.ts'
+import { generatePreviewHtml } from './preview-sandbox.ts'
 
 export type CompileDiagnosticSeverity = 'error' | 'warning'
 
@@ -549,6 +549,9 @@ ${serializedModules}
       modules: Object.keys(__modules),
       require: __paperRequire,
     };
+    if (typeof __root.__paperNotifyReady === 'function') {
+      __root.__paperNotifyReady(${JSON.stringify(entryPoint)});
+    }
   } catch (err) {
     if (typeof __root.document !== 'undefined') {
       const mountNode = __root.document.getElementById('root');
@@ -560,43 +563,18 @@ ${serializedModules}
       ready: false,
       error: err && err.message ? err.message : String(err),
     };
+    if (typeof __root.__paperNotifyError === 'function') {
+      __root.__paperNotifyError(err);
+    }
   }
 })();
 `
 
-  const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Paper Preview</title>
-  <style id="paper-preview-base">
-    *, *::before, *::after { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background-color: #080808;
-      color: #edebe1;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      -webkit-font-smoothing: antialiased;
-      overflow-x: hidden;
-    }
-    #root {
-      width: 100%;
-      min-height: 100%;
-      display: flex;
-      flex-direction: column;
-    }
-  </style>
-  <link id="paper-preview-compiled" rel="stylesheet" href="data:text/css;base64,${Buffer.from(cssBundle).toString('base64')}">
-</head>
-<body>
-  <div id="root"></div>
-  <script id="paper-preview-bundle" src="data:text/javascript;base64,${Buffer.from(js).toString('base64')}"></script>
-</body>
-</html>`
+  const html = generatePreviewHtml({
+    js,
+    css: cssBundle,
+    entryPoint,
+  })
 
   return {
     entryPoint,
