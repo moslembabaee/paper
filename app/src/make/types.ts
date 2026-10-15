@@ -184,6 +184,11 @@ export type {
   AppAssetExportRecord,
   AppProjectPackage,
 } from './assets.ts'
+export type {
+  PreviewDeviceViewport,
+  ViewportBreakpointConfig,
+  ViewportOverflowCheck,
+} from './breakpoints.ts'
 
 
 export interface AppPlan {

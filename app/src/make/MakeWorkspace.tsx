@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ArrowLeft, Code2, FileCode2, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
+import { ArrowLeft, Code2, FileCode2, Monitor, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
 import type { AppSceneReference } from './types'
 import { PreviewFrame, type PreviewFrameStatus } from './PreviewFrame'
 import { createMakeWorkspaceStore, formatDiagnostic } from './workspace-model'
 import { PlanInspection } from './PlanInspection'
 import { DiffInspection } from './DiffInspection'
 import { AssetPanel } from './AssetPanel'
+import { PREVIEW_VIEWPORTS, formatViewportDimensions, getViewportConfig, isValidDeviceViewport } from './breakpoints'
 import './make.css'
 
 export default function MakeWorkspace({ accountId, onDesign, designSelection }: { accountId?: string; onDesign: () => void; designSelection?: { reference: AppSceneReference; name: string } | null }) {
@@ -26,6 +27,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
   const loading = state.previewStatus === 'loading' || (state.assets !== null && !running)
   const status = state.previewStatus === 'error' ? 'Error' : running ? 'Running' : loading ? 'Loading' : 'Stopped'
   const active = state.activeProject
+  const viewport = getViewportConfig(state.deviceViewport)
   const savedIds = new Set(state.savedProjects.map(project => project.id))
 
   function choose(id: string) {
@@ -87,7 +89,19 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
       </aside>
       <main className="make-stage" aria-label="Make preview">
         <div className="make-preview-toolbar"><div className="make-preview-label"><span className="make-status-dot" data-status={status} /><span>Preview</span><span className="make-preview-status" data-testid="make-preview-status" role="status">{status}</span></div>
+          <div className="make-preview-actions">
+          <button className="make-button" disabled={!running || busy || planBusy} onClick={store.rerunInteraction} title="Resets the preview app state at the selected size. Source and saved layout stay unchanged."><RotateCcw size={13} />Rerun interactions</button>
           {state.assets || state.previewStatus === 'loading' ? <button className="make-button" onClick={store.stopPreview}><Square size={12} fill="currentColor" />Stop preview</button> : state.previewStatus !== 'error' ? <button className="make-button make-primary" disabled={busy} onClick={() => { void store.runPreview() }}><Play size={13} fill="currentColor" />Run preview</button> : null}
+          </div>
+        </div>
+        <div className="make-viewport-toolbar">
+          <label className="make-viewport-picker"><Monitor size={13} aria-hidden="true" /><span className="make-sr-only">Preview size</span>
+            <select value={state.deviceViewport} onChange={event => { if (isValidDeviceViewport(event.target.value)) store.setDeviceViewport(event.target.value) }}>
+              {Object.values(PREVIEW_VIEWPORTS).map(size => <option key={size.id} value={size.id}>{size.label}</option>)}
+            </select>
+          </label>
+          <output className="make-viewport-dimensions" data-testid="make-viewport-dimensions" aria-live="polite">{formatViewportDimensions(state.deviceViewport)}</output>
+          <span className="make-viewport-note">Resize keeps state · Rerun resets preview state.</span>
         </div>
         <div className="make-prompt-bar" role="region" aria-label="Prompt planner">
           <form
@@ -154,7 +168,11 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
               busy={planBusy || busy}
             />
           ) : null}
-          {state.assets ? <PreviewFrame assets={state.assets} onStatusChange={setFrameStatus} onError={store.reportRuntimeError} /> : null}
+          {state.assets ? <div className="make-preview-viewport" role="region" aria-label="Preview viewport" tabIndex={0}>
+            <div className="make-preview-device" data-viewport={state.deviceViewport} style={{ width: viewport.width, height: viewport.height }}>
+              <PreviewFrame assets={state.assets} sessionKey={state.previewSessionKey} onStatusChange={setFrameStatus} onError={store.reportRuntimeError} />
+            </div>
+          </div> : null}
           {state.projectStatus === 'loading' || loading ? <div className="make-empty make-loading" role="status"><span className="make-loader" /><h2>{state.projectStatus === 'loading' ? 'Opening app…' : state.assets ? 'Starting preview…' : 'Compiling your app…'}</h2><p>{state.projectStatus === 'loading' ? 'Reading the saved revision.' : 'Preparing an interactive preview.'}</p></div> : null}
           {!state.assets && !loading && state.projectStatus !== 'loading' ? <div className="make-empty">
             {state.previewStatus === 'error' ? <><span className="make-empty-icon"><Code2 size={24} /></span><h2>Let’s get this running.</h2><p role="alert">{state.errorMessage}</p>{state.diagnostics.length ? <p>Check the file locations and fix guidance in Diagnostics.</p> : <p>Check your app source or connection, then try again.</p>}<button className="make-button make-primary" disabled={busy} onClick={() => { void store.retryPreview() }}><RotateCcw size={14} />Retry preview</button></> : <><span className="make-empty-icon"><Sparkles size={24} /></span><span className="make-eyebrow">FROM SOURCE TO SOMETHING REAL</span><h2>A space to make it work.</h2><p>Choose a saved app or try an example.<br />Your interactive preview starts here.</p><button className="make-button make-primary" disabled={busy} onClick={() => { void store.runPreview() }}><Play size={13} fill="currentColor" />Start preview</button></>}

@@ -14,6 +14,7 @@ export interface PreviewFrameProps {
   readonly assets?: CompilePreviewAssets | null
   readonly title?: string
   readonly theme?: PreviewThemeConfig
+  readonly sessionKey?: number
   readonly onReady?: (payload: PreviewReadyPayload) => void
   readonly onError?: (payload: PreviewErrorPayload) => void
   readonly onEvent?: (payload: PreviewEventPayload) => void
@@ -42,7 +43,8 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(fu
   const [reloadCount, setReloadCount] = useState(0)
   const reload = useCallback(() => setReloadCount(n => n + 1), [])
   const html = props.html ?? props.assets?.html ?? ''
-  const session = useMemo(() => ({ id: `preview-${++sessionSequence}-${reloadCount}`, document: html ? createIsolatedPreviewDocument(html) : '' }), [html, reloadCount])
+  const externalSessionKey = props.sessionKey ?? 0
+  const session = useMemo(() => ({ id: `preview-${++sessionSequence}-${reloadCount}-${externalSessionKey}`, document: html ? createIsolatedPreviewDocument(html) : '' }), [html, reloadCount, externalSessionKey])
   return <PreviewSession key={session.id} {...props} ref={ref} document={session.document} reload={reload} />
 })
 

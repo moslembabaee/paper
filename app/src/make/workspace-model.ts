@@ -382,7 +382,8 @@ export default function App() {
   }),
 })
 
-export type PreviewDeviceViewport = 'responsive' | 'desktop' | 'tablet' | 'mobile'
+export type { PreviewDeviceViewport } from './breakpoints.ts'
+import type { PreviewDeviceViewport } from './breakpoints.ts'
 
 export interface PreviewTheme {
   mode: 'dark' | 'light'
@@ -406,6 +407,7 @@ export interface MakeWorkspaceState {
   diagnostics: CompileDiagnostic[]
   errorMessage: string
   deviceViewport: PreviewDeviceViewport
+  previewSessionKey: number
   previewTheme: PreviewTheme
   selectedDiagnosticIndex: number | null
   budget: ModelBudget | null
@@ -467,6 +469,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     activeFilePath: activeProject.preview.entryPoint,
     previewStatus: 'idle', assets: null, diagnostics: [], errorMessage: '',
     deviceViewport: 'responsive',
+    previewSessionKey: 0,
     previewTheme: { mode: 'dark', background: '#080808', foreground: '#edebe1', accent: '#81adec', grid: '#222222' },
     selectedDiagnosticIndex: null,
     budget: null,
@@ -606,6 +609,11 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     },
     setActiveFile: (activeFilePath: string) => setState({ activeFilePath }),
     setDeviceViewport: (deviceViewport: PreviewDeviceViewport) => setState({ deviceViewport }),
+    rerunInteraction() {
+      if (!state.assets || state.previewStatus !== 'ready' || state.projectStatus !== 'idle' || state.planStatus === 'generating_app') return
+      // Changing only this key creates a fresh browsing context from existing assets.
+      setState({ previewSessionKey: state.previewSessionKey + 1 })
+    },
     setPreviewTheme: (previewTheme: PreviewTheme) => setState({ previewTheme }),
     setSelectedDiagnosticIndex: (selectedDiagnosticIndex: number | null) => setState({ selectedDiagnosticIndex }),
     async runPreview() {
