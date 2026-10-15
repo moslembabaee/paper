@@ -12,6 +12,7 @@ import { PenOverlay } from './PenOverlay'
 import { AgentOverlay } from '../mcp/AgentOverlay'
 import type { AgentActivity } from '../mcp/protocol'
 import { ShaderSurface } from '../shaders/ShaderSurface'
+import { MeshCanvasOverlay } from '../shaders/MeshCanvasOverlay'
 import { useArrangeShortcuts } from './useArrangeShortcuts'
 import { measurementHit } from './measurementGeometry'
 import { CollaborationOverlay } from '../collaboration/CollaborationOverlay'
@@ -84,7 +85,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   const bounds = useMemo(() => unionBounds(items), [items])
   return (
     <div ref={hostRef} style={{ display: 'contents' }}>
-      <CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (!panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <SelectionOverlay store={store} controller={controller} panMode={panMode} />)}</>}>
+      <CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (!panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <><SelectionOverlay store={store} controller={controller} panMode={panMode} />{!panMode && <MeshCanvasOverlay store={store} controller={controller} />}</>)}</>}>
         <SceneRenderer store={store} interactive={!panMode && !commentMode} />
       </CanvasViewport>
       {contextMenu && (

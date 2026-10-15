@@ -7,6 +7,7 @@ import { selectionRoots } from '../scene/selectionGeometry.ts'
 import { SceneStore } from '../scene/store.ts'
 import type { ElementInput, ElementPatch, SceneElement, SceneSnapshot } from '../scene/types.ts'
 import { createShader, validateShader } from '../shaders/catalog.ts'
+import { createMeshMaterial } from '../shaders/mesh.ts'
 import type { ShaderKind, ShaderPaint } from '../shaders/types.ts'
 import type { TokenInput } from '../tokens/types.ts'
 import { patchSchema, validateSchema } from './schema.ts'
@@ -78,7 +79,10 @@ export function mutateCanvas(project: PaperProject, name: string, args: ToolArgu
     } else {
       const kind = args.shader_kind as ShaderKind
       const defaults = createShader(kind)
-      const shader = { ...defaults, ...(args.motion as object | undefined), params: { ...defaults.params, ...(args.params as object | undefined) } } as ShaderPaint
+      let shader = { ...defaults, ...(args.motion as object | undefined), params: { ...defaults.params, ...(args.params as object | undefined) } } as ShaderPaint
+      if (shader.kind === 'mesh-gradient' && Array.isArray(shader.params.colors) && shader.params.colors.length >= 2 && shader.params.colors.length <= 10) {
+        shader = { ...shader, mesh: createMeshMaterial(shader.params.colors.length) }
+      }
       validateShader(shader)
       const shape = (args.shape ?? 'rectangle') as 'rectangle' | 'ellipse'
       if (shape === 'ellipse' && args.cornerRadius !== undefined) throw new Error('Ellipses do not have a cornerRadius')

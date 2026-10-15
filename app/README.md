@@ -1,5 +1,15 @@
 # React + TypeScript + Vite
 
+## Mesh material studio
+
+Select a layer, then choose **Mesh Gradient** under **Paper Shaders** in the inspector. With no layer selected, the material applies to the canvas background. Drag numbered color anchors on the canvas or in the inspector preview. Focus an anchor and use arrow keys for 1% adjustments, or Shift + arrows for 10%. Each drag is one undo step; Escape cancels it.
+
+Add up to ten color stops, edit hex colors (including eight-digit alpha), and adjust each anchor's position and influence. **Procedural finish** provides turbulence, noise frequency, chromatic aberration, grain mixing and grain overlay with overlay, soft light, multiply or screen blending. Material compositing and motion controls adjust opacity, blend mode, playback, scale, rotation and offset. Mesh data persists with the project and is available through the code bridge.
+
+Expand **React shader code** to copy or download a self-contained `PaperMaterial.tsx` component using `@paper-design/shaders-react`. The generated shader retains the current color stops, anchor placement, finishes, transforms and static frame. Give its parent an explicit height. Existing mesh materials without custom anchors can be upgraded with **Open interactive mesh studio**.
+
+Run `node --experimental-strip-types --test tests/mesh-material.test.mjs tests/shaders.test.mjs` for model, persistence, history, code bridge and generated TypeScript checks, or `npx playwright test e2e/mesh-material.spec.ts` for WebGL rendering and interactive editing.
+
 ## Interactive prototyping
 
 Toggle **Prototype** in the header to author connection wires directly on the canvas. Select a frame or layer and drag the connector handle to a target frame, or use **Add interaction** in the prototype inspector. Press Enter or Space on a connection wire to select it, or Backspace/Delete to remove it.

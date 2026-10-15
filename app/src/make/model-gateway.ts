@@ -123,7 +123,8 @@ export async function requestAppGeneration(
     body: JSON.stringify(request),
     signal: options?.signal,
     headers: options?.accountId ? { 'X-Paper-Account': options.accountId } : undefined,
-    timeoutMs: MODEL_GATEWAY_LIMITS.DEFAULT_TIMEOUT_MS + 10_000,
+    // Two bounded provider turns and two browser checks, plus transport time.
+    timeoutMs: 2 * MODEL_GATEWAY_LIMITS.DEFAULT_TIMEOUT_MS + 40_000,
   })
 
   return {

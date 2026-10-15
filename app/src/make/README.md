@@ -347,3 +347,39 @@ Committed history is retained until the app is deleted; it is never pruned on sa
 Checkpoint provenance is validated and copied before a write is queued, and its integrity hash covers both source and metadata. Tests cover caller mutation during queued writes, immutable retention, stale reads and restores, ownership/CSRF checks, failed validation, restart/re-edit, and restored source with detached or missing asset bytes.
 
 Browser gate: `npm run test:e2e -- e2e/make-version-history.spec.ts e2e/make-source-editor.spec.ts e2e/app-preview-iframe.spec.ts`. This exercises checkpoint inspection, manual/inspector provenance, restore/re-edit/reload, stale restore conflicts, sandbox isolation and mobile layout. The gate requires Vite to bind localhost and Chromium to launch; an environment failure blocks browser acceptance.
+
+## Bounded agent validation (Make 18)
+
+Approved generation checks each candidate with the static compiler, then renders
+it in fresh, opaque-origin Chromium frames at 1280×800 and 390×844. It requires
+visible content, observes startup errors/rejections for 350 ms after mounting, and
+checks horizontal overflow. These are startup/render checks; they do not prove
+all interactions or arbitrary future timers correct. A failed candidate can spend
+one additional metered model turn on repair. Two candidates is the fixed maximum
+per approval; retrying requires a new plan. The working revision is written only
+after all checks pass, with the existing revision conflict guard.
+
+The API runtime needs the `playwright` dependency and its matching Chromium:
+`npx playwright install --with-deps chromium` in an environment that permits browser
+processes. `PAPER_VALIDATION_CHROMIUM` can point to a system Chromium executable
+(e.g. `/usr/bin/chromium` in an Alpine API image with Chromium installed). Missing
+browser binaries, browser capacity, capture failures, and the 15-second browser
+timeout are blockers, never successful validations. At most two browser checks
+run concurrently per API process. Deploy the validator with process/resource
+isolation appropriate for untrusted browser workloads.
+
+No account cookies, host screenshots, or storage state enter the validation
+browser. It uses the existing sandbox/CSP with all network requests denied.
+Credential-like source blocks capture; known server credentials and token patterns
+are redacted from bounded feedback. Each failed render can send two JPEG captures
+(maximum 12 KB each) to the configured model provider, only as ephemeral repair
+context. Successful captures are discarded. No image bytes enter API results,
+revision history, the usage ledger, or application logs. Feedback is limited to
+8 diagnostics of 500 characters each; the ledger and UI retain only diagnostic
+and viewport/capture-size summaries. Keep provider-side retention settings aligned
+with your project's privacy requirements.
+
+API orchestration tests use an explicit scripted browser boundary. Real Chromium
+checks are separate and required before release:
+`npx playwright test e2e/make-validation.spec.ts e2e/make-app-generation.spec.ts e2e/app-preview-iframe.spec.ts`.
+A browser infrastructure failure must be resolved before that release gate passes.

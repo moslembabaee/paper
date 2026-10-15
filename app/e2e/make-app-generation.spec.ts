@@ -9,7 +9,7 @@ import { mockStudioSession } from './studio-session'
 
 // Only the model transport is deterministic. Requests exercise the real authenticated
 // service, approval registry, safe compiler and durable revision storage.
-async function setup(page: Page) {
+async function setup(page: Page, runtime?: 'repair' | 'persistent') {
   const root = await mkdtemp(join(tmpdir(), 'paper-generation-e2e-'))
   let invalid = false
   let styleOnly = false
@@ -29,7 +29,7 @@ async function setup(page: Page) {
         files: [{ path: 'src/styles.css', content: 'body { background: #81adec; color: #080808; }' }],
       } : {
         summary: 'Counter generated from approved plan',
-        files: [{ path: 'src/App.tsx', content: invalid ? 'export default function App() { return <main>' : `
+        files: [{ path: 'src/App.tsx', content: invalid ? 'export default function App() { return <main>' : runtime && (request.context?.mode !== 'repair' || runtime === 'persistent') ? 'export default function App() { throw new Error("runtime fixture crash") }' : `
           import { useState } from 'react'; import './styles.css'
           export default function App() {
             const [count, setCount] = useState(0)
@@ -201,5 +201,45 @@ test('chat follow-up changes only targeted CSS, shows bounded diff and restores 
     await expect(preview.getByRole('heading', { name: 'Made with Paper' })).toBeVisible()
     await expect(page.locator('vite-error-overlay')).toHaveCount(0)
     expect(errors).toEqual([])
+  } finally { await f.close() }
+})
+
+test('agent repairs a runtime error once and shows both validation attempts', async ({ page }) => {
+  const f = await setup(page, 'repair')
+  try {
+    await page.getByRole('button', { name: 'Save a copy', exact: true }).click()
+    await expect(page.getByText('Saved to your account', { exact: true })).toBeVisible()
+    const id = await page.getByRole('combobox', { name: 'Make project' }).inputValue()
+    await planAndGenerate(page)
+    await expect(page.getByText('APP PROJECT / REV 2', { exact: true })).toBeVisible({ timeout: 15000 })
+    const validation = page.getByTestId('make-validation')
+    await expect(validation).toContainText('Candidate 1 · failed')
+    await expect(validation).toContainText('Candidate 2 · passed')
+    await expect(validation).toContainText('Interaction behavior still needs review')
+    await page.getByRole('button', { name: 'Dismiss plan' }).click()
+    const preview = page.frameLocator('iframe').frameLocator('iframe')
+    await preview.getByRole('button', { name: 'Increment' }).click()
+    await expect(preview.getByLabel('Count')).toHaveText('1')
+    expect(await f.service.storage.apps.listRevisions(f.user.id, id)).toHaveLength(2)
+  } finally { await f.close() }
+})
+
+test('persistent runtime error stops at two candidates and retains the working preview', async ({ page }) => {
+  const f = await setup(page, 'persistent')
+  try {
+    await page.getByRole('button', { name: 'Save a copy', exact: true }).click()
+    await expect(page.getByText('Saved to your account', { exact: true })).toBeVisible()
+    const id = await page.getByRole('combobox', { name: 'Make project' }).inputValue()
+    const original = await f.service.storage.apps.read(f.user.id, id)
+    await page.getByRole('button', { name: 'Run preview', exact: true }).click()
+    await expect(page.getByTestId('make-preview-status')).toHaveText('Running')
+    await planAndGenerate(page)
+    await expect(page.getByTestId('make-validation')).toContainText('Repair budget exhausted', { timeout: 20000 })
+    await expect(page.getByTestId('make-validation')).toContainText('Candidate 2 · failed')
+    await expect(page.getByText('APP PROJECT / REV 1', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('make-preview-status')).toHaveText('Running')
+    expect(await f.service.storage.apps.read(f.user.id, id)).toEqual(original)
+    expect(await f.service.storage.apps.listRevisions(f.user.id, id)).toHaveLength(1)
+    expect(f.service.modelGateway.listTurns(f.user.id, id).filter(t => t.generation)).toHaveLength(2)
   } finally { await f.close() }
 })

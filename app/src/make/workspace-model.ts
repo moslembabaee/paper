@@ -1,4 +1,4 @@
-import type { AppAnnotation, PreviewElementTarget, AppSceneReference, AppGenerateResult, AppPlan, AppProject, AppProjectSummary, AppProjectRollbackResult, ModelBudget } from './types.ts'
+import type { AppAnnotation, PreviewElementTarget, AppSceneReference, AppGenerateResult, AppPlan, AppProject, AppProjectSummary, AppProjectRollbackResult, AppValidationReport, ModelBudget } from './types.ts'
 import { api, ApiError } from '../cloud/api.ts'
 import { createAppProject, normalizeAndValidatePath, validateAppProject } from './manifest.ts'
 import type { CompileDiagnostic, CompilePreviewAssets, CompileResult } from './compiler.ts'
@@ -30,6 +30,18 @@ export function formatDiagnostic(diag: CompileDiagnostic): ActionableDiagnostic 
   let actionableHint = 'Check the source file and ensure syntax and imports are valid.'
 
   switch (diag.code) {
+    case 'RUNTIME_ERROR':
+      title = 'Runtime Error'
+      actionableHint = 'Review the render error, fix the approved source, then generate a new plan.'
+      break
+    case 'VISUAL_ERROR':
+      title = 'Layout Error'
+      actionableHint = 'Check responsive widths and horizontal overflow at the reported preview size.'
+      break
+    case 'VALIDATION_BLOCKED':
+      title = 'Validation Blocked'
+      actionableHint = 'Resolve the validation blocker before trying a new plan. No revision was applied.'
+      break
     case 'SYNTAX_ERROR':
       title = 'Syntax Error'
       actionableHint = 'Check for unmatched tags, brackets, missing parentheses, or invalid TSX syntax.'
@@ -401,6 +413,7 @@ export interface PreviewTheme {
 }
 
 export interface MakeWorkspaceState {
+  validation: AppValidationReport | null
   history: AppRevisionSummary[]
   historyStatus: 'idle' | 'loading' | 'error'
   historyError: string
@@ -486,6 +499,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
   if (!initialProjects.some(project => project.id === activeProject.id)) initialProjects.unshift(activeProject)
   const repository = options.repository ?? createMakeRepository(options.accountId)
   let state: MakeWorkspaceState = {
+    validation: null,
     history: [], historyStatus: 'idle', historyError: '', selectedRevision: null,
     revisionStatus: 'idle', revisionError: '',
     projects: initialProjects,
@@ -588,6 +602,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       planPrompt: switched ? '' : state.planPrompt,
       currentDiff: switched ? null : state.currentDiff,
       rollbackPoint: switched ? null : state.rollbackPoint,
+      validation: null,
     })
   }
   const store = {
@@ -1064,6 +1079,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
 
       setState({
         planStatus: 'generating_app',
+        validation: null,
         planError: '',
         previewStatus: previousAssets ? 'ready' : 'loading',
         errorMessage: '',
@@ -1091,8 +1107,9 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
         if (result.budget) {
           setState({ budget: result.budget })
         }
+        setState({ validation: result.validation ?? null })
 
-        if (!result.success || !result.assets) {
+        if (!result.success || !result.assets || result.validation && result.validation.status !== 'passed') {
           setState({
             planStatus: 'approved',
             previewStatus: previousAssets ? 'ready' : 'error',

@@ -360,3 +360,21 @@ test('cancelled generation and project switches ignore late output without disca
   assert.equal(store.getState().activeProject, MAKE_FIXTURES.empty)
   assert.equal(store.getState().assets, null)
 })
+
+test('store never applies a failed validation even if transport claims success, and clears report on project switch', async () => {
+  const validation = { status: 'failed', maxAttempts: 2, attempts: [{ attempt: 1, status: 'failed', diagnostics: [], viewports: [] }], message: 'Runtime failed' }
+  const store = createMakeWorkspaceStore({
+    initialProject: MAKE_FIXTURES.counter,
+    planner: async (prompt, project) => createAppPlan({ ...sampleDraftPlan, prompt, appId: project.id, baseRevision: project.revision }),
+    generator: async plan => ({ success: true, assets: { html: '<main>Broken</main>', js: '', css: '', entryPoint: 'src/App.tsx' }, diagnostics: [], plan, validation }),
+  })
+  await store.generatePlan('Counter')
+  await store.approveCurrentPlan()
+  const result = await store.generateFromApprovedPlan()
+  assert.equal(result.success, false)
+  assert.equal(store.getState().activeProject.revision, 1)
+  assert.equal(store.getState().assets, null)
+  assert.deepEqual(store.getState().validation, validation)
+  store.createNewProject()
+  assert.equal(store.getState().validation, null)
+})

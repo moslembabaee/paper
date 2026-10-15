@@ -11,6 +11,8 @@ import { createProject } from '../dist/src/io/project.js'
 import { approvePlan } from '../dist/src/make/plan.js'
 import { createAppProject } from '../dist/src/make/manifest.js'
 
+import { browserPass } from './fixtures/browser-validation.mjs'
+
 const secret = 'test-secret-for-frame-design-context-tests-12345'
 
 async function fixture(t, extra = {}) {
@@ -21,6 +23,7 @@ async function fixture(t, extra = {}) {
     root,
     secret,
     origin: 'http://localhost:3000',
+    appValidator: browserPass,
     ...extra,
     modelGateway: {
       provider: 'mock',

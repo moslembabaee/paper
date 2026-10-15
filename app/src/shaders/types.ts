@@ -33,7 +33,21 @@ export interface ShaderComposite {
   /** Material opacity is independent of the layer's opacity. */
   readonly opacity: number
 }
-export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K]; readonly composite?: ShaderComposite } }[ShaderKind]
+export interface MeshAnchor {
+  readonly x: number
+  readonly y: number
+  readonly radius: number
+}
+export const grainBlendModes = ['overlay', 'soft-light', 'multiply', 'screen'] as const
+export interface MeshMaterial {
+  /** One normalized, top-left-origin anchor per palette color. */
+  readonly anchors: readonly MeshAnchor[]
+  readonly turbulence: number
+  readonly frequency: number
+  readonly chromaticAberration: number
+  readonly grainBlend: typeof grainBlendModes[number]
+}
+export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K]; readonly composite?: ShaderComposite; readonly mesh?: MeshMaterial } }[ShaderKind]
 export type ShaderValue = number | string | readonly string[]
 export type ShaderControl =
   | { readonly key: string; readonly label: string; readonly type: 'number'; readonly min: number; readonly max: number; readonly step: number; readonly integer?: boolean }

@@ -1,5 +1,6 @@
 import type { ShaderControl, ShaderDefinition, ShaderKind, ShaderMotion, ShaderPaint, ShaderValue } from './types.ts'
 import { shaderBlendModes } from './types.ts'
+import { createMeshMaterial, defaultMeshAnchor, validateMeshMaterial } from './mesh.ts'
 
 const number = (key: string, label: string, min = 0, max = 1, step = .01, integer = false): Extract<ShaderControl, { type: 'number' }> => ({ key, label, type: 'number', min, max, step, integer })
 const color = (key: string, label: string): ShaderControl => ({ key, label, type: 'color' })
@@ -66,18 +67,19 @@ export const motionControls = [number('speed', 'Speed', 0, 3), number('frame', '
 export function createShader(kind: ShaderKind, image?: string): ShaderPaint {
   const params = { ...shaderCatalog[kind].defaults }
   const paint = { kind, params, animated: kind !== 'halftone-cmyk' && kind !== 'glass-refraction', speed: .35, frame: 12000, scale: 1, rotation: 0, offsetX: 0, offsetY: 0, composite: { blendMode: 'normal', opacity: 1 } } as ShaderPaint
-  return freezeShader((kind === 'halftone-cmyk' || kind === 'glass-refraction') && image ? { ...paint, params: { ...params, image } } as ShaderPaint : paint)
+  return freezeShader(kind === 'mesh-gradient' ? { ...paint, mesh: createMeshMaterial(colors.length) } : (kind === 'halftone-cmyk' || kind === 'glass-refraction') && image ? { ...paint, params: { ...params, image } } as ShaderPaint : paint)
 }
 
 /** Serializable, owned values: neither callers nor inspectors can mutate store state. */
 export function freezeShader(paint: ShaderPaint): ShaderPaint {
-  if (Object.isFrozen(paint) && (!paint.composite || Object.isFrozen(paint.composite)) && Object.isFrozen(paint.params) && Object.values(paint.params).every(value => !Array.isArray(value) || Object.isFrozen(value))) return paint
+  if (Object.isFrozen(paint) && (!paint.mesh || (Object.isFrozen(paint.mesh) && Object.isFrozen(paint.mesh.anchors) && paint.mesh.anchors.every(Object.isFrozen))) && (!paint.composite || Object.isFrozen(paint.composite)) && Object.isFrozen(paint.params) && Object.values(paint.params).every(value => !Array.isArray(value) || Object.isFrozen(value))) return paint
   const params = Object.fromEntries(Object.entries(paint.params).map(([key, value]) => [key, Array.isArray(value) ? Object.freeze([...value]) : value]))
-  return Object.freeze({ ...paint, ...(paint.composite ? { composite: Object.freeze({ ...paint.composite }) } : {}), params: Object.freeze(params) }) as ShaderPaint
+  return Object.freeze({ ...paint, ...(paint.mesh ? { mesh: Object.freeze({ ...paint.mesh, anchors: Object.freeze(paint.mesh.anchors.map(anchor => Object.freeze({ ...anchor }))) }) } : {}), ...(paint.composite ? { composite: Object.freeze({ ...paint.composite }) } : {}), params: Object.freeze(params) }) as ShaderPaint
 }
 
 export function updateShaderParameter(paint: ShaderPaint, key: string, value: ShaderValue): ShaderPaint {
-  const next = { ...paint, params: { ...paint.params, [key]: value } } as ShaderPaint
+  const mesh = paint.mesh && key === 'colors' && Array.isArray(value) ? { ...paint.mesh, anchors: value.map((_, index) => paint.mesh!.anchors[index] ?? defaultMeshAnchor(index)) } : paint.mesh
+  const next = { ...paint, params: { ...paint.params, [key]: value }, ...(mesh ? { mesh } : {}) } as ShaderPaint
   validateShader(next)
   return freezeShader(next)
 }
@@ -107,4 +109,5 @@ export function validateShader(value: unknown): asserts value is ShaderPaint {
       : typeof param === 'string' && !!param.trim() && /^(\/|\.\/|\.\.\/|https?:\/\/|data:image\/|blob:)/i.test(param)
     if (!valid) throw new Error(`Invalid shader ${control.key}`)
   }
+  if (paint.mesh !== undefined) validateMeshMaterial(paint.mesh, paint)
 }

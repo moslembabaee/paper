@@ -172,6 +172,21 @@ export interface AppGenerationRecord {
   readonly changedFiles: readonly string[]
   readonly diff?: import('./diff.ts').BoundedDiff
   readonly rollbackRevision?: number
+  readonly checks?: AppValidationReport
+}
+
+export interface AppValidationAttempt {
+  readonly attempt: number
+  readonly status: 'passed' | 'failed' | 'blocked'
+  readonly diagnostics: readonly import('./compiler.ts').CompileDiagnostic[]
+  readonly viewports: readonly { viewport: 'desktop' | 'mobile'; width: number; height: number; screenshotBytes: number }[]
+}
+
+export interface AppValidationReport {
+  readonly status: 'passed' | 'failed' | 'blocked'
+  readonly maxAttempts: 2
+  readonly attempts: readonly AppValidationAttempt[]
+  readonly message: string
 }
 
 export interface ModelRequest {
@@ -298,6 +313,7 @@ export interface AppGenerateResult {
   readonly usage?: ModelTurnUsage
   readonly budget?: ModelBudget
   readonly error?: string
+  readonly validation?: AppValidationReport
 }
 
 export interface AppProjectRollbackRequest {

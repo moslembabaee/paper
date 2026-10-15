@@ -11,6 +11,8 @@ import { createAppPlan, approvePlan } from '../dist/src/make/plan.js'
 import { ServerModelGateway } from '../dist/server/model-gateway.js'
 
 const secret = 'a-persistent-secret-for-model-gateway-tests-12345'
+import { viewports, screenshots, browserPass, runtimeFailure } from './fixtures/browser-validation.mjs'
+
 const FAKE_SERVER_KEY = 'sk-live-paper-secret-server-model-key-xyz987'
 
 async function fixture(t, extra = {}) {
@@ -19,6 +21,7 @@ async function fixture(t, extra = {}) {
     root,
     secret,
     origin: 'http://localhost:3000',
+    appValidator: browserPass,
     ...extra,
     modelGateway: {
       provider: 'mock',
@@ -985,4 +988,132 @@ test('disconnect after model output cancels follow-up before commit and preserve
   const turn = f.modelGateway.listTurns(a.user.id, app.id).find(turn => turn.generation)
   assert.equal(turn.generation.validation, 'cancelled')
   assert.equal(turn.generation.rollbackRevision, undefined)
+})
+
+test('runtime diagnostics trigger one repair before saving with bounded private desktop/mobile feedback', async t => {
+  const requests = []
+  let validations = 0
+  const f = await fixture(t, { appValidator: () => ++validations === 1 ? runtimeFailure() : browserPass(), modelGateway: { tokenBudget: 200000, timeoutMs: 3000, customAdapter: async request => {
+    requests.push(request)
+    return { content: JSON.stringify(request.context?.mode === 'plan' ? planOutput : {
+      summary: 'Runtime fixture', files: [{ path: 'src/App.tsx', content: request.context?.mode === 'repair'
+        ? 'export default () => <main>Repaired app</main>'
+        : 'export default function App() { throw new Error("runtime fixture crash"); }' }],
+    }) }
+  } } })
+  const a = await f.login('runtime-repair')
+  const original = createAppProject()
+  const app = await f.storage.apps.put(a.user.id, original.id, original, null)
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+  const result = await f.request(`/api/apps/${app.id}/generate`, { method: 'POST', headers: a.headers, body: JSON.stringify({ plan }) })
+  assert.equal(result.status, 200)
+  assert.equal(result.data.success, true)
+  assert.match(result.data.project.files['src/App.tsx'].content, /Repaired app/)
+  assert.equal(result.data.validation.attempts.length, 2)
+  assert.equal(result.data.validation.attempts[0].status, 'failed')
+  assert.equal(result.data.validation.attempts[1].status, 'passed')
+  const repair = requests.find(request => request.context?.mode === 'repair')
+  assert.match(JSON.stringify(repair.context.feedback.diagnostics), /runtime fixture crash/)
+  assert.deepEqual(repair.context.feedback.screenshots.map(s => s.viewport), ['desktop', 'mobile'])
+  assert.ok(repair.context.feedback.screenshots.every(s => s.dataUrl.startsWith('data:image/jpeg;base64,') && s.dataUrl.length < 17000))
+  assert.equal((await f.storage.apps.listRevisions(a.user.id, app.id)).length, 2)
+  const ledger = await readFile(join(f.root, 'model-usage.json'), 'utf8')
+  assert.doesNotMatch(ledger, /data:image|\/9j\//)
+  assert.doesNotMatch(JSON.stringify(result.data.validation), /data:image|\/9j\//)
+})
+
+async function repairFixture(t, options = {}) {
+  const requests = []
+  const f = await fixture(t, { appValidator: options.appValidator ?? runtimeFailure, modelGateway: {
+    tokenBudget: 200000, turnBudget: options.turnBudget ?? 10, rateLimitPerMinute: 20,
+    customAdapter: async request => {
+      requests.push(request)
+      if (options.adapter) return options.adapter(request)
+      return { content: JSON.stringify(request.context?.mode === 'plan' ? planOutput : { summary: 'Runtime fixture', files: [{ path: 'src/App.tsx', content: 'export default () => <main>Candidate</main>' }] }) }
+    },
+  } })
+  const a = await f.login('bounded-repair')
+  const original = createAppProject(options.project)
+  const app = await f.storage.apps.put(a.user.id, original.id, original, null)
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+  const generate = () => f.request(`/api/apps/${app.id}/generate`, { method: 'POST', headers: a.headers, body: JSON.stringify({ plan }) })
+  return { ...f, a, app, plan, generate, requests }
+}
+
+test('persistent runtime error exhausts exactly two candidates; replay cannot reset the budget', async t => {
+  const f = await repairFixture(t)
+  const result = await f.generate()
+  assert.equal(result.status, 200)
+  assert.equal(result.data.success, false)
+  assert.equal(result.data.validation.status, 'failed')
+  assert.equal(result.data.validation.attempts.length, 2)
+  assert.match(result.data.error, /budget exhausted/)
+  assert.equal(f.requests.length, 3)
+  assert.deepEqual(await f.storage.apps.read(f.a.user.id, f.app.id), f.app)
+  assert.equal((await f.storage.apps.listRevisions(f.a.user.id, f.app.id)).length, 1)
+  assert.equal((await f.generate()).status, 409)
+  assert.equal(f.requests.length, 3)
+})
+
+test('compiler failure feeds bounded diagnostics to repair and saves only the validated candidate', async t => {
+  let browserCalls = 0
+  const f = await repairFixture(t, { appValidator: async () => { browserCalls++; return browserPass() }, adapter: async request => ({ content: JSON.stringify(request.context?.mode === 'plan' ? planOutput : {
+    summary: 'Compile fixture', files: [{ path: 'src/App.tsx', content: request.context?.mode === 'repair' ? 'export default () => <main>Fixed</main>' : 'export default () => <main>' }],
+  }) }) })
+  const result = await f.generate()
+  assert.equal(result.data.success, true)
+  assert.equal(result.data.project.revision, 2)
+  assert.equal(browserCalls, 1)
+  const feedback = f.requests.find(r => r.context?.mode === 'repair').context.feedback
+  assert.equal(feedback.diagnostics[0].code, 'SYNTAX_ERROR')
+  assert.deepEqual(feedback.screenshots, [])
+})
+
+test('model budget exhaustion stops repair with a blocker and no source write', async t => {
+  const f = await repairFixture(t, { turnBudget: 2 })
+  const result = await f.generate()
+  assert.equal(result.data.success, false)
+  assert.equal(result.data.validation.status, 'blocked')
+  assert.match(result.data.error, /model budget exhausted/)
+  assert.equal(f.requests.length, 2)
+  assert.deepEqual(await f.storage.apps.read(f.a.user.id, f.app.id), f.app)
+})
+
+test('browser infrastructure failure blocks without repair or leaking exception details', async t => {
+  const f = await repairFixture(t, { appValidator: async () => { throw new Error(`private content ${FAKE_SERVER_KEY}`) } })
+  const result = await f.generate()
+  assert.equal(result.data.success, false)
+  assert.equal(result.data.validation.status, 'blocked')
+  assert.equal(f.requests.length, 2)
+  assert.doesNotMatch(JSON.stringify(result.data), /private content|sk-live-paper-secret/)
+  assert.deepEqual(await f.storage.apps.read(f.a.user.id, f.app.id), f.app)
+})
+
+test('sensitive untouched source blocks screenshots and is redacted from provider input', async t => {
+  let captures = 0
+  const f = await repairFixture(t, { project: { files: { 'src/App.tsx': 'export default () => <main>Original</main>', 'src/private.ts': 'export const password = "very-private-password123"' } },
+    appValidator: async () => { captures++; return browserPass() },
+  })
+  const result = await f.generate()
+  assert.equal(result.data.success, false)
+  assert.equal(result.data.validation.status, 'blocked')
+  assert.equal(captures, 0)
+  assert.doesNotMatch(JSON.stringify(f.requests), /very-private-password123/)
+  assert.equal(f.requests.length, 2)
+  assert.deepEqual(await f.storage.apps.read(f.a.user.id, f.app.id), f.app)
+})
+
+test('diagnostic floods and credentials are bounded before feedback, response and durable history', async t => {
+  const f = await repairFixture(t, { appValidator: async () => ({ status: 'failed', diagnostics: Array.from({ length: 40 }, () => ({
+    file: 'src/App.tsx', line: 1, column: 1, severity: 'error', code: 'RUNTIME_ERROR', message: `Error ${FAKE_SERVER_KEY} Bearer abcdefghijklmnop ${'x'.repeat(10000)}`,
+  })), viewports, screenshots }) })
+  const result = await f.generate()
+  assert.equal(result.data.success, false)
+  assert.equal(result.data.diagnostics.length, 8)
+  assert.ok(result.data.diagnostics.every(d => d.message.length <= 500))
+  const feedback = f.requests.find(r => r.context?.mode === 'repair').context.feedback
+  assert.equal(feedback.diagnostics.length, 8)
+  for (const value of [JSON.stringify(feedback.diagnostics), JSON.stringify(result.data.validation), await readFile(join(f.root, 'model-usage.json'), 'utf8')]) {
+    assert.doesNotMatch(value, /sk-live-paper-secret|abcdefghijklmnop|data:image|\/9j\//)
+  }
 })

@@ -1,8 +1,10 @@
-import { Dithering, DotOrbit, FlutedGlass, GrainGradient, HalftoneCmyk, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, Warp } from '@paper-design/shaders-react'
+import { Dithering, DotOrbit, FlutedGlass, GrainGradient, HalftoneCmyk, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, ShaderMount, Warp } from '@paper-design/shaders-react'
 import type { FlutedGlassProps, HalftoneCmykProps, PaperShaderElement } from '@paper-design/shaders-react'
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { ShaderPaint } from './types'
+import { meshUniforms } from './mesh'
+import { meshFragmentShader } from './meshFragment'
 
 function useSourceImage(source: string, onError: () => void) {
   const [loaded, setLoaded] = useState<{ source: string; image: HTMLImageElement } | null>(null)
@@ -62,19 +64,20 @@ export default function ShaderEngine({ paint, paused, onError, captureScale, cap
     width: '100%', height: '100%', style: { position: 'absolute' as const, inset: 0 },
     minPixelRatio: captureScale ?? 1, maxPixelCount: capturePixelCount ?? (captureScale ? 64_000_000 : 1_500_000),
     speed: paused || !paint.animated ? 0 : paint.speed,
-    frame: paint.frame, scale: paint.scale, rotation: paint.rotation, offsetX: paint.offsetX, offsetY: paint.offsetY,
+    frame: paint.frame,
     webGlContextAttributes: { alpha: true, antialias: false, powerPreference: 'high-performance' as const, preserveDrawingBuffer: !!captureScale },
   }
+  const placement = { scale: paint.scale, rotation: paint.rotation, offsetX: paint.offsetX, offsetY: paint.offsetY }
   switch (paint.kind) {
-    case 'mesh-gradient': return <MeshGradient {...common} {...paint.params} colors={[...paint.params.colors]} />
-    case 'dot-orbit': return <DotOrbit {...common} {...paint.params} colors={[...paint.params.colors]} />
-    case 'grain-gradient': return <GrainGradient {...common} {...paint.params} colors={[...paint.params.colors]} />
-    case 'halftone-cmyk': return <ImageHalftone {...common} {...paint.params} source={paint.params.image} onError={onError} fit="cover" />
-    case 'neuro-noise': return <NeuroNoise {...common} {...paint.params} />
-    case 'gooey': return <Metaballs {...common} {...paint.params} colors={[...paint.params.colors]} />
-    case 'dithering': return <Dithering {...common} {...paint.params} />
-    case 'perlin-noise': return <PerlinNoise {...common} {...paint.params} />
-    case 'liquid-distortion': return <Warp {...common} {...paint.params} colors={[...paint.params.colors]} />
-    case 'glass-refraction': return <ImageGlass {...common} {...paint.params} source={paint.params.image} onError={onError} fit="cover" />
+    case 'mesh-gradient': return paint.mesh ? <ShaderMount {...common} fragmentShader={meshFragmentShader} uniforms={meshUniforms(paint)} /> : <MeshGradient {...common} {...placement} {...paint.params} colors={[...paint.params.colors]} />
+    case 'dot-orbit': return <DotOrbit {...common} {...placement} {...paint.params} colors={[...paint.params.colors]} />
+    case 'grain-gradient': return <GrainGradient {...common} {...placement} {...paint.params} colors={[...paint.params.colors]} />
+    case 'halftone-cmyk': return <ImageHalftone {...common} {...placement} {...paint.params} source={paint.params.image} onError={onError} fit="cover" />
+    case 'neuro-noise': return <NeuroNoise {...common} {...placement} {...paint.params} />
+    case 'gooey': return <Metaballs {...common} {...placement} {...paint.params} colors={[...paint.params.colors]} />
+    case 'dithering': return <Dithering {...common} {...placement} {...paint.params} />
+    case 'perlin-noise': return <PerlinNoise {...common} {...placement} {...paint.params} />
+    case 'liquid-distortion': return <Warp {...common} {...placement} {...paint.params} colors={[...paint.params.colors]} />
+    case 'glass-refraction': return <ImageGlass {...common} {...placement} {...paint.params} source={paint.params.image} onError={onError} fit="cover" />
   }
 }

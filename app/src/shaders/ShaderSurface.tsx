@@ -56,7 +56,7 @@ export const ShaderSurface = memo(function ShaderSurface({ paint, style, classNa
     }
   }, [fail])
   const render = visible && failedResource !== resource && hasWebGL()
-  return <div ref={ref} className={`paper-shader-surface shader-surface ${className}`} data-shader={paint.kind} data-shader-fallback={visible && !render ? 'true' : undefined} style={{ background: fallbackPaint(paint), mixBlendMode: paint.composite?.blendMode ?? 'normal', opacity: paint.composite?.opacity ?? 1, ...style }} aria-hidden="true">
+  return <div ref={ref} className={`paper-shader-surface shader-surface ${className}`} data-shader={paint.kind} data-shader-fallback={visible && !render ? 'true' : undefined} style={{ background: render ? undefined : fallbackPaint(paint), mixBlendMode: paint.composite?.blendMode ?? 'normal', opacity: paint.composite?.opacity ?? 1, ...style }} aria-hidden="true">
     {render && <ShaderBoundary key={paint.kind} onError={fail}><Suspense fallback={null}><ShaderEngine key={`${paint.kind}:${paint.animated && !paused}`} paint={paint} paused={paused} onError={fail} /></Suspense></ShaderBoundary>}
   </div>
 })

@@ -1,5 +1,6 @@
 export { createShader, shaderCatalog, shaderKinds, updateShaderParameter, validateShader } from './catalog'
 export { ShaderSurface } from './ShaderSurface'
 export { ShaderInspector } from './ShaderInspector'
+export { exportMeshReact } from './shaderExport'
 export { shaderBlendModes } from './types'
 export type * from './types'

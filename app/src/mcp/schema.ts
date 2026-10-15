@@ -1,7 +1,7 @@
 import { TOKEN_META } from '../tokens/model.ts'
 import { motionControls, shaderCatalog, shaderKinds } from '../shaders/catalog.ts'
 import type { ShaderControl } from '../shaders/types.ts'
-import { shaderBlendModes } from '../shaders/types.ts'
+import { grainBlendModes, shaderBlendModes } from '../shaders/types.ts'
 
 /** The small JSON Schema vocabulary used by Paper's agent-facing contract. */
 export interface JsonSchema {
@@ -45,10 +45,18 @@ const motionProperties: Record<string, JsonSchema> = {
   animated: flag,
   ...Object.fromEntries(motionControls.map(control => [control.key, controlSchema(control)])),
 }
+const unitInterval: JsonSchema = { type: 'number', minimum: 0, maximum: 1 }
+const meshProperties = {
+  anchors: { ...list(object({ x: unitInterval, y: unitInterval, radius: { type: 'number', minimum: .1, maximum: 2 } }, ['x', 'y', 'radius'])), minItems: 2, maxItems: 10 },
+  turbulence: unitInterval,
+  frequency: { type: 'number', minimum: 1, maximum: 12 } as JsonSchema,
+  chromaticAberration: unitInterval,
+  grainBlend: { type: 'string', enum: grainBlendModes } as JsonSchema,
+}
 export const shaderSchema: JsonSchema = {
   anyOf: shaderKinds.map(kind => {
     const params = Object.fromEntries(shaderCatalog[kind].controls.map(control => [control.key, controlSchema(control)]))
-    return object({ kind: { type: 'string', enum: [kind] }, params: object(params, Object.keys(params)), composite: object({ blendMode: { type: 'string', enum: shaderBlendModes }, opacity: { type: 'number', minimum: 0, maximum: 1 } }, ['blendMode', 'opacity']), ...motionProperties }, ['kind', 'params', ...Object.keys(motionProperties)])
+    return object({ kind: { type: 'string', enum: [kind] }, params: object(params, Object.keys(params)), composite: object({ blendMode: { type: 'string', enum: shaderBlendModes }, opacity: { type: 'number', minimum: 0, maximum: 1 } }, ['blendMode', 'opacity']), ...(kind === 'mesh-gradient' ? { mesh: object(meshProperties, Object.keys(meshProperties)) } : {}), ...motionProperties }, ['kind', 'params', ...Object.keys(motionProperties)])
   }),
 }
 const stroke = object({ color: str(), width: nonnegative, dash: list(nonnegative) }, ['color', 'width', 'dash'])

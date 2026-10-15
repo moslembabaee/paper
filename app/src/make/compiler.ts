@@ -20,6 +20,9 @@ export type CompileDiagnosticCode =
   | 'MODULE_NOT_FOUND'
   | 'FORBIDDEN_CSS_IMPORT'
   | 'INVALID_INPUT'
+  | 'RUNTIME_ERROR'
+  | 'VISUAL_ERROR'
+  | 'VALIDATION_BLOCKED'
 
 export interface CompileDiagnostic {
   readonly file: string

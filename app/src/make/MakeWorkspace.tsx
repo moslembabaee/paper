@@ -90,8 +90,18 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
             return <article className="make-diagnostic" key={index}><strong>{item.title}</strong><code>{item.location}</code><p>{item.message}</p><p className="make-diagnostic-hint">{item.actionableHint}</p>
               {source ? <pre aria-label={`Source near line ${item.line}`}>{source.slice(Math.max(0, item.line - 2), item.line + 1).map((line, offset) => `${Math.max(1, item.line - 1) + offset}  ${line}`).join('\n')}</pre> : null}
             </article>
-          }) : <p className="make-diagnostics-empty">{running ? 'Compiled successfully. No issues found.' : 'Compiler details appear here after a run.'}</p>}
+          }) : <p className="make-diagnostics-empty">{running ? 'Compiled successfully. Review interactions in the preview.' : 'Compiler details appear here after a run.'}</p>}
         </section>
+        {state.validation || state.planStatus === 'generating_app' ? <section className="make-validation" aria-label="Agent validation" data-testid="make-validation" aria-live="polite" data-status={state.validation?.status ?? 'checking'}>
+          <h2>Agent validation <span>{state.validation ? `${state.validation.attempts.length} / ${state.validation.maxAttempts}` : 'Checking…'}</span></h2>
+          <p>{state.validation?.message ?? 'Building and checking desktop + mobile. At most one repair attempt.'}</p>
+          {state.validation?.attempts.map(attempt => <details key={attempt.attempt}>
+            <summary>Candidate {attempt.attempt} · {attempt.status}</summary>
+            {attempt.viewports.map(view => <p key={view.viewport}>{view.viewport} · {view.width} × {view.height} · Capture checked</p>)}
+            {attempt.diagnostics.map((diagnostic, index) => <p key={index}>{diagnostic.message}</p>)}
+          </details>)}
+          <small>Only this app is captured. Repair images are sent to your configured model provider; image bytes stay out of history and logs.</small>
+        </section> : null}
       </aside>
       <main className="make-stage" aria-label="Make preview">
         <div className="make-preview-toolbar"><div className="make-preview-label"><span className="make-status-dot" data-status={status} /><span>Preview</span><span className="make-preview-status" data-testid="make-preview-status" role="status">{status}</span></div>

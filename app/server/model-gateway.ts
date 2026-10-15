@@ -111,6 +111,10 @@ export class ServerModelGateway {
     }
   }
 
+  sanitizeFeedback(text: string): string {
+    return redactSensitiveText(text, [this.apiKey])
+  }
+
   listTurns(userId: string, appId?: string): ModelTurnRecord[] {
     return structuredClone((this.turns.get(userId) ?? []).filter(turn => !appId || turn.appId === appId))
   }
