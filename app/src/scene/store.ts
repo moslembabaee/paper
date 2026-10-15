@@ -536,6 +536,15 @@ export class SceneStore {
     this.refreshCompound(node, { ...node.boolean, operation }, `Change boolean to ${operation}`)
   }
 
+  /** Source order defines the base of subtraction and the stack when released. */
+  reorderBooleanOperands(id: string, operandIds: readonly string[]): void {
+    const node = this.requireCompound(id), sources = new Map(node.boolean.operands.map(source => [source.id, source]))
+    if (operandIds.length !== sources.size || new Set(operandIds).size !== sources.size || operandIds.some(sourceId => !sources.has(sourceId))) throw new Error('Source order must contain every boolean source exactly once')
+    if (operandIds.every((sourceId, index) => sourceId === node.boolean.operands[index].id)) return
+    const operands = operandIds.map((sourceId, zIndex) => ({ ...sources.get(sourceId)!, zIndex }))
+    this.refreshCompound(node, { ...node.boolean, operands }, 'Reorder boolean sources')
+  }
+
   updateBooleanOperand(id: string, operandId: string, patch: ElementPatch<'rectangle' | 'ellipse' | 'path'>): void {
     const node = this.requireCompound(id), operand = node.boolean.operands.find(source => source.id === operandId)
     if (!operand) throw new Error('Unknown boolean source')

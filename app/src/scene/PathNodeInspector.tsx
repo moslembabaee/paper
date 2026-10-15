@@ -3,7 +3,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { getHandleType } from './pathGeometry'
 import type { AnchorSelection, HandleType, PathContour } from './pathGeometry'
 
-type NodeAction = 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete'
+export type NodeAction = 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete' | 'toggle-closed'
 interface Props { contours: PathContour[]; selection: AnchorSelection[]; onEdit: (action: NodeAction, value?: number) => void }
 
 function NodeNumber({ label, value, disabled, min, onCommit }: { label: string; value: number | undefined; disabled?: boolean; min?: number; onCommit: (value: number) => void }) {
@@ -37,6 +37,7 @@ export function PathNodeInspector({ contours, selection, onEdit }: Props) {
   const mode = first ? first.in || first.out ? getHandleType(first) : 'corner' : null
   const sameMode = anchors.every(a => (a.in || a.out ? getHandleType(a) : 'corner') === mode)
   const single = selection.length === 1 ? selection[0] : undefined, contour = single ? contours[single.contour] : undefined
+  const selectedContour = selection.length && selection.every(p => p.contour === selection[0].contour) ? contours[selection[0].contour] : undefined
   const canInsert = single && contour && (contour.closed || single.anchor < contour.anchors.length - 1) && !contour.anchors.some(a => a.cornerRadius)
   return <aside className="node-inspector viewport-ui" aria-label="Vector node properties" data-testid="node-inspector">
     <div className="node-inspector-heading"><span className="pen-tool-label">VECTOR NODES</span><span className="node-selection-count">{anchors.length ? `${anchors.length} selected` : `${contours.length} subpath${contours.length === 1 ? '' : 's'}`}</span></div>
@@ -54,6 +55,7 @@ export function PathNodeInspector({ contours, selection, onEdit }: Props) {
       <NodeNumber label="Corner radius" value={common('cornerRadius')} min={0} disabled={selection.some(p => { const c = contours[p.contour]; return (!c.closed && (p.anchor === 0 || p.anchor === c.anchors.length - 1)) || !!c.anchors[(p.anchor + c.anchors.length - 1) % c.anchors.length].out || !!c.anchors[(p.anchor + 1) % c.anchors.length].in })} onCommit={value => onEdit('radius', value)} />
       <p className="node-inspector-note">{anchors.some(a => a.in || a.out) ? 'A radius converts the node to a corner.' : 'Radius is clamped to fit adjacent edges.'}</p>
       <div className="node-actions"><button disabled={!canInsert} title="Insert at the midpoint of the next segment" onClick={() => onEdit('insert')}><Plus size={12} />Insert node</button><button onClick={() => onEdit('delete')} title="Delete selected nodes · Backspace"><Trash2 size={12} />Delete</button></div>
+      {selectedContour && <button className="node-contour-toggle" disabled={selectedContour.anchors.length < 2} aria-label={selectedContour.closed ? 'Open selected subpath' : 'Close selected subpath'} onClick={() => onEdit('toggle-closed')}><span>{selectedContour.closed ? 'Closed subpath' : 'Open subpath'}</span><span>{selectedContour.closed ? 'Open path ↗' : 'Close path ↩'}</span></button>}
     </> : <p className="node-inspector-empty">Select an anchor to refine its position, handles, and corner radius.</p>}
     <div className="node-inspector-footer"><span>⇧ Multi-select</span><span>↑↓←→ Nudge</span></div>
   </aside>

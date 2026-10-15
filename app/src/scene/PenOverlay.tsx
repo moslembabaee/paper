@@ -3,8 +3,11 @@ import type { ViewportController } from '../canvas/ViewportController'
 import type { Point } from '../canvas/types'
 import { getWorldMatrix } from './geometry'
 import { copyContours, insertPathAnchor, moveAnchor, moveHandle, nearestPathSegment, parsePath, pathBounds, roundPathContours, serializePath, setHandleType, snapPathPoint } from './pathGeometry'
-import type { AnchorSelection, HandleType, PathAnchor, PathContour } from './pathGeometry'
+import type { AnchorSelection, PathAnchor, PathContour } from './pathGeometry'
 import { PathNodeInspector } from './PathNodeInspector'
+import type { NodeAction } from './PathNodeInspector'
+import { sceneVertexIndex, VertexIndex } from './vertexSnapping'
+import type { SnapVertex } from './vertexSnapping'
 import { PathDraftHistory } from './pathDraftHistory'
 import { getPixelSnap, subscribePixelSnap, togglePixelSnap } from './pixelSnap'
 import type { SceneStore } from './store'
@@ -33,6 +36,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
   })
   const [session, setSession] = useState(initial.session)
   const sessionRef = useRef<Session>(initial.session)
+  const geometryRevision = useRef(0)
   const finishRef = useRef<() => void>(() => {})
   const draftHistory = useRef(new PathDraftHistory())
   const [draftHistoryState, setDraftHistoryState] = useState({ canUndo: false, canRedo: false })
@@ -42,13 +46,18 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
   const [hover, setHover] = useState<Point | null>(null)
   const [selected, setSelected] = useState<AnchorSelection[]>([])
   const selectedRef = useRef(selected)
-  const editRef = useRef<(action: 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete', value?: number) => void>(() => {})
+  const editRef = useRef<(action: NodeAction, value?: number) => void>(() => {})
+  const [vertexSnap, setVertexSnap] = useState(true)
+  const vertexSnapRef = useRef(vertexSnap)
+  useLayoutEffect(() => { vertexSnapRef.current = vertexSnap }, [vertexSnap])
+  const [snapTarget, setSnapTarget] = useState<SnapVertex | null>(null)
   const [snapping, setSnapping] = useState(getPixelSnap)
   const snappingRef = useRef(snapping)
   useLayoutEffect(() => { snappingRef.current = snapping }, [snapping])
   useEffect(() => subscribePixelSnap(setSnapping), [])
   const [error, setError] = useState(initial.error)
   const redraw = () => {
+    geometryRevision.current++
     const session = sessionRef.current
     setSession({ ...session, contours: copyContours(session.contours) })
     const { canUndo, canRedo } = draftHistory.current
@@ -80,6 +89,47 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       }
       return s.parentId ? inversePoint(getWorldMatrix(state, s.parentId), world) : world
     }
+    const worldPoint = (p: Point): Point => {
+      const s = sessionRef.current, state = store.getSnapshot(), n = s.id ? state.elements[s.id] : undefined
+      if (n?.type === 'path') return mapPoint(getWorldMatrix(state, n.id), { x: (p.x - n.viewBox[0]) * n.width / n.viewBox[2], y: (p.y - n.viewBox[1]) * n.height / n.viewBox[3] })
+      return s.parentId ? mapPoint(getWorldMatrix(state, s.parentId), p) : p
+    }
+    let indexedElements: ReturnType<SceneStore['getSnapshot']>['elements'] | null = null
+    let vertexIndex = new VertexIndex([])
+    let ownIndex = new VertexIndex([]), ownRevision = -1, ownGesture: Gesture | null = null
+    const snap = (event: PointerEvent, point = localPoint(event)): Point => {
+      if (!vertexSnapRef.current || event.altKey || event.shiftKey || gesture && (gesture.handle || gesture.creating || penMode)) {
+        setSnapTarget(null)
+        return snapPathPoint(point, snappingRef.current && !event.altKey)
+      }
+      const s = sessionRef.current, state = store.getSnapshot(), zoom = controller.getSnapshot().camera.zoom
+      if (!gesture && indexedElements !== state.elements) { vertexIndex = sceneVertexIndex(state, s.id); indexedElements = state.elements }
+      const world = worldPoint(point)
+      // Stationary anchors do not change during a drag. Index once per gesture,
+      // excluding every selected anchor so a multi-selection cannot catch itself.
+      if (ownGesture !== gesture || !gesture && ownRevision !== geometryRevision.current) {
+        const moving = new Set(gesture ? selectedRef.current.map(p => `${p.contour}:${p.anchor}`) : [])
+        const n = s.id ? state.elements[s.id] : undefined
+        const matrix = n ? getWorldMatrix(state, n.id) : s.parentId ? getWorldMatrix(state, s.parentId) : null
+        const toWorld = (p: Point): Point => {
+          const local = n?.type === 'path' ? { x: (p.x - n.viewBox[0]) * n.width / n.viewBox[2], y: (p.y - n.viewBox[1]) * n.height / n.viewBox[3] } : p
+          return matrix ? mapPoint(matrix, local) : local
+        }
+        ownIndex = new VertexIndex(s.contours.flatMap((c, ci) => c.anchors.flatMap((a, ai) => moving.has(`${ci}:${ai}`) ? [] : [{ ...toWorld(a), label: ci === s.contours.length - 1 && ai === 0 && !c.closed && c.anchors.length > 1 ? 'Close path' : 'Path vertex' }])))
+        ownGesture = gesture; ownRevision = geometryRevision.current
+      }
+      const ownTarget = ownIndex.nearest(world, zoom), otherTarget = vertexIndex.nearest(world, zoom)
+      const distance = (p: Point) => (p.x - world.x) ** 2 + (p.y - world.y) ** 2
+      const target = ownTarget && (!otherTarget || distance(ownTarget) <= distance(otherTarget)) ? ownTarget : otherTarget
+      setSnapTarget(target)
+      if (!target) return snapPathPoint(point, snappingRef.current)
+      const n = s.id ? state.elements[s.id] : undefined
+      if (n?.type === 'path') {
+        const p = inversePoint(getWorldMatrix(state, n.id), target)
+        return { x: p.x / n.width * n.viewBox[2] + n.viewBox[0], y: p.y / n.height * n.viewBox[3] + n.viewBox[1] }
+      }
+      return s.parentId ? inversePoint(getWorldMatrix(state, s.parentId), target) : target
+    }
     const publish = () => {
       const s = sessionRef.current, node = s.id ? store.getSnapshot().elements[s.id] : undefined
       if (node?.type === 'path' && !node.boolean && !store.isLocked(node.id) && store.isVisible(node.id)) store.update(node.id, 'path', { nodes: s.contours })
@@ -102,6 +152,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       if (frame) cancelAnimationFrame(frame)
       frame = 0; pending = null
       const previous = gesture; gesture = null
+      setSnapTarget(null)
       if (previous && dragBefore && cancel) sessionRef.current.contours = dragBefore
       if (previous?.creating && dragBefore && !cancel) draftHistory.current.record(dragBefore, sessionRef.current.contours)
       dragBefore = null
@@ -117,7 +168,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       if (next) { sessionRef.current.contours = next; chooseMany([]); setHover(null); redraw() }
     }
     draftUndoRef.current = undoDraft
-    const editSelected = (action: 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete', value?: number) => {
+    const editSelected = (action: NodeAction, value?: number) => {
       stopGesture()
       const s = sessionRef.current, selected = selectedRef.current
       if (!selected.length) return
@@ -128,6 +179,10 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
           s.contours = s.contours.map((c, ci) => ({ ...c, anchors: c.anchors.filter((_, ai) => !removed.has(`${ci}:${ai}`)) })).filter(c => c.anchors.length > 1)
           chooseMany([])
           if (s.id && !s.contours.length) { store.remove(s.id); callbackRef.current(); return }
+        } else if (action === 'toggle-closed') {
+          if (!selected.every(p => p.contour === selected[0].contour)) return
+          const contour = s.contours[selected[0].contour]
+          if (contour?.anchors.length > 1) contour.closed = !contour.closed
         } else if (action === 'insert') {
           const p = selected[0], c = s.contours[p.contour]
           if (!c || (!c.closed && p.anchor === c.anchors.length - 1)) return
@@ -143,7 +198,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
           else if (action === 'mirrored' || action === 'asymmetric' || action === 'disconnected') c.anchors[p.anchor] = setHandleType(c, p.anchor, action)
         }
         publish(); normalize()
-      }, action === 'delete' ? 'Delete path nodes' : action === 'insert' ? 'Insert path node' : 'Edit path nodes')
+      }, action === 'delete' ? 'Delete path nodes' : action === 'insert' ? 'Insert path node' : action === 'toggle-closed' ? 'Toggle subpath closure' : 'Edit path nodes')
       if (before) { draftHistory.current.record(before, s.contours); redraw() }
     }
     editRef.current = editSelected
@@ -170,6 +225,9 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       if (editingId && !s.contours.length) return
       if (s.id && (store.isLocked(s.id) || !store.isVisible(s.id) || store.getHistorySnapshot().active)) return
       event.preventDefault(); viewport.focus({ preventScroll: true }); controller.stop()
+      if (indexedElements !== store.getSnapshot().elements) {
+        vertexIndex = sceneVertexIndex(store.getSnapshot(), s.id); indexedElements = store.getSnapshot().elements
+      }
       let contourIndex: number, anchorIndex: number, handle: 'in' | 'out' | undefined
       const control = target.closest<SVGElement>('[data-anchor]')
       if (control) {
@@ -200,7 +258,11 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
         let contour = s.contours.at(-1)
         if (!contour || contour.closed) { contour = { anchors: [], closed: false }; s.contours.push(contour) }
         contourIndex = s.contours.length - 1
-        let p = snapPathPoint(localPoint(event), snappingRef.current && !event.altKey)
+        let p = snap(event)
+        const first = contour.anchors[0]
+        if (first && !contour.closed && contour.anchors.length > 1 && Math.hypot(p.x - first.x, p.y - first.y) < 1e-8) {
+          store.batch(() => { contour.closed = true; publish(); normalize() }, 'Close vector path'); finish(); return
+        }
         const last = contour.anchors.at(-1)
         if (event.shiftKey && last) {
           const angle = Math.round(Math.atan2(p.y - last.y, p.x - last.x) / (Math.PI / 4)) * Math.PI / 4, length = Math.hypot(p.x - last.x, p.y - last.y)
@@ -221,12 +283,20 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       setHover(null); root.setPointerCapture(event.pointerId)
     }
     const applyMove = (event: PointerEvent) => {
-      let p = snapPathPoint(localPoint(event), snappingRef.current && !event.altKey)
+      let p = localPoint(event)
+      if (gesture && !gesture.moved) {
+        const start = worldPoint(gesture.start), current = worldPoint(p)
+        if (Math.hypot(current.x - start.x, current.y - start.y) * controller.getSnapshot().camera.zoom < 2) return
+      }
+      if (gesture && !gesture.handle && !gesture.creating && !penMode) {
+        // Snap the anchor, preserving where on its hit area the drag began.
+        const candidate = { x: gesture.original.x + p.x - gesture.start.x, y: gesture.original.y + p.y - gesture.start.y }
+        const snapped = snap(event, candidate)
+        p = { x: gesture.start.x + snapped.x - gesture.original.x, y: gesture.start.y + snapped.y - gesture.original.y }
+      } else p = snap(event, p)
       if (!gesture) { setHover(penMode ? p : null); return }
       const g = gesture, s = sessionRef.current, anchor = s.contours[g.contour]?.anchors[g.anchor]
       if (!anchor) return
-      const scale = controller.getSnapshot().camera.zoom
-      if (!g.moved && Math.hypot(p.x - g.start.x, p.y - g.start.y) * scale < 2) return
       g.moved = true
       if (event.shiftKey && (g.handle || g.creating || penMode)) {
         const angle = Math.round(Math.atan2(p.y - anchor.y, p.x - anchor.x) / (Math.PI / 4)) * Math.PI / 4, length = Math.hypot(p.x - anchor.x, p.y - anchor.y)
@@ -249,7 +319,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
     }
     const move = (event: PointerEvent) => {
       if (gesture && gesture.pointerId !== event.pointerId) return
-      if ((event.target as Element).closest('.viewport-ui') || viewport.dataset.space === 'true' || viewport.dataset.panning === 'true') return
+      if ((event.target as Element).closest('.viewport-ui') || viewport.dataset.space === 'true' || viewport.dataset.panning === 'true') { setSnapTarget(null); return }
       pending = event
       if (!frame) frame = requestAnimationFrame(() => { frame = 0; if (pending) applyMove(pending); pending = null })
     }
@@ -344,6 +414,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
   return <div ref={rootRef} className={`pen-overlay ${penMode ? 'is-pen' : 'is-path-edit'}`} data-testid="pen-overlay">
     <svg className="pen-geometry" aria-label="Path anchors and Bézier handles">
       <path className="pen-preview" data-testid="pen-preview" d={preview} />
+      {snapTarget && <g className="pen-snap-target" data-testid="pen-snap-target" transform={`translate(${snapTarget.x * camera.zoom + camera.x} ${snapTarget.y * camera.zoom + camera.y})`}><circle r="8" /><path d="M-12 0H-5M5 0H12M0-12V-5M0 5V12" /><text x="14" y="-12">{snapTarget.label}</text></g>}
       {screenContours.map((c, ci) => c.anchors.map((a, ai) => <g key={`${ci}-${ai}`}>
         {(penMode || selectionKeys.has(`${ci}:${ai}`)) && (['in', 'out'] as const).map(handle => a[handle] ? <g key={handle}><line x1={a.x} y1={a.y} x2={a[handle].x} y2={a[handle].y} className="pen-handle-line" /><circle cx={a[handle].x} cy={a[handle].y} r={4} className="pen-control" data-contour={ci} data-anchor={ai} data-control={handle} aria-label={`Subpath ${ci + 1}, ${handle === 'in' ? 'incoming' : 'outgoing'} handle ${ai + 1}`} /></g> : null)}
         <rect x={a.x - 4} y={a.y - 4} width={8} height={8} className={`pen-anchor ${selectionKeys.has(`${ci}:${ai}`) ? 'is-active' : ''}`} data-contour={ci} data-anchor={ai} aria-label={`Subpath ${ci + 1}, anchor ${ai + 1}`} />
@@ -358,6 +429,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
         <button disabled={!draftHistoryState.canRedo} aria-label="Redo pen point" title="Redo draft edit · Ctrl/⌘⇧Z" onClick={() => draftUndoRef.current(true)}>Redo</button>
       </>}
       <button aria-pressed={snapping} onClick={() => togglePixelSnap()} title="Snap to half pixels · ⌘⇧'">Pixel snap</button>
+      <button aria-pressed={vertexSnap} onClick={() => { setVertexSnap(value => !value); setSnapTarget(null) }} title="Snap to nearby path anchors and shape vertices · Hold Alt to bypass">Vertex snap</button>
       <button onClick={() => finishRef.current()}>Done <kbd>↵</kbd></button>
     </div>
   </div>

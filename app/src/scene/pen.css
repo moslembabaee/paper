@@ -13,6 +13,10 @@
 .pen-help button[aria-pressed='true'] { background:var(--paper-accent-soft); }
 .pen-help button:disabled { opacity:.35; cursor:default; }
 .pen-help button:focus-visible { outline:2px solid #81adec; outline-offset:2px; }
+.pen-snap-target { pointer-events:none; fill:none; stroke:#81adec; stroke-width:1; }
+.pen-snap-target text { fill:var(--paper-text); stroke:var(--paper-surface); stroke-width:3px; paint-order:stroke; font:10px var(--font-mono); }
+.node-contour-toggle { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; margin-top:12px; padding:10px 0 0; border:0; border-top:1px solid var(--paper-border); background:transparent; color:var(--paper-text-muted); font:9px var(--font-mono); cursor:pointer; }
+.node-contour-toggle > span:last-child { color:var(--paper-accent-text); }
 .pen-help kbd { margin-left:8px; color:var(--paper-text-muted); }
 .canvas-viewport[data-space='true'] .pen-overlay, .canvas-viewport[data-pan-mode='true'] .pen-overlay { pointer-events:none; }
 .node-inspector { position:absolute; right:16px; top:16px; width:248px; padding:16px; border:1px solid var(--paper-border); border-radius:8px; background:var(--paper-surface); box-shadow:0 8px 32px #08080812; cursor:default; color:var(--paper-text); }
