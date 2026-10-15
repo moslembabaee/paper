@@ -1,6 +1,6 @@
 // Host-only: build Paper's installed, trusted runtime, never generated sources.
 import { createRequire } from 'node:module'
-import { build } from 'vite'
+import { readFile } from 'node:fs/promises'
 
 export const DEFAULT_ALLOWED_PACKAGES = Object.freeze([
   'react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom',
@@ -11,7 +11,12 @@ let runtimeBuild: Promise<string> | undefined
 
 export function getPreviewRuntime(): Promise<string> {
   if (!runtimeBuild) {
-    runtimeBuild = bundleRuntime().catch(error => {
+    runtimeBuild = readFile(new URL('./preview-runtime.js', import.meta.url), 'utf8').catch(error => {
+      if (error.code !== 'ENOENT') throw error
+      // Source-level development/tests can build the trusted installed packages.
+      // Production receives this immutable artifact from build:server.
+      return bundlePreviewRuntime()
+    }).catch(error => {
       runtimeBuild = undefined
       throw error
     })
@@ -19,7 +24,8 @@ export function getPreviewRuntime(): Promise<string> {
   return runtimeBuild
 }
 
-async function bundleRuntime(): Promise<string> {
+export async function bundlePreviewRuntime(): Promise<string> {
+  const { build } = await import('vite')
   const require = createRequire(import.meta.url)
   const packages = DEFAULT_ALLOWED_PACKAGES
   const source = packages.map((name, i) => `import * as p${i} from ${JSON.stringify(require.resolve(name))};`).join('\n') +

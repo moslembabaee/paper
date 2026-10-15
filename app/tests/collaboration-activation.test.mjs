@@ -13,6 +13,9 @@ function hooks() {
   const slots = [], effects = []
   let cursor = 0
   const react = {
+    Activity: 'activity',
+    Suspense: 'suspense',
+    lazy: () => () => null,
     useState(initial) {
       const index = cursor++
       slots[index] ??= { value: typeof initial === 'function' ? initial() : initial }
@@ -212,7 +215,9 @@ async function editorHarness(t, hash = '') {
   // Use separate hook slots for Studio and its keyed Editor.
   const originalState = h.react.useState
   h.react.useState = outer.react.useState
-  const editor = outer.render(() => Studio({ account: {} }))
+  const tree = outer.render(() => Studio({ account: {} }))
+  const editor = nodes(tree).find(node => typeof node.type === 'function' && node.type.name === 'Editor')
+  assert.ok(editor, 'Studio retains the design Editor inside its workspace boundary')
   h.react.useState = originalState
   const render = () => h.render(() => editor.type(editor.props))
   const presence = () => nodes(render()).find(node => node.type === PresenceBar).props

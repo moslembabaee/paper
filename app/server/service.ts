@@ -5,7 +5,8 @@ import { Storage, httpError, safeId } from './storage.ts'
 import { RemoteMcpGateway } from './mcp.ts'
 import { CollaborationServer } from '../collaboration/server.ts'
 import type { CloudProject } from '../src/cloud/model.ts'
-import { APP_PROJECT_LIMITS, AppProjectValidationError, generateAppProjectId, parseJsonStrict } from '../src/make/manifest.ts'
+import { APP_PROJECT_LIMITS, AppProjectValidationError, generateAppProjectId, parseJsonStrict, validateAppProject } from '../src/make/manifest.ts'
+import { compileAppProject, compileSourceFiles } from '../src/make/compiler.ts'
 
 export interface ServiceConfig {
   root: string
@@ -277,6 +278,32 @@ export async function createService(config: ServiceConfig) {
           const file = await storage.apps.readFile(user.id, id, filePath)
           if (!file) throw httpError(404, 'File not found')
           json(res, 200, file)
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      // Transform bounded sources without executing generated code on the server.
+      const appCompileRoute = path.match(/^\/api\/(apps|app-projects)\/compile$/)
+      if (appCompileRoute && req.method === 'POST') {
+        const input = await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES)
+        if (input.entryPoint !== undefined && typeof input.entryPoint !== 'string') throw httpError(400, 'Expected a string entryPoint')
+        const options = { entryPoint: typeof input.entryPoint === 'string' ? input.entryPoint : undefined }
+        const result = Object.hasOwn(input, 'files') && !Object.hasOwn(input, 'format')
+          ? await compileSourceFiles(input.files, options)
+          : await compileAppProject(validateAppProject(input.project ?? input), options)
+        json(res, 200, result)
+        return
+      }
+
+      const appItemCompileRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/compile$/)
+      if (appItemCompileRoute) {
+        const id = safeId(decodeAppPath(appItemCompileRoute[2]), 'app ID')
+        if (req.method === 'POST') {
+          const record = await storage.apps.read(user.id, id)
+          if (!record) throw httpError(404, 'App project not found')
+          const result = await compileAppProject(record)
+          json(res, 200, result)
           return
         }
         throw httpError(405, 'Method not allowed')

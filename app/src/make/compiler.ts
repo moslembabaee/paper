@@ -3,7 +3,7 @@ import ts from 'typescript'
 import postcss from 'postcss'
 import { DEFAULT_ALLOWED_PACKAGES, getPreviewRuntime } from './compiler-runtime.ts'
 export { DEFAULT_ALLOWED_PACKAGES } from './compiler-runtime.ts'
-import type { AppProject, AppSourceFile } from './types.ts'
+import type { AppProject } from './types.ts'
 import { APP_PROJECT_LIMITS, normalizeAndValidatePath } from './manifest.ts'
 import { generatePreviewHtml } from './preview-sandbox.ts'
 
@@ -586,7 +586,7 @@ ${serializedModules}
 
 /** Async, host-only. No generated scripts, configuration, dependency installs or code evaluation. */
 export async function compileSourceFiles(
-  rawFiles: Record<string, AppSourceFile | string> | readonly AppSourceFile[],
+  rawFiles: unknown,
   options: CompileOptions = {}
 ): Promise<CompileResult> {
   const startTime = Date.now()
