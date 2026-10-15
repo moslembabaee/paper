@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-42",
+  "current_task_id": "T-ISSUE-43",
   "tasks": [
     {
       "id": "T-ISSUE-42",
@@ -22,10 +22,11 @@
       "title": "Issue #43: chore(cleanup): Decommission in-app roadmap module, Vite plugin, and test suites",
       "description": "### \ud83d\udccc Overview & Objective\nFollowing the removal of the Roadmap trigger button from the Studio UI (#42), the underlying client roadmap module, Vite dev plugin, and associated tests should be decommissioned and removed from the codebase to eliminate dead code and bundle bloat.\n\n### \ud83c\udfaf Scope of Work\n1. **Remove Roadmap Module**:\n   - Delete `app/src/roadmap/` directory (`RoadmapDialog.tsx`, `model.ts`, `useRoadmap.ts`, `roadmap.css`, `snapshot.json`, `plugin.ts`).\n2. **Vite Configuration**:\n   - Remove `roadmapPlugin()` and its import from `app/vite.config.ts`.\n3. **Test & Docs Cleanup**:\n   - Remove obsolete roadmap test files: `app/tests/roadmap.test.mjs` and `app/e2e/roadmap.spec.ts`.\n   - Remove `app/docs/roadmap.md` if present.\n4. **Verification**:\n   - Run `npm run build` and tests to ensure no remaining dangling imports or bundle errors.\n\n### \u2705 Acceptance Criteria\n- [ ] `app/src/roadmap/` directory is completely removed.\n- [ ] `app/vite.config.ts` has no reference to `roadmapPlugin`.\n- [ ] Obsolete roadmap test files are cleaned up and `npm run build` passes with zero errors.\n\nReference: Closes #43",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 43
+      "github_issue_number": 43,
+      "completed_at": "2026-10-15T07:30:23.082776"
     },
     {
       "id": "T-ISSUE-17",
@@ -843,7 +844,7 @@
       "title": "Issue #30: feat(make 13): Responsive preview breakpoints and interaction checks",
       "description": "Scope: Provide mobile/tablet/desktop preview widths and per-size interaction rerun, without modifying source or saved layout implicitly.\nAcceptance: Browser E2E checks UI controls and overflow at narrow/wide widths; viewport changes preserve app state or explicitly reset it.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
+      "status": "approved",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 30

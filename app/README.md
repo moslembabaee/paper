@@ -76,9 +76,6 @@ Double-click an outline edge to insert an anchor without changing its curve, or 
 
 Run `npm test` for node geometry, persistence, and undo regressions, and `npx playwright test e2e/path-edit.spec.ts` for canvas interaction coverage.
 
-## Community roadmap
-
-Open **Roadmap** in the editor footer for live development tasks, completed features, progress, and search. Development reads the repository roadmap; production builds ship a public snapshot. See [feed format and self-hosted update instructions](docs/roadmap.md).
 
 ## Paper native MCP server
 
