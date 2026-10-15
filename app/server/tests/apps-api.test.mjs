@@ -12,7 +12,7 @@ const secret = 'a-persistent-secret-for-apps-api-tests-12345'
 
 async function fixture(t, extra = {}) {
   const root = await mkdtemp(join(tmpdir(), 'paper-apps-api-'))
-  const service = await createService({ root, secret, origin: 'http://localhost:3000', ...extra })
+  let service = await createService({ root, secret, origin: 'http://localhost:3000', ...extra })
   const responses = []
   t.after(async () => {
     service.close()
@@ -72,7 +72,10 @@ async function fixture(t, extra = {}) {
     }
   }
 
-  return { ...service, root, open, request, login }
+  return { ...service, root, open, request, login, restart: async () => {
+    service.close()
+    service = await createService({ root, secret, origin: 'http://localhost:3000', ...extra })
+  } }
 }
 
 test('app project endpoints enforce session authentication and CSRF guards', async t => {
@@ -552,4 +555,102 @@ test('annotations persist across service restart, remain account scoped and reje
   assert.deepEqual(reloaded.annotations, [annotation])
   assert.equal(reloaded.revision, updated.data.revision)
   assert.deepEqual(reloaded.files, created.data.files)
+})
+
+test('history restore and re-edit survive service restart and retain every immutable checkpoint', async t => {
+  const f = await fixture(t), a = await f.login('history-owner')
+  const headers = a.headers
+  const original = createAppProject({ id: 'history', files: { 'src/App.tsx': 'export default () => <h1>Original</h1>' } })
+  const created = await f.request('/api/apps', { method: 'POST', headers, body: JSON.stringify({ project: original }) })
+  assert.equal(created.status, 201)
+  let project = created.data
+  for (const source of ['manual', 'inspector']) {
+    const response = await f.request('/api/apps/history', { method: 'PUT', headers, body: JSON.stringify({
+      project: { ...project, files: { 'src/App.tsx': { path: 'src/App.tsx', content: `export default () => <h1>${source}</h1>` } } }, expectedRevision: project.revision, source,
+    }) })
+    assert.equal(response.status, 200)
+    project = response.data
+  }
+  const old = (await f.request('/api/apps/history/revisions/1', { headers })).data
+  await f.restart()
+  const restored = await f.request('/api/apps/history/rollback', { method: 'POST', headers, body: JSON.stringify({ expectedRevision: 3, targetRevision: 1 }) })
+  assert.equal(restored.status, 200, JSON.stringify(restored.data))
+  assert.equal(restored.data.project.revision, 4)
+  assert.deepEqual(restored.data.project.files, old.project.files)
+  assert.ok(restored.data.assets.js)
+  const reedit = await f.request('/api/apps/history', { method: 'PUT', headers, body: JSON.stringify({ project: { ...restored.data.project, name: 'Re-edited after restore' }, expectedRevision: 4 }) })
+  assert.equal(reedit.status, 200)
+  await f.restart()
+  assert.equal((await f.request('/api/apps/history', { headers })).data.name, 'Re-edited after restore')
+  assert.deepEqual((await f.request('/api/apps/history/revisions/1', { headers })).data, old)
+  const history = (await f.request('/api/apps/history/revisions', { headers })).data.revisions
+  assert.deepEqual(history.map(r => r.revision), [1, 2, 3, 4, 5])
+  assert.deepEqual(history.map(r => r.checkpoint.source), ['initial', 'manual', 'inspector', 'restore', 'manual'])
+  assert.equal(history[3].checkpoint.restoredFromRevision, 1)
+  assert.equal(history[3].diff.baseRevision, 3)
+  assert.equal(history[3].diff.targetRevision, 4)
+})
+
+test('concurrent restores and source edits accept exactly one writer and never rewrite history', async t => {
+  const f = await fixture(t), a = await f.login('history-race')
+  const headers = a.headers, id = 'history-race'
+  const original = await f.storage.apps.put(a.user.id, id, createAppProject({ id, files: { 'src/App.tsx': 'export default () => <h1>Original</h1>' } }), null)
+  await f.storage.apps.put(a.user.id, id, { ...original, name: 'Second' }, 1)
+  const restores = await Promise.all(Array.from({ length: 2 }, () => f.request(`/api/apps/${id}/rollback`, { method: 'POST', headers, body: JSON.stringify({ expectedRevision: 2, targetRevision: 1 }) })))
+  assert.deepEqual(restores.map(r => r.status).sort(), [200, 409])
+  const current = (await f.request(`/api/apps/${id}`, { headers })).data
+  const results = await Promise.all([
+    f.request(`/api/apps/${id}/rollback`, { method: 'POST', headers, body: JSON.stringify({ expectedRevision: 3, targetRevision: 1 }) }),
+    f.request(`/api/apps/${id}`, { method: 'PUT', headers, body: JSON.stringify({ project: { ...current, name: 'Concurrent edit' }, expectedRevision: 3 }) }),
+  ])
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 409])
+  assert.deepEqual((await f.request(`/api/apps/${id}/revisions/1`, { headers })).data.project, original)
+  assert.equal((await f.request(`/api/apps/${id}`, { headers })).data.revision, 4)
+})
+
+test('restore enforces ownership, CSRF, strict targets, and compilation before committing', async t => {
+  const f = await fixture(t), a = await f.login('history-secure'), b = await f.login('history-other')
+  const id = 'history-secure'
+  const broken = await f.storage.apps.put(a.user.id, id, createAppProject({ id, files: { 'src/App.tsx': "import fs from 'node:fs'; export default () => <h1 />" } }), null)
+  const working = await f.storage.apps.put(a.user.id, id, { ...broken, files: { 'src/App.tsx': { path: 'src/App.tsx', content: 'export default () => <h1>Working</h1>' } } }, 1)
+  const restore = (headers, input) => f.request(`/api/apps/${id}/rollback`, { method: 'POST', headers, body: JSON.stringify(input) })
+  assert.equal((await restore({}, { expectedRevision: 2, targetRevision: 1 })).status, 401)
+  assert.equal((await restore({ Cookie: a.headers.Cookie }, { expectedRevision: 2, targetRevision: 1 })).status, 403)
+  assert.equal((await restore(b.headers, { expectedRevision: 2, targetRevision: 1 })).status, 404)
+  for (const targetRevision of ['1', null, 0, -1, 1.5, 2, 999]) {
+    assert.equal((await restore(a.headers, { expectedRevision: 2, targetRevision })).status, 400)
+  }
+  assert.equal((await restore(a.headers, { expectedRevision: 1, targetRevision: 1 })).status, 409)
+  assert.equal((await restore(a.headers, { expectedRevision: 2, targetRevision: 1 })).status, 422)
+  const forged = await f.request(`/api/apps/${id}`, { method: 'PUT', headers: a.headers, body: JSON.stringify({ project: working, expectedRevision: 2, source: 'chat' }) })
+  assert.equal(forged.status, 400)
+  assert.deepEqual(await f.storage.apps.read(a.user.id, id), working)
+  assert.equal((await f.storage.apps.listRevisions(a.user.id, id)).length, 2)
+})
+
+test('restoring detached assets uses retained bytes; missing bytes reject without changing head', async t => {
+  const f = await fixture(t), a = await f.login('history-assets')
+  const id = 'history-assets', headers = a.headers
+  const project = await f.storage.apps.put(a.user.id, id, createAppProject({ id, files: { 'src/App.tsx': 'export default () => <h1>Assets</h1>' } }), null)
+  const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><rect width="20" height="20"/></svg>')
+  const { asset, project: uploaded } = await f.storage.apps.uploadAsset(a.user.id, id, 'retained.svg', svg, project.revision)
+  const withImage = await f.storage.apps.put(a.user.id, id, { ...uploaded, files: {
+    'src/App.tsx': { path: 'src/App.tsx', content: `export default () => <img alt="Retained" src="paper-asset:${asset.id}" />` },
+  } }, 2)
+  await f.storage.apps.detachAsset(a.user.id, id, asset.id, 3)
+  await f.restart()
+  const restore = expectedRevision => f.request(`/api/apps/${id}/rollback`, { method: 'POST', headers, body: JSON.stringify({ expectedRevision, targetRevision: 3 }) })
+  const restored = await restore(4)
+  assert.equal(restored.status, 200, JSON.stringify(restored.data))
+  assert.deepEqual(restored.data.project.assetIds, [asset.id])
+  assert.deepEqual(restored.data.project.files, withImage.files)
+  assert.match(restored.data.assets.js, /data:image\/svg\+xml;base64,/)
+  assert.ok(!restored.data.assets.js.includes(`paper-asset:${asset.id}`))
+  assert.equal((await f.request(`/api/apps/${id}/assets/${asset.id}`, { headers })).status, 200)
+  const detached = await f.storage.apps.detachAsset(a.user.id, id, asset.id, 5)
+  await rm(join(f.root, 'apps', a.user.id, id, 'assets', `${asset.id}.json`))
+  const missing = await restore(6)
+  assert.equal(missing.status, 404)
+  assert.deepEqual((await f.request(`/api/apps/${id}`, { headers })).data, detached)
+  assert.deepEqual((await f.request(`/api/apps/${id}/revisions`, { headers })).data.revisions.map(r => r.revision), [1, 2, 3, 4, 5, 6])
 })

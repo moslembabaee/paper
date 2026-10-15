@@ -1,8 +1,8 @@
 # 🗺️ Live Development Roadmap & Task Tracker
 
-> **Last Updated:** `2026-10-15 10:38:11 UTC`  
+> **Last Updated:** `2026-10-15 11:54:10 UTC`  
 > **Supervisor:** Autonomous Tri-Agent Orchestra (`Claude Code` ↔ `OpenAI Codex` ↔ `Google Antigravity`)  
-> **Progress:** `[█████████████████░░░]` **71 / 82** tasks completed (**86%**)
+> **Progress:** `[█████████████████░░░]` **72 / 82** tasks completed (**87%**)
 
 ---
 
@@ -22,6 +22,7 @@ _All queued tasks in this cycle are completed. New evolution tasks are continuou
 
 | Status | Task ID | Title | Agent | Phase | Completed At |
 |:---:|:---|:---|:---:|:---|:---|
+| 🟢 Done | `T-ISSUE-34` | Issue #34: feat(make 17): Immutable app version history and restore | `CLAUDE` | Paper Make | `2026-10-15 11:54:10` |
 | 🟢 Done | `T-ISSUE-33` | Issue #33: feat(make 16): Source editor with diagnostics and conflict guard | `CLAUDE` | Paper Make | `2026-10-15 10:38:11` |
 | 🟢 Done | `T-ISSUE-32` | Issue #32: feat(make 15): Direct visual properties for selected Make element | `CLAUDE` | Paper Make | `2026-10-15 10:02:18` |
 | 🟢 Done | `T-ISSUE-31` | Issue #31: feat(make 14): Select preview element and attach annotations | `CLAUDE` | Paper Make | `2026-10-15 08:40:41` |

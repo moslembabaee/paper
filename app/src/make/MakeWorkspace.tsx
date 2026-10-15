@@ -8,6 +8,7 @@ import { DiffInspection } from './DiffInspection'
 import { AssetPanel } from './AssetPanel'
 import { AnnotationPanel } from './AnnotationPanel'
 import { SourceEditor } from './SourceEditor'
+import { VersionHistory } from './VersionHistory'
 import { PREVIEW_VIEWPORTS, formatViewportDimensions, getViewportConfig, isValidDeviceViewport } from './breakpoints'
 import './make.css'
 
@@ -80,6 +81,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         {state.currentDiff ? <DiffInspection diff={state.currentDiff} rollbackRevision={state.rollbackPoint?.revision} busy={busy || planBusy} onRollback={() => { void store.rollback().catch(() => {}) }} /> : null}
         <AssetPanel project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} onChange={store.acceptAssetProject} />
         <SourceEditor store={store} state={state} disabled={busy} planBusy={planBusy} />
+        <VersionHistory store={store} state={state} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         <section className="make-diagnostics" data-testid="make-diagnostics" aria-label="Compiler diagnostics">
           <h2>Diagnostics<span>{state.diagnostics.length.toString().padStart(2, '0')}</span></h2>
           {state.diagnostics.length ? state.diagnostics.map((diagnostic, index) => {

@@ -335,3 +335,15 @@ read-only elements, injection rejection, failed validation and revision conflict
 It also runs annotation and responsive regressions. Chromium must launch for this
 gate to pass; a sandbox launch failure blocks browser acceptance. Screenshots are
 written to `/tmp/paper-visual-inspector-{desktop,mobile}.png`.
+
+### Immutable version history
+
+Open **Version history** to browse account-scoped checkpoints, inspect their full source and bounded diffs, and restore an earlier revision. Checkpoints identify chat, manual, inspector, asset and restore operations. Chat checkpoints include their model turn ID; restores record both their parent and the restored revision. Legacy snapshots remain readable and are labeled as earlier checkpoints.
+
+Restore validates the historical source and referenced asset bytes before publishing a new revision with an optimistic revision check. A failed compile, missing asset or concurrent write leaves the current revision untouched. Re-editing a restored app continues the revision sequence. Source drafts remain separate and become stale after a restore, so they cannot silently overwrite it.
+
+Committed history is retained until the app is deleted; it is never pruned on save or restore. Detached asset bytes are retained for historical revisions and continue to count toward the existing asset quotas. The history list omits source and diff lines; complete source and bounded diff excerpts load on demand. Unsaved drafts keep session history only. Saving a copy creates a separate app with its own initial checkpoint.
+
+Checkpoint provenance is validated and copied before a write is queued, and its integrity hash covers both source and metadata. Tests cover caller mutation during queued writes, immutable retention, stale reads and restores, ownership/CSRF checks, failed validation, restart/re-edit, and restored source with detached or missing asset bytes.
+
+Browser gate: `npm run test:e2e -- e2e/make-version-history.spec.ts e2e/make-source-editor.spec.ts e2e/app-preview-iframe.spec.ts`. This exercises checkpoint inspection, manual/inspector provenance, restore/re-edit/reload, stale restore conflicts, sandbox isolation and mobile layout. The gate requires Vite to bind localhost and Chromium to launch; an environment failure blocks browser acceptance.

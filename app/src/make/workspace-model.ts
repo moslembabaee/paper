@@ -7,6 +7,7 @@ import { approvePlan, isPlanStale, StalePlanApprovalError, validateAppPlan, Plan
 import { computeBoundedDiff, type BoundedDiff } from './diff.ts'
 import { createPreviewMessage } from './preview-sandbox.ts'
 import type { VisualUpdateResult } from './visual-inspector.ts'
+import type { AppCheckpointMetadata, AppRevisionRecord, AppRevisionSummary } from './types.ts'
 
 export function formatAnnotationPrompt(annotation: AppAnnotation): string {
   return `[Target: <${annotation.tagName}> #${annotation.elementId}]\n${annotation.text}`
@@ -400,6 +401,12 @@ export interface PreviewTheme {
 }
 
 export interface MakeWorkspaceState {
+  history: AppRevisionSummary[]
+  historyStatus: 'idle' | 'loading' | 'error'
+  historyError: string
+  selectedRevision: AppRevisionRecord | null
+  revisionStatus: 'idle' | 'loading' | 'error'
+  revisionError: string
   projects: AppProject[]
   savedProjects: AppProjectSummary[]
   projectStatus: 'idle' | 'loading' | 'saving'
@@ -438,7 +445,9 @@ export interface MakeRepository {
   list(signal?: AbortSignal): Promise<AppProjectSummary[]>
   read(id: string, signal?: AbortSignal): Promise<AppProject>
   create(project: AppProject, signal?: AbortSignal): Promise<AppProject>
-  update?(project: AppProject, expectedRevision: number, signal?: AbortSignal): Promise<AppProject>
+  update?(project: AppProject, expectedRevision: number, signal?: AbortSignal, source?: 'manual' | 'inspector'): Promise<AppProject>
+  listRevisions?(id: string, signal?: AbortSignal): Promise<AppRevisionSummary[]>
+  readRevision?(id: string, revision: number, signal?: AbortSignal): Promise<AppRevisionRecord>
   copy?(sourceId: string, project: AppProject, signal?: AbortSignal): Promise<AppProject>
   compile(project: AppProject, signal?: AbortSignal): Promise<CompileResult>
   format?(path: string, content: string): Promise<{ content: string }>
@@ -450,7 +459,9 @@ export function createMakeRepository(accountId?: string): MakeRepository {
   return {
     list: async signal => (await api<{ apps: AppProjectSummary[] }>('/apps', { headers, signal })).apps,
     read: (id, signal) => api(`/apps/${encodeURIComponent(id)}`, { headers, signal }),
-    update: (project, expectedRevision, signal) => api(`/apps/${encodeURIComponent(project.id)}`, { method: 'PUT', headers, signal, body: JSON.stringify({ project, expectedRevision }) }),
+    update: (project, expectedRevision, signal, source = 'manual') => api(`/apps/${encodeURIComponent(project.id)}`, { method: 'PUT', headers, signal, body: JSON.stringify({ project, expectedRevision, source }) }),
+    listRevisions: async (id, signal) => (await api<{ revisions: AppRevisionSummary[] }>(`/apps/${encodeURIComponent(id)}/revisions`, { headers, signal })).revisions,
+    readRevision: (id, revision, signal) => api(`/apps/${encodeURIComponent(id)}/revisions/${revision}`, { headers, signal }),
     create: (project, signal) => api('/apps', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     compile: (project, signal) => api('/apps/compile', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     format: (path, content) => api('/apps/format', { method: 'POST', headers, body: JSON.stringify({ path, content }) }),
@@ -475,6 +486,8 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
   if (!initialProjects.some(project => project.id === activeProject.id)) initialProjects.unshift(activeProject)
   const repository = options.repository ?? createMakeRepository(options.accountId)
   let state: MakeWorkspaceState = {
+    history: [], historyStatus: 'idle', historyError: '', selectedRevision: null,
+    revisionStatus: 'idle', revisionError: '',
     projects: initialProjects,
     savedProjects: [],
     projectStatus: 'idle', listStatus: 'idle', listError: '', projectError: '',
@@ -497,6 +510,31 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     rollbackPoint: null,
   }
   const listeners = new Set<() => void>()
+  const localHistory = new Map<string, Map<number, AppRevisionRecord>>()
+  let historyGeneration = 0, revisionGeneration = 0
+  let historyRequest: AbortController | undefined, revisionRequest: AbortController | undefined
+  function remember(previous: AppProject | null, project: AppProject, source: AppCheckpointMetadata['source'], restoredFromRevision?: number) {
+    // Saved history is read on demand; avoid retaining another full source copy per edit in the browser.
+    if (repository.listRevisions && repository.readRevision && state.savedProjects.some(item => item.id === project.id)) return
+    let records = localHistory.get(project.id)
+    if (!records) { records = new Map(); localHistory.set(project.id, records) }
+    if (previous && !records.has(previous.revision)) remember(null, previous, previous.revision === 1 ? 'initial' : 'legacy')
+    if (!records.has(project.revision)) records.set(project.revision, {
+      revision: project.revision, hash: '', timestamp: project.updatedAt, project: structuredClone(project),
+      checkpoint: { source, baseRevision: previous?.revision ?? project.revision - 1, ...(restoredFromRevision !== undefined ? { restoredFromRevision } : {}) },
+      diff: computeBoundedDiff(previous?.files ?? {}, project.files, { baseRevision: previous?.revision ?? project.revision - 1, targetRevision: project.revision }),
+    })
+  }
+  remember(null, activeProject, activeProject.revision === 1 ? 'initial' : 'legacy')
+  function cancelHistory() {
+    historyGeneration++; revisionGeneration++
+    historyRequest?.abort(); revisionRequest?.abort()
+  }
+  function committedCheckpoint(previous: AppProject, project: AppProject, source: AppCheckpointMetadata['source'], restoredFromRevision?: number) {
+    remember(previous, project, source, restoredFromRevision)
+    cancelHistory()
+    setState({ historyStatus: 'idle', historyError: '', selectedRevision: null, revisionStatus: 'idle', revisionError: '' })
+  }
   let previewGeneration = 0, projectGeneration = 0, listGeneration = 0, planGeneration = 0
   let previewRequest: AbortController | undefined
   let projectRequest: AbortController | undefined
@@ -512,6 +550,8 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
   }
   function invalidatePlan() {
     cancelPlan()
+    cancelHistory()
+    setState({ historyStatus: 'idle', historyError: '', selectedRevision: null, revisionStatus: 'idle', revisionError: '' })
     setState({ planStatus: state.currentPlan ? 'stale' : 'idle', planError: state.currentPlan ? 'Stale plan approval: the app has changed. Generate a new plan.' : '' })
   }
   const message = (error: unknown) => error instanceof Error ? error.message : 'Request failed. Please try again.'
@@ -529,12 +569,15 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     projectRequest?.abort()
   }
   function selectProject(project: AppProject) {
+    cancelHistory()
+    remember(null, project, project.revision === 1 ? 'initial' : 'legacy')
     cancelProject()
     stopPreview()
     cancelPlan()
     const switched = project.id !== state.activeProject.id
     const stale = !switched && state.currentPlan && sourceKey(project) !== planSource
     setState({
+      history: [], historyStatus: 'idle', historyError: '', selectedRevision: null, revisionStatus: 'idle', revisionError: '',
       projects: [project, ...state.projects.filter(item => item.id !== project.id)],
       activeProject: project, activeFilePath: project.preview.entryPoint,
       projectStatus: 'idle', projectError: '', annotationDirty: false, selectedElement: null, inspectMode: false,
@@ -557,6 +600,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     },
     acceptAssetProject(previous: AppProject, project: AppProject) {
       if (sourceKey(state.activeProject) !== sourceKey(previous)) return
+      remember(previous, project, 'assets')
       selectProject(project)
       setState({ savedProjects: [project, ...state.savedProjects.filter(item => item.id !== project.id)] })
     },
@@ -570,6 +614,40 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
         if (generation === listGeneration) setState({ savedProjects, listStatus: 'idle' })
       } catch (error) {
         if (generation === listGeneration) setState({ listStatus: 'error', listError: message(error) })
+      }
+    },
+    async loadHistory() {
+      const project = state.activeProject
+      const key = sourceKey(project), generation = ++historyGeneration
+      historyRequest?.abort()
+      const request = new AbortController()
+      historyRequest = request
+      setState({ historyStatus: 'loading', historyError: '' })
+      try {
+        const saved = state.savedProjects.some(p => p.id === project.id)
+        const history = saved && repository.listRevisions
+          ? await repository.listRevisions(project.id, request.signal)
+          : structuredClone([...(localHistory.get(project.id)?.values() ?? [])].map(({ project: _project, ...record }) => ({ ...record,
+            diff: record.diff ? { ...record.diff, files: record.diff.files.map(file => ({ ...file, lines: [] })) } : undefined })))
+        if (generation === historyGeneration && sourceKey(state.activeProject) === key) setState({ history, historyStatus: 'idle' })
+      } catch (error) {
+        if (generation === historyGeneration && sourceKey(state.activeProject) === key) setState({ historyStatus: 'error', historyError: message(error) })
+      }
+    },
+    async inspectRevision(revision: number) {
+      if (!Number.isSafeInteger(revision) || revision < 1) throw new Error('Invalid revision number')
+      const project = state.activeProject, key = sourceKey(project), generation = ++revisionGeneration
+      revisionRequest?.abort()
+      const request = new AbortController()
+      revisionRequest = request
+      setState({ selectedRevision: null, revisionStatus: 'loading', revisionError: '' })
+      try {
+        const saved = state.savedProjects.some(p => p.id === project.id)
+        const record = saved && repository.readRevision ? await repository.readRevision(project.id, revision, request.signal) : localHistory.get(project.id)?.get(revision)
+        if (!record || record.project.id !== project.id || record.revision !== revision) throw new Error('Checkpoint not found')
+        if (generation === revisionGeneration && sourceKey(state.activeProject) === key) setState({ selectedRevision: structuredClone(record), revisionStatus: 'idle' })
+      } catch (error) {
+        if (generation === revisionGeneration && sourceKey(state.activeProject) === key) setState({ revisionStatus: 'error', revisionError: message(error) })
       }
     },
     async openSavedProject(id: string) {
@@ -686,6 +764,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           }
         }
         const diff = computeBoundedDiff(project.files, committed.files, { baseRevision: project.revision, targetRevision: committed.revision })
+        committedCheckpoint(project, committed, 'manual')
         setState({
           projects: [committed, ...state.projects.filter(p => p.id !== committed.id)],
           activeProject: committed, assets: compiled.assets, previewStatus: 'ready', projectStatus: 'idle', projectError: '', errorMessage: '',
@@ -741,7 +820,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
         let committed = candidate
         if (saved) {
           if (!repository.update) throw new Error('Visual property saving is unavailable for this repository')
-          committed = validateAppProject(await repository.update(candidate, project.revision, request.signal))
+          committed = validateAppProject(await repository.update(candidate, project.revision, request.signal, 'inspector'))
           assertCurrent()
           if (committed.id !== project.id || committed.revision !== candidate.revision ||
             JSON.stringify(committed.files) !== JSON.stringify(candidate.files) ||
@@ -750,6 +829,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
             throw new Error('Saved visual edit does not match the validated project revision')
           }
         }
+        committedCheckpoint(project, committed, 'inspector')
         setState({
           projects: [committed, ...state.projects.filter(p => p.id !== committed.id)],
           activeProject: committed, assets: compiled.assets, previewStatus: 'ready', projectStatus: 'idle', projectError: '', errorMessage: '',
@@ -805,6 +885,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           setState({ projectStatus: 'idle', projectError: 'Project changed while saving annotations. Reload the saved revision before retrying.' })
           return
         }
+        committedCheckpoint(project, saved, 'manual')
         setState({ activeProject: saved, projects: state.projects.map(item => item.id === saved.id ? saved : item),
           savedProjects: [saved, ...state.savedProjects.filter(item => item.id !== saved.id)],
           projectStatus: 'idle', projectError: '', annotationDirty: false })
@@ -1046,6 +1127,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           assets: previousAssets,
         }
 
+        committedCheckpoint(project, updatedProject, 'chat')
         setState({
           projects: [updatedProject, ...state.projects.filter(p => p.id !== updatedProject.id)],
           activeProject: updatedProject, selectedElement: null, inspectMode: false,
@@ -1075,10 +1157,14 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
         throw error
       }
     },
-    async rollback() {
-      const point = state.rollbackPoint
-      if (!point || state.projectStatus !== 'idle' || state.planStatus === 'generating_app') return null
+    async restoreRevision(revision: number): Promise<AppProject | null> {
+      return store.rollback(revision)
+    },
+    async rollback(targetRevision?: number): Promise<AppProject | null> {
+      let point = targetRevision === undefined ? state.rollbackPoint : null
+      if ((targetRevision === undefined && !point) || state.projectStatus !== 'idle' || state.planStatus === 'generating_app') return null
       const current = state.activeProject
+      if (targetRevision !== undefined && (!Number.isSafeInteger(targetRevision) || targetRevision < 1 || targetRevision >= current.revision)) throw new Error('Invalid restore target revision')
       const saved = state.savedProjects.some(p => p.id === current.id)
       previewGeneration++
       previewRequest?.abort()
@@ -1087,8 +1173,20 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       const generation = projectGeneration
       const source = sourceKey(current)
       projectRequest = new AbortController()
-      setState({ projectStatus: 'saving', projectError: '' })
+      const request = projectRequest
+      cancelHistory()
+      setState({ projectStatus: 'saving', projectError: '', historyStatus: 'idle', revisionStatus: 'idle' })
       try {
+        if (targetRevision !== undefined) {
+          const record = saved && repository.readRevision
+            ? await repository.readRevision(current.id, targetRevision, request.signal)
+            : localHistory.get(current.id)?.get(targetRevision)
+          if (!record || record.revision !== targetRevision || record.project.id !== current.id) throw new Error('Restore checkpoint not found')
+          point = { revision: record.revision, project: validateAppProject(record.project), assets: null }
+        }
+        if (!point) throw new Error('Restore checkpoint not found')
+        if (generation !== projectGeneration || request.signal.aborted) return null
+        if (sourceKey(state.activeProject) !== source) throw new Error('Restore conflict: the app has changed.')
         let restored: AppProject
         let compiled: Pick<CompileResult, 'success' | 'assets' | 'diagnostics'>
         if (saved) {
@@ -1113,6 +1211,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           return null
         }
         if (!compiled.success || !compiled.assets || compiled.diagnostics.some(d => d.severity === 'error')) throw new Error('Rollback build validation failed. Current revision is unchanged.')
+        committedCheckpoint(current, restored, 'restore', point.revision)
         planSource = null
         setState({
           projects: [restored, ...state.projects.filter(p => p.id !== restored.id)],
@@ -1120,6 +1219,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           projectStatus: 'idle', previewStatus: 'ready', assets: compiled.assets,
           diagnostics: [...compiled.diagnostics], errorMessage: '',
           rollbackPoint: null, currentDiff: null, planStatus: 'idle', currentPlan: null,
+          annotationDirty: false, selectedRevision: null, revisionStatus: 'idle', revisionError: '', historyStatus: 'idle', historyError: '',
           savedProjects: saved ? [restored, ...state.savedProjects.filter(p => p.id !== restored.id)] : state.savedProjects,
         })
         return restored
@@ -1159,13 +1259,14 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     stopPreview,
     retryPreview: () => store.runPreview(),
     suspend() {
+      cancelHistory()
       cancelPlan()
       budgetRequest?.abort()
       cancelProject()
       listGeneration++
       listRequest?.abort()
       stopPreview()
-      setState({ projectStatus: 'idle', listStatus: 'idle', planStatus: state.planStatus === 'generating' || state.planStatus === 'approving' || state.planStatus === 'generating_app' ? 'idle' : state.planStatus })
+      setState({ projectStatus: 'idle', listStatus: 'idle', historyStatus: 'idle', revisionStatus: 'idle', planStatus: state.planStatus === 'generating' || state.planStatus === 'approving' || state.planStatus === 'generating_app' ? 'idle' : state.planStatus })
     },
   }
   return store

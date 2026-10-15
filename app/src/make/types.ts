@@ -109,12 +109,25 @@ export interface AppProjectSummary {
   readonly updatedAt: string
 }
 
+export type AppCheckpointSource = 'initial' | 'chat' | 'manual' | 'inspector' | 'assets' | 'restore' | 'legacy'
+
+export interface AppCheckpointMetadata {
+  readonly source: AppCheckpointSource
+  readonly baseRevision: number
+  readonly restoredFromRevision?: number
+  readonly turnId?: string
+}
+
 export interface AppRevisionRecord {
   readonly revision: number
   readonly hash: string
   readonly timestamp: string
   readonly project: AppProject
+  readonly checkpoint?: AppCheckpointMetadata
+  readonly diff?: import('./diff.ts').BoundedDiff
 }
+
+export type AppRevisionSummary = Omit<AppRevisionRecord, 'project'>
 
 export type ModelTurnStatus = 'pending' | 'success' | 'cancelled' | 'error' | 'rate_limited' | 'budget_exceeded'
 

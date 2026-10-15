@@ -242,7 +242,7 @@ export async function createService(config: ServiceConfig) {
       }
       let updated: AppProject
       try {
-        updated = saved ? await storage.apps.put(userId, project.id, candidate, project.revision)
+        updated = saved ? await storage.apps.put(userId, project.id, candidate, project.revision, { source: 'chat', turnId: turn.turnId })
           : validateAppProject({ ...candidate, revision: project.revision + 1, updatedAt: new Date().toISOString() })
       } catch (error) {
         await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'conflict' })
@@ -725,16 +725,16 @@ export async function createService(config: ServiceConfig) {
           if (input.expectedRevision !== record.revision) {
             throw Object.assign(httpError(409, 'Revision mismatch'), { current: record.revision })
           }
-          const targetRevision = typeof input.targetRevision === 'number' ? input.targetRevision : (record.revision - 1)
+          const targetRevision = input.targetRevision === undefined ? record.revision - 1 : Number.isSafeInteger(input.targetRevision) ? Number(input.targetRevision) : NaN
           if (!Number.isSafeInteger(targetRevision) || targetRevision < 1 || targetRevision >= record.revision) {
             throw httpError(400, 'Invalid rollback target revision')
           }
           const targetRecord = await storage.apps.readRevision(user.id, id, targetRevision)
           if (!targetRecord) throw httpError(404, 'Rollback target revision not found')
           const compiled = await compileWithAssets(user.id, targetRecord.project)
-          if (!compiled.success || !compiled.assets) throw httpError(422, 'Rollback build validation failed. Current revision is unchanged.')
+          if (!compiled.success || !compiled.assets || compiled.diagnostics.some(d => d.severity === 'error')) throw httpError(422, 'Rollback build validation failed. Current revision is unchanged.')
           if (req.aborted || res.destroyed) throw httpError(499, 'Request cancelled')
-          const updated = await storage.apps.put(user.id, id, targetRecord.project, record.revision)
+          const updated = await storage.apps.put(user.id, id, targetRecord.project, record.revision, { source: 'restore', restoredFromRevision: targetRevision })
           emitApp(user.id, updated, 'update')
           json(res, 200, { ok: true, project: updated, rolledBackTo: targetRevision, assets: compiled.assets, diagnostics: compiled.diagnostics })
           return
@@ -753,12 +753,14 @@ export async function createService(config: ServiceConfig) {
           return
         }
         if (req.method === 'PUT') {
-          const { project, expectedRevision } = appInput(await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES))
+          const { source = 'manual', ...input } = await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES)
+          if (source !== 'manual' && source !== 'inspector') throw httpError(400, 'Invalid edit source')
+          const { project, expectedRevision } = appInput(input)
           if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
             throw httpError(400, 'Update requires a positive expected revision')
           }
           if (project.id !== undefined && project.id !== id) throw httpError(400, 'App ID does not match URL')
-          const record = await storage.apps.put(user.id, id, project, expectedRevision)
+          const record = await storage.apps.put(user.id, id, project, expectedRevision, { source })
           emitApp(user.id, record, 'update')
           json(res, 200, record)
           return

@@ -6,7 +6,8 @@ import {
   migrateAppProject, parseAppProject, parseJsonStrict, serializeAppProject,
   validateAppProject, normalizeAndValidatePath, APP_PROJECT_LIMITS,
 } from '../src/make/manifest.ts'
-import type { AppProject, AppProjectSummary, AppRevisionRecord, AppSourceFile } from '../src/make/types.ts'
+import type { AppCheckpointMetadata, AppProject, AppProjectSummary, AppRevisionRecord, AppSourceFile } from '../src/make/types.ts'
+import { computeBoundedDiff } from '../src/make/diff.ts'
 import {
   APP_ASSET_LIMITS,
   type AppAsset,
@@ -25,6 +26,23 @@ import { httpError, safeId, hash } from './storage.ts'
 // store instances in that process; reads use immutable snapshots without locks.
 const pending = new Map<string, Promise<unknown>>()
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT'
+
+function checkpointMetadata(input: unknown, baseRevision: number, status: number): AppCheckpointMetadata {
+  const invalid = () => httpError(status, 'Invalid checkpoint metadata')
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw invalid()
+  const record = input as Record<string, unknown>
+  if (Object.keys(record).some(key => !['source', 'turnId', 'restoredFromRevision'].includes(key))) throw invalid()
+  const { source, turnId, restoredFromRevision } = record
+  if (!['initial', 'chat', 'manual', 'inspector', 'assets', 'restore', 'legacy'].includes(source as string) ||
+      (source === 'initial' && baseRevision !== 0) ||
+      (turnId !== undefined && (source !== 'chat' || typeof turnId !== 'string' || !turnId || turnId.length > 200)) ||
+      (source === 'restore'
+        ? !Number.isSafeInteger(restoredFromRevision) || Number(restoredFromRevision) < 1 || Number(restoredFromRevision) >= baseRevision
+        : restoredFromRevision !== undefined)) throw invalid()
+  return { source: source as AppCheckpointMetadata['source'], baseRevision,
+    ...(turnId !== undefined ? { turnId: turnId as string } : {}),
+    ...(restoredFromRevision !== undefined ? { restoredFromRevision: restoredFromRevision as number } : {}) }
+}
 
 export class AppStorage {
   readonly root: string
@@ -137,12 +155,21 @@ export class AppStorage {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw httpError(500, 'Invalid stored revision')
     const record = raw as Record<string, unknown>
     const project = validateAppProject(record.project)
-    if (Object.keys(record).sort().join(',') !== 'hash,project,revision,timestamp' ||
+    const checkpoint = record.checkpoint as AppCheckpointMetadata | undefined
+    if (checkpoint !== undefined) {
+      if (!checkpoint || typeof checkpoint !== 'object' || Array.isArray(checkpoint) || checkpoint.baseRevision !== revision - 1) {
+        throw httpError(500, 'Invalid stored checkpoint metadata')
+      }
+      const { baseRevision, ...metadata } = checkpoint
+      checkpointMetadata(metadata, baseRevision, 500)
+    }
+    if (Object.keys(record).sort().join(',') !== (checkpoint ? 'checkpoint,hash,project,revision,timestamp' : 'hash,project,revision,timestamp') ||
         record.revision !== revision || project.revision !== revision || project.id !== id ||
-        record.timestamp !== project.updatedAt || record.hash !== hash(serializeAppProject(project))) {
+        record.timestamp !== project.updatedAt || record.hash !== hash(serializeAppProject(project) + (checkpoint ? JSON.stringify(checkpoint) : ''))) {
       throw httpError(500, 'Stored revision integrity check failed')
     }
-    return { revision, hash: record.hash as string, timestamp: project.updatedAt, project }
+    return { revision, hash: record.hash as string, timestamp: project.updatedAt, project,
+      checkpoint: checkpoint ?? { source: 'legacy', baseRevision: revision - 1 } }
   }
 
   async readRevision(user: string, id: string, revision: number): Promise<AppRevisionRecord | null> {
@@ -152,7 +179,10 @@ export class AppStorage {
     catch (error) { if (missing(error)) return null; throw error }
     const head = await this.head(appDir, id)
     if (!head || revision > head.revision) return null
-    return this.revision(appDir, id, revision)
+    const record = await this.revision(appDir, id, revision)
+    const previous = revision > 1 ? await this.revision(appDir, id, revision - 1) : null
+    return { ...record, diff: computeBoundedDiff(previous?.project.files ?? {}, record.project.files,
+      { baseRevision: revision - 1, targetRevision: revision }) }
   }
 
   async listRevisions(user: string, id: string): Promise<Array<Omit<AppRevisionRecord, 'project'>>> {
@@ -167,9 +197,12 @@ export class AppStorage {
       .map(Number).filter(revision => Number.isSafeInteger(revision) && revision <= head.revision)
       .sort((a, b) => a - b)
     const records: Array<Omit<AppRevisionRecord, 'project'>> = []
+    let previous: AppProject | undefined
     for (const revision of revisions) {
-      const { project: _project, ...record } = await this.revision(appDir, id, revision)
-      records.push(record)
+      const { project, ...record } = await this.revision(appDir, id, revision)
+      records.push({ ...record, diff: computeBoundedDiff(previous?.files ?? {}, project.files,
+        { baseRevision: revision - 1, targetRevision: revision, maxTotalDiffLines: 0 }) })
+      previous = project
     }
     return records
   }
@@ -216,7 +249,8 @@ export class AppStorage {
     }
   }
 
-  async put(user: string, id: string, input: unknown, expectedRevision: number | null): Promise<AppProject> {
+  async put(user: string, id: string, input: unknown, expectedRevision: number | null,
+    checkpoint?: Omit<AppCheckpointMetadata, 'baseRevision'>): Promise<AppProject> {
     safeId(user, 'user ID'); safeId(id, 'app ID')
     if (expectedRevision !== null && (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1)) {
       throw httpError(400, 'Invalid expected revision')
@@ -224,10 +258,13 @@ export class AppStorage {
     // Validation must see the original descriptors/fields before any spread or
     // normalization. A malformed v1 manifest never falls back to a legacy draft.
     const inputProject = migrateAppProject(input)
-    return this.locked(user, id, () => this.publish(user, id, inputProject, expectedRevision))
+    // Snapshot and validate provenance before yielding to a queued writer.
+    const metadata = checkpoint === undefined ? undefined : checkpointMetadata(checkpoint, expectedRevision ?? 0, 400)
+    return this.locked(user, id, () => this.publish(user, id, inputProject, expectedRevision, metadata))
   }
 
-  private async publish(user: string, id: string, inputProject: AppProject, expectedRevision: number | null): Promise<AppProject> {
+  private async publish(user: string, id: string, inputProject: AppProject, expectedRevision: number | null,
+    metadata?: Omit<AppCheckpointMetadata, 'baseRevision'>): Promise<AppProject> {
       const current = await this.read(user, id)
       if (expectedRevision !== (current?.revision ?? null)) {
         throw Object.assign(httpError(409, 'Revision conflict'), { current })
@@ -240,7 +277,8 @@ export class AppStorage {
         if (assetId.startsWith('ast_')) await this.assetRecord(user, id, assetId)
       }
       const manifest = serializeAppProject(candidate)
-      const record: AppRevisionRecord = { revision: candidate.revision, hash: hash(manifest), timestamp: now, project: candidate }
+      const checkpoint: AppCheckpointMetadata = { source: current ? 'manual' : 'initial', ...metadata, baseRevision: current?.revision ?? 0 }
+      const record: AppRevisionRecord = { revision: candidate.revision, hash: hash(manifest + JSON.stringify(checkpoint)), timestamp: now, project: candidate, checkpoint }
       // Keep the revision envelope under the same strict JSON parser's cap.
       const recordText = JSON.stringify(record)
       if (Buffer.byteLength(recordText) > APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES) throw httpError(413, 'Revision too large')
@@ -364,7 +402,7 @@ export class AppStorage {
         await this.writeText(staging, JSON.stringify(record))
         await fs.rename(staging, path)
         await this.syncDirectory(directory)
-        const project = await this.publish(user, id, { ...current, assetIds: [...current.assetIds, record.id] }, current.revision)
+        const project = await this.publish(user, id, { ...current, assetIds: [...current.assetIds, record.id] }, current.revision, { source: 'assets' })
         const { dataBase64: _data, ...metadata } = record
         return { asset: { ...metadata, appId: id }, project }
       } catch (error) {
@@ -380,7 +418,7 @@ export class AppStorage {
       const current = await this.read(user, id)
       if (!current || !current.assetIds.includes(assetId)) throw httpError(404, 'App asset not found')
       if (expectedRevision !== undefined && current.revision !== expectedRevision) throw httpError(409, 'Revision conflict')
-      return this.publish(user, id, { ...current, assetIds: current.assetIds.filter(value => value !== assetId) }, current.revision)
+      return this.publish(user, id, { ...current, assetIds: current.assetIds.filter(value => value !== assetId) }, current.revision, { source: 'assets' })
     })
   }
 

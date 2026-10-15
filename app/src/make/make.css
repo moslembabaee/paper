@@ -560,3 +560,23 @@
 .make-source-latest { margin: 12px 0; }
 .make-source-latest summary { cursor: pointer; color: #edebe1; }
 .make-source-latest pre { padding: 10px; background: #080808; border: 1px solid #222222; overflow: auto; max-height: 200px; font: 10px/1.7 var(--font-mono); color: #edebe1; }
+.make-history { border-top: 1px solid #222222; color: #edebe1; }
+.make-history-heading { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 18px 20px; border: 0; background: transparent; color: inherit; cursor: pointer; font-size: 12px; font-weight: 600; }
+.make-history-heading > span:first-child { display: flex; align-items: center; gap: 8px; }
+.make-history-heading svg { color: #81adec; }
+.make-history-heading:focus-visible, .make-history-checkpoint:focus-visible { outline: 2px solid #81adec; outline-offset: -2px; }
+.make-history-body { padding: 0 20px 20px; min-width: 0; font-size: 11px; }
+.make-history-note { color: #99998f; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.make-history-list { padding: 0; margin: 12px 0; list-style: none; max-height: 300px; overflow: auto; overscroll-behavior: contain; }
+.make-history-checkpoint { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 6px; padding: 12px; background: #080808; color: #edebe1; border: 1px solid #222222; border-radius: 4px; margin-bottom: 6px; cursor: pointer; transition: border-color 120ms ease; }
+.make-history-checkpoint:hover, .make-history-checkpoint[aria-pressed="true"] { border-color: #81adec; }
+.make-history-checkpoint > span:first-child { display: flex; gap: 10px; align-items: center; font-size: 11px; }
+.make-history-checkpoint strong { font-variant-numeric: tabular-nums; }
+.make-history-checkpoint small { margin-left: auto; color: #81adec; font-size: 9px; text-transform: uppercase; letter-spacing: .05em; }
+.make-history-checkpoint time, .make-history-count { color: #99998f; font-size: 10px; font-variant-numeric: tabular-nums; }
+.make-history-detail { border-top: 1px solid #222222; padding-top: 12px; }
+.make-history-detail h3 { font-size: 12px; display: flex; gap: 10px; }
+.make-history-detail h3 span { color: #81adec; font-weight: 400; }
+.make-history-detail pre { max-height: 260px; overflow: auto; font-size: 10px; line-height: 1.6; background: #080808; padding: 10px; }
+.make-history-detail > button { margin-top: 12px; }
+.make-history button:disabled { opacity: .45; cursor: default; }
