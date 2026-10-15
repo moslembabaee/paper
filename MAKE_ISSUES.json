@@ -1,0 +1,7 @@
+{
+  "initiative": "Paper Make",
+  "version": 1,
+  "repository": "moslembabaee/paper",
+  "issue_numbers": [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41],
+  "gate": "Only release one held issue after its predecessor is verified completed locally and closed on GitHub. Stop on failure/reopen."
+}

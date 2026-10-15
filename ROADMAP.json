@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-17",
+  "current_task_id": "T-ISSUE-18",
   "tasks": [
     {
       "id": "T-ISSUE-17",
@@ -14,7 +14,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 17,
-      "completed_at": "2026-10-14T20:49:02.202418"
+      "completed_at": "2026-10-14T20:49:02.202418",
+      "closed_at": "2026-10-14T20:49:06Z"
     },
     {
       "id": "T-ISSUE-16",
@@ -656,6 +657,271 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 5
+    },
+    {
+      "id": "T-ISSUE-18",
+      "phase": "Paper Make",
+      "title": "Issue #18: feat(make 01): Versioned app-project manifest and strict schema",
+      "description": "Scope: Define a distinct AppProject manifest (source-file map, asset IDs, scene reference, revision, release metadata) with size/path limits and migrations. Do not alter scene document semantics.\nAcceptance: Round-trip and legacy migration tests; traversal, duplicate paths, oversized payloads and prototype keys reject atomically.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 2,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 18,
+      "completed_at": "2026-10-15T00:32:24.634090"
+    },
+    {
+      "id": "T-ISSUE-19",
+      "phase": "Paper Make",
+      "title": "Issue #19: feat(make 02): Account-scoped atomic app artifact storage",
+      "description": "Scope: Persist manifest/files/revisions under the authenticated account with atomic writes and optimistic revision checks. Reuse existing storage confinement rules.\nAcceptance: Restart/revision-race/storage-failure tests; another user and symlink traversal cannot read or overwrite artifacts.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 19
+    },
+    {
+      "id": "T-ISSUE-20",
+      "phase": "Paper Make",
+      "title": "Issue #20: feat(make 03): Authenticated app project CRUD API",
+      "description": "Scope: Expose list/create/read/update/delete endpoints for App Projects using existing session/CSRF protections and bounded request bodies; no AI calls yet.\nAcceptance: Cross-account requests, stale writes, CSRF absence, malformed files and deletes have API integration tests.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 20
+    },
+    {
+      "id": "T-ISSUE-21",
+      "phase": "Paper Make",
+      "title": "Issue #21: feat(make 04): Static allowlisted React/TSX compilation",
+      "description": "Scope: Build editable TSX/CSS into preview assets without running generated package scripts, shell commands or arbitrary dependency installers. Return file/line diagnostics.\nAcceptance: Working interactive fixture compiles; denied imports, dynamic imports, oversized sources and invalid syntax fail safely.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 21
+    },
+    {
+      "id": "T-ISSUE-22",
+      "phase": "Paper Make",
+      "title": "Issue #22: feat(make 05): Credential-isolated preview iframe",
+      "description": "Scope: Run compiled output in an opaque-origin sandboxed iframe with restrictive CSP, no parent DOM/storage/cookie access and bounded message protocol.\nAcceptance: Browser test proves UI interaction works and malicious code cannot access parent session, navigate top or exfiltrate via network.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 22
+    },
+    {
+      "id": "T-ISSUE-23",
+      "phase": "Paper Make",
+      "title": "Issue #23: feat(make 06): Make workspace preview and diagnostics",
+      "description": "Scope: Add a distinct Make workspace with project chooser, run/stop preview, loading/error/retry states and compiler diagnostics, preserving the existing design editor.\nAcceptance: A saved fixture opens and interacts in preview; malformed app shows actionable error rather than blank iframe; scene editor regressions pass.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 23
+    },
+    {
+      "id": "T-ISSUE-24",
+      "phase": "Paper Make",
+      "title": "Issue #24: feat(make 07): Server-side model gateway with budgets",
+      "description": "Scope: Add authenticated, cancellable model request adapter with server-only provider credentials, request size/rate/output limits and per-turn metering. No model keys in browser.\nAcceptance: Gateway tests cover unauthorized access, timeout/cancel, rate limit, redaction and provider failure without persisting partial edits.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 24
+    },
+    {
+      "id": "T-ISSUE-25",
+      "phase": "Paper Make",
+      "title": "Issue #25: feat(make 08): Prompt planning mode and approval UI",
+      "description": "Scope: Turn a user prompt into a concise, inspectable app plan (files, interactions, risks) without writing artifacts; allow user to approve or revise the plan.\nAcceptance: Plan-only leaves revision and files unchanged; reject malformed plan and stale approval; accessible prompt/approval states tested.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 25
+    },
+    {
+      "id": "T-ISSUE-26",
+      "phase": "Paper Make",
+      "title": "Issue #26: feat(make 09): Generate first functional app from an approved plan",
+      "description": "Scope: Generate a one-screen interactive React app into versioned files through the safe compiler and preview pipeline; preserve the approved plan and diagnostics.\nAcceptance: End-to-end test creates, renders and interacts with an app; invalid generation does not replace the last usable revision.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 26
+    },
+    {
+      "id": "T-ISSUE-27",
+      "phase": "Paper Make",
+      "title": "Issue #27: feat(make 10): Iterative prompt edits with bounded file diff",
+      "description": "Scope: Implement chat-driven follow-up that targets existing files, presents a bounded diff, validates it and applies only against the expected revision; support cancellation.\nAcceptance: Edits change preview while preserving unrelated files; stale/manual-conflicting or failed builds reject atomically; one rollback point recorded.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 27
+    },
+    {
+      "id": "T-ISSUE-28",
+      "phase": "Paper Make",
+      "title": "Issue #28: feat(make 11): Selected Paper frame as bounded design context",
+      "description": "Scope: Use existing scene/MCP context to attach a selected frame snapshot, tokens and assets to a Make prompt; map stable layer IDs into generated markup where possible.\nAcceptance: Nested frame fixture informs app styling/layout; invalid/other-account IDs reject and unrelated scene contents never enter model context.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 28
+    },
+    {
+      "id": "T-ISSUE-29",
+      "phase": "Paper Make",
+      "title": "Issue #29: feat(make 12): Validated image and font asset pipeline",
+      "description": "Scope: Attach images and approved fonts to an App Project using content sniffing, quotas and private asset IDs; resolve them in sandbox without external hotlinks by default.\nAcceptance: Upload/preview/export round-trip; SVG active content, traversal, oversized files and cross-account asset access reject.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 29
+    },
+    {
+      "id": "T-ISSUE-30",
+      "phase": "Paper Make",
+      "title": "Issue #30: feat(make 13): Responsive preview breakpoints and interaction checks",
+      "description": "Scope: Provide mobile/tablet/desktop preview widths and per-size interaction rerun, without modifying source or saved layout implicitly.\nAcceptance: Browser E2E checks UI controls and overflow at narrow/wide widths; viewport changes preserve app state or explicitly reset it.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 30
+    },
+    {
+      "id": "T-ISSUE-31",
+      "phase": "Paper Make",
+      "title": "Issue #31: feat(make 14): Select preview element and attach annotations",
+      "description": "Scope: Add safe preview-to-parent element selection using stable IDs and a visible annotation that can be included in the next model prompt. No arbitrary DOM HTML in messages.\nAcceptance: Click maps to one stable target after rerender; cross-origin/spoofed messages ignored; annotations survive project reload.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 31
+    },
+    {
+      "id": "T-ISSUE-32",
+      "phase": "Paper Make",
+      "title": "Issue #32: feat(make 15): Direct visual properties for selected Make element",
+      "description": "Scope: Expose a limited typography/spacing/color inspector for eligible generated elements with deterministic source updates, diff preview and revision validation.\nAcceptance: Inspector changes survive rebuild/undo and mobile view; unsupported elements stay read-only; no unsafe string-substitution corruption.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 32
+    },
+    {
+      "id": "T-ISSUE-33",
+      "phase": "Paper Make",
+      "title": "Issue #33: feat(make 16): Source editor with diagnostics and conflict guard",
+      "description": "Scope: Edit project TSX/CSS files directly with file tree, save/format controls and compiler diagnostics; prevent simultaneous model/manual overwrite via expected revision.\nAcceptance: Manual edit rebuilds preview; syntax errors retain prior runnable revision; stale save presents conflict rather than clobbering.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 33
+    },
+    {
+      "id": "T-ISSUE-34",
+      "phase": "Paper Make",
+      "title": "Issue #34: feat(make 17): Immutable app version history and restore",
+      "description": "Scope: List chat/manual/inspector checkpoints with source/diff metadata; restore creates a new revision, never mutates past checkpoints.\nAcceptance: Restore and re-edit survive restart; race, retention and deleted asset references have tests.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 34
+    },
+    {
+      "id": "T-ISSUE-35",
+      "phase": "Paper Make",
+      "title": "Issue #35: feat(make 18): Agent build/runtime/visual validation loop",
+      "description": "Scope: Feed bounded compiler/runtime diagnostics and desktop/mobile screenshots back into a limited repair attempt; show failures and stop at fixed retry budget.\nAcceptance: Fixture with runtime error is repaired or reports blocker; no silent infinite loop, secret/screenshot leakage or false green.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 35
+    },
+    {
+      "id": "T-ISSUE-36",
+      "phase": "Paper Make",
+      "title": "Issue #36: feat(make 19): Download runnable source ZIP",
+      "description": "Scope: Export current approved app revision with package manifest, source and local assets; reproducible builds only from allowlisted dependencies.\nAcceptance: Unzip/build/start fixture locally; file traversal, missing assets and unapproved revision exports reject.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 36
+    },
+    {
+      "id": "T-ISSUE-37",
+      "phase": "Paper Make",
+      "title": "Issue #37: feat(make 20): Publish static app on isolated origin",
+      "description": "Scope: Publish a validated immutable release to a separate origin with CSP/cache and versioned URL; update and unpublish explicitly. No preview session cookies.\nAcceptance: Public browser smoke test, unpublish 404, cross-origin isolation, stale revision and hostile source tests; no live release on build failure.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 37
+    },
+    {
+      "id": "T-ISSUE-38",
+      "phase": "Paper Make",
+      "title": "Issue #38: feat(make 21): Share Make projects with explicit permissions",
+      "description": "Scope: Reuse Paper identities to grant/revoke reviewer access to a Make project; distinguish owner/editor/viewer and preserve private drafts and releases.\nAcceptance: Two-account API/E2E tests cover grant/revoke, read-only review, denied edits and no asset leakage.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 38
+    },
+    {
+      "id": "T-ISSUE-39",
+      "phase": "Paper Make",
+      "title": "Issue #39: feat(make 22): Server-held scoped secret handles for apps",
+      "description": "Scope: Add owner-managed encrypted secret handles and revocation for generated apps; expose only a strict capability interface, never raw values in model context, client bundles or logs.\nAcceptance: Leakage, revoke, rotation, unauthorized use and restart tests; reject generic host/network proxying.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 39
+    },
+    {
+      "id": "T-ISSUE-40",
+      "phase": "Paper Make",
+      "title": "Issue #40: feat(make 23): Scoped app data operations",
+      "description": "Scope: Provide an optional per-app data API with schema-constrained CRUD and quotas behind user-defined capabilities; no arbitrary SQL or outbound network.\nAcceptance: Interactive persisted form fixture works; cross-app/account isolation, quota, injection and rollback tests pass.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 40
+    },
+    {
+      "id": "T-ISSUE-41",
+      "phase": "Paper Make",
+      "title": "Issue #41: feat(make 24): GitHub handoff for reviewed app source",
+      "description": "Scope: Let owner export a specific reviewed revision to a selected GitHub repository/branch after explicit confirmation; do not commit secrets or unpublished private assets.\nAcceptance: Integration tests cover revocation, branch mismatch, no write without consent and exact source revision; dry-run diff is shown first.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
+      "assigned_agent": "claude",
+      "status": "waiting_approval",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
+      "github_issue_number": 41
     }
   ]
 }

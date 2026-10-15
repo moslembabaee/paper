@@ -69,6 +69,9 @@ python3 "$PROJECT_DIR/issue_bot.py" >> "$LOG_FILE" 2>&1
 # 5. Continuous Deployment: Auto-deploy on new commits
 "$PROJECT_DIR/auto_deploy.sh" >> "$LOG_DIR/deploy.log" 2>&1
 
+# 5b. Release exactly one held Make slice only after verified predecessor + green CI.
+python3 "$PROJECT_DIR/make_queue.py" >> "$LOG_DIR/make_queue.log" 2>&1
+
 # 6. Log rotation if > 2MB
 if [ -f "$LOG_FILE" ] && [ $(stat -c%s "$LOG_FILE") -gt 2097152 ]; then
     tail -n 1000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
