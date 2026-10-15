@@ -417,3 +417,10 @@
   .make-plan-card, .make-loader-inline { animation: none; }
   .make-prompt-input, .make-plan-close-btn { transition: none; }
 }
+
+.make-generation-error { margin: 0; padding: 10px 16px; background: #222222; color: #edebe1; font-size: 12px; line-height: 1.5; border-bottom: 1px solid #81adec; }
+.make-plan-sections[hidden] { display: none; }
+.make-plan-applied { width: min(420px, calc(100% - 32px)); left: auto; right: 16px; transform: none; animation: none; }
+.make-plan-applied .make-plan-summary-block { display: none; }
+.make-plan-inspect { align-self: flex-start; margin: 0 16px 8px; }
+.make-plan-footer { flex-wrap: wrap; }

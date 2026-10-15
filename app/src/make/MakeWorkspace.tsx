@@ -17,7 +17,7 @@ export default function MakeWorkspace({ accountId, onDesign }: { accountId?: str
     return () => store.suspend()
   }, [store])
   const busy = state.projectStatus !== 'idle'
-  const planBusy = state.planStatus === 'generating' || state.planStatus === 'approving'
+  const planBusy = state.planStatus === 'generating' || state.planStatus === 'approving' || state.planStatus === 'generating_app'
   const running = state.previewStatus === 'ready' && frameStatus === 'ready'
   const loading = state.previewStatus === 'loading' || (state.assets !== null && !running)
   const status = state.previewStatus === 'error' ? 'Error' : running ? 'Running' : loading ? 'Loading' : 'Stopped'
@@ -117,11 +117,13 @@ export default function MakeWorkspace({ accountId, onDesign }: { accountId?: str
               {state.planStatus === 'generating' ? <span className="make-loader-inline" /> : <Sparkles size={13} />}
               <span>{state.planStatus === 'generating' ? 'Planning…' : 'Plan'}</span>
             </button>
+            {state.planStatus === 'generating_app' ? <button type="button" className="make-button" onClick={store.cancelAppGeneration}>Cancel generation</button> : null}
             {state.planStatus === 'generating' ? <button type="button" className="make-button" onClick={() => { store.cancelPlanning(); requestAnimationFrame(() => promptInput.current?.focus()) }}>Cancel planning</button> : null}
           </form>
-          <p id="make-planning-status" className="make-planning-status" role="status">{state.planStatus === 'generating' ? 'Planning your app…' : state.planStatus === 'approving' ? 'Approving plan…' : 'Plan only · Review before making changes.'}</p>
+          <p id="make-planning-status" className="make-planning-status" role="status">{state.planStatus === 'generating' ? 'Planning your app…' : state.planStatus === 'approving' ? 'Approving plan…' : state.planStatus === 'generating_app' ? 'Generating your app…' : 'Plan only · Review before making changes.'}</p>
           {state.planError && !state.currentPlan ? <p className="make-plan-alert" role="alert">{state.planError}</p> : null}
         </div>
+        {state.errorMessage && state.assets ? <p className="make-generation-error" role="alert">{state.errorMessage} Showing your last usable preview.</p> : null}
         <div className="make-preview-canvas" aria-busy={loading || state.projectStatus === 'loading'}>
           {state.currentPlan ? (
             <PlanInspection
@@ -129,8 +131,10 @@ export default function MakeWorkspace({ accountId, onDesign }: { accountId?: str
               plan={state.currentPlan}
               currentRevision={active.revision}
               planStatus={state.planStatus}
+              applied={state.planStatus === 'approved' && state.currentPlan.baseRevision + 1 === active.revision}
               planError={state.planError}
               onApprove={() => { void store.approveCurrentPlan().catch(() => {}) }}
+              onGenerate={() => { void store.generateFromApprovedPlan().catch(() => {}) }}
               onRevise={newPrompt => {
                 void store.reviseCurrentPlan(newPrompt)
               }}

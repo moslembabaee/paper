@@ -1,8 +1,8 @@
-import type { AppPlan, AppProject, AppProjectSummary, ModelBudget } from './types.ts'
+import type { AppGenerateResult, AppPlan, AppProject, AppProjectSummary, ModelBudget } from './types.ts'
 import { api, ApiError } from '../cloud/api.ts'
 import { createAppProject } from './manifest.ts'
 import type { CompileDiagnostic, CompilePreviewAssets, CompileResult } from './compiler.ts'
-import { fetchModelBudget, requestModelPlan, approveModelPlan } from './model-gateway.ts'
+import { fetchModelBudget, requestModelPlan, approveModelPlan, requestAppGeneration } from './model-gateway.ts'
 import { approvePlan, isPlanStale, StalePlanApprovalError, validateAppPlan, PlanValidationError } from './plan.ts'
 
 export interface ActionableDiagnostic {
@@ -412,7 +412,7 @@ export interface MakeWorkspaceState {
   currentPlan: AppPlan | null
   planPrompt: string
   planError: string
-  planStatus: 'idle' | 'generating' | 'approving' | 'approved' | 'stale'
+  planStatus: 'idle' | 'generating' | 'approving' | 'approved' | 'generating_app' | 'stale'
 }
 
 export interface MakeRepository {
@@ -439,6 +439,7 @@ export interface MakeWorkspaceStoreOptions {
   repository?: MakeRepository
   compiler?: (project: AppProject) => Promise<CompileResult>
   planner?: (prompt: string, project: AppProject) => Promise<AppPlan>
+  generator?: (plan: AppPlan, project: AppProject) => Promise<AppGenerateResult>
 }
 
 export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}) {
@@ -475,6 +476,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
   function cancelPlan() {
     planGeneration++
     planRequest?.abort()
+    if (state.planStatus === 'generating_app') setState({ previewStatus: state.assets ? 'ready' : 'idle' })
   }
   function invalidatePlan() {
     cancelPlan()
@@ -583,7 +585,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     setPreviewTheme: (previewTheme: PreviewTheme) => setState({ previewTheme }),
     setSelectedDiagnosticIndex: (selectedDiagnosticIndex: number | null) => setState({ selectedDiagnosticIndex }),
     async runPreview() {
-      if (state.projectStatus !== 'idle') return
+      if (state.projectStatus !== 'idle' || state.planStatus === 'generating_app') return
       stopPreview()
       const generation = previewGeneration
       previewRequest = new AbortController()
@@ -710,6 +712,117 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
         throw error
       }
     },
+    async generateFromApprovedPlan() {
+      const plan = state.currentPlan
+      if (!plan || plan.status !== 'approved') {
+        throw new Error('An approved plan is required to generate the app')
+      }
+      if (isPlanStale(plan, state.activeProject.revision) || planSource !== sourceKey(state.activeProject)) {
+        setState({
+          planStatus: 'stale',
+          planError: 'Stale plan approval: the app has changed. Generate a new plan.',
+        })
+        throw new StalePlanApprovalError(
+          'Stale plan approval: the app no longer matches the source used for this plan.'
+        )
+      }
+      if (state.planStatus === 'generating_app' || state.projectStatus !== 'idle') return null
+
+      previewGeneration++
+      previewRequest?.abort()
+      const previousAssets = state.assets
+      cancelPlan()
+      const generation = ++planGeneration
+      planRequest = new AbortController()
+      const project = state.activeProject
+      const saved = state.savedProjects.some(item => item.id === project.id)
+
+      setState({
+        planStatus: 'generating_app',
+        planError: '',
+        previewStatus: previousAssets ? 'ready' : 'loading',
+        errorMessage: '',
+      })
+
+      try {
+        let result: AppGenerateResult
+        if (options.generator) {
+          result = await options.generator(plan, structuredClone(project))
+        } else {
+          result = await requestAppGeneration(
+            {
+              plan,
+              ...(saved ? { appId: project.id, expectedRevision: project.revision } : { project }),
+            },
+            {
+              signal: planRequest.signal,
+              accountId: options.accountId,
+            }
+          )
+        }
+
+        if (generation !== planGeneration) return null
+
+        if (result.budget) {
+          setState({ budget: result.budget })
+        }
+
+        if (!result.success || !result.assets) {
+          setState({
+            planStatus: 'approved',
+            previewStatus: previousAssets ? 'ready' : 'error',
+            assets: previousAssets,
+            diagnostics: [...result.diagnostics],
+            errorMessage: result.error || 'The generated code could not compile. Review the diagnostics below.',
+            selectedDiagnosticIndex: result.diagnostics.length ? 0 : null,
+          })
+          return { success: false, diagnostics: result.diagnostics }
+        }
+
+        const updatedProject: AppProject = result.project ?? {
+          ...project,
+          revision: project.revision + 1,
+          files: result.files ?? { ...project.files, ...(result.generatedFiles ?? {}) },
+          updatedAt: new Date().toISOString(),
+        }
+
+        if (updatedProject.id !== project.id || updatedProject.revision !== project.revision + 1) {
+          throw new PlanValidationError('Generated app does not match the expected project revision')
+        }
+        planSource = sourceKey(updatedProject)
+
+        setState({
+          projects: [updatedProject, ...state.projects.filter(p => p.id !== updatedProject.id)],
+          activeProject: updatedProject,
+          activeFilePath: updatedProject.preview.entryPoint,
+          previewStatus: 'ready',
+          assets: result.assets,
+          diagnostics: [...result.diagnostics],
+          errorMessage: '',
+          planStatus: 'approved',
+          planError: '',
+          savedProjects: saved && result.project
+            ? [result.project, ...state.savedProjects.filter(p => p.id !== result.project!.id)]
+            : state.savedProjects,
+        })
+
+        return { success: true, project: updatedProject, assets: result.assets }
+      } catch (error) {
+        if (generation === planGeneration) {
+          setState({
+            planStatus: error instanceof ApiError && error.status === 409 ? 'stale' : 'approved',
+            planError: message(error),
+            previewStatus: previousAssets ? 'ready' : 'idle',
+          })
+        }
+        throw error
+      }
+    },
+    cancelAppGeneration() {
+      if (state.planStatus !== 'generating_app') return
+      cancelPlan()
+      setState({ planStatus: 'approved', planError: 'Generation cancelled. Your previous revision is unchanged.' })
+    },
     async reviseCurrentPlan(newPrompt: string) {
       setState({
         planPrompt: newPrompt,
@@ -741,7 +854,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       listGeneration++
       listRequest?.abort()
       stopPreview()
-      setState({ projectStatus: 'idle', listStatus: 'idle', planStatus: state.planStatus === 'generating' || state.planStatus === 'approving' ? 'idle' : state.planStatus })
+      setState({ projectStatus: 'idle', listStatus: 'idle', planStatus: state.planStatus === 'generating' || state.planStatus === 'approving' || state.planStatus === 'generating_app' ? 'idle' : state.planStatus })
     },
   }
   return store

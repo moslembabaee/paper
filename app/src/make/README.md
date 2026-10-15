@@ -203,3 +203,47 @@ The node VM tests check only the trusted protocol, never browser SOP/CSP enforce
 
 Policy references: [CSP inheritance](https://www.w3.org/TR/CSP3/#security-inherit-csp),
 [iframe sandbox](https://html.spec.whatwg.org/multipage/iframe-embed-object.html#attr-iframe-sandbox).
+
+## Generate from an approved plan
+
+In Make, create or open an app, enter a prompt, inspect the proposed files and
+interactions, approve the plan, then choose **Generate app**. Saved apps commit
+an immutable next revision only after manifest and compiler validation succeed.
+Unsaved drafts use the same validation and preview path; **Save a copy** persists
+a draft explicitly. Generation never edits a Paper scene or calls MCP tools.
+
+`POST /api/apps/:id/generate` accepts `{ plan, expectedRevision }` for a saved
+app. `POST /api/model/generate` accepts `{ plan, project }` for an unsaved draft.
+Both require the normal session/CSRF guards. Saved approval must match the exact
+server-issued, approved plan; draft approval must match an issued plan and the
+exact source supplied during planning. Approvals expire after 30 minutes and
+service restarts require replanning. Output may only touch approved file paths.
+No generated source executes on the server, installs packages, or changes the
+compiler allowlist or iframe policies.
+
+Each generation turn retains the approved plan, source/rollback revision,
+changed paths, compiler diagnostics and validation outcome in the account-scoped
+model ledger (the existing 100-turn retention applies). Successful saved output
+also retains the previous source in immutable revision storage. Invalid output
+returns `success: false`, `assets: null` and diagnostics without writing a
+revision. The workspace retains the existing usable preview, including its
+interactive state, while displaying the failure. Cancelling generation or
+switching projects ignores late output; concurrent saved edits reject the commit
+with HTTP 409. Provider configuration remains server-side; tests use deterministic
+adapters and need no live model credentials.
+
+Targeted generation verification:
+
+```sh
+node --experimental-strip-types tests/make-app-generation.test.mjs
+npm run build:server && node server/tests/model-gateway.test.mjs
+npx playwright test e2e/make-app-generation.spec.ts
+npm test && npm run build
+```
+
+The browser suite exercises the real service, durable storage, safe compiler and
+sandboxed React preview using only a deterministic model adapter. It verifies
+saved and unsaved generation, desktop/mobile interactions, invalid replacement
+recovery and reload. Screenshots go to `/tmp/paper-generation-*.png`. Browser
+acceptance requires localhost listeners and a working Chromium; a sandbox that
+blocks either cannot satisfy the browser release gate.

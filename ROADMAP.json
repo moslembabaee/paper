@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-25",
+  "current_task_id": "T-ISSUE-26",
   "tasks": [
     {
       "id": "T-ISSUE-17",
@@ -759,7 +759,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 25,
-      "completed_at": "2026-10-15T04:51:37.448786"
+      "completed_at": "2026-10-15T04:51:37.448786",
+      "closed_at": "2026-10-15T04:51:41Z"
     },
     {
       "id": "T-ISSUE-26",
@@ -767,10 +768,11 @@
       "title": "Issue #26: feat(make 09): Generate first functional app from an approved plan",
       "description": "Scope: Generate a one-screen interactive React app into versioned files through the safe compiler and preview pipeline; preserve the approved plan and diagnostics.\nAcceptance: End-to-end test creates, renders and interacts with an app; invalid generation does not replace the last usable revision.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 26
+      "github_issue_number": 26,
+      "completed_at": "2026-10-15T05:17:37.788882"
     },
     {
       "id": "T-ISSUE-27",

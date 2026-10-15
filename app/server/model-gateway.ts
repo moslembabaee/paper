@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ModelBudget, ModelRequest, ModelResponse, ModelTurnRecord, ModelTurnUsage } from '../src/make/types.ts'
+import type { AppGenerationRecord, ModelBudget, ModelRequest, ModelResponse, ModelTurnRecord, ModelTurnUsage } from '../src/make/types.ts'
 import { MODEL_GATEWAY_LIMITS, redactSensitiveText } from '../src/make/model-protocol.ts'
 import { httpError, safeId } from './storage.ts'
 import type { AppStorage } from './app-storage.ts'
@@ -113,6 +113,13 @@ export class ServerModelGateway {
 
   listTurns(userId: string, appId?: string): ModelTurnRecord[] {
     return structuredClone((this.turns.get(userId) ?? []).filter(turn => !appId || turn.appId === appId))
+  }
+
+  async recordGeneration(userId: string, turnId: string, generation: AppGenerationRecord): Promise<void> {
+    const turn = this.turns.get(userId)?.find(item => item.turnId === turnId)
+    if (!turn) throw httpError(409, 'Generation turn is no longer available')
+    this.recordTurn(userId, { ...turn, generation: structuredClone(generation) })
+    await this.persist()
   }
 
   cancelTurn(userId: string, turnId: string): boolean {
@@ -264,6 +271,158 @@ export class ServerModelGateway {
         risks: [
           'State resets on preview reload unless saved to account storage',
           'Only pre-approved modules from allowlist can be imported',
+        ],
+      })
+    } else if (request.systemPrompt?.includes('Paper Make App Generator') || request.context?.mode === 'generate') {
+      content = JSON.stringify({
+        summary: `Generated functional prototype for: ${request.prompt.slice(0, 60)}`,
+        files: [
+          {
+            path: 'src/App.tsx',
+            content: `import React, { useState } from 'react'
+import { Sparkles, Plus, Minus, RotateCcw } from 'lucide-react'
+import './styles.css'
+
+export default function App() {
+  const [count, setCount] = useState(0)
+  const [active, setActive] = useState(false)
+
+  return (
+    <main className="make-app-shell">
+      <div className="card">
+        <header className="card-header">
+          <Sparkles size={18} className="icon" />
+          <h1>Generated Prototype</h1>
+        </header>
+        <p className="description">
+          Functional app generated from approved plan.
+        </p>
+        <div className="counter-row">
+          <span className="count-label">Count: {count}</span>
+          <div className="btn-group">
+            <button className="btn" aria-label="Decrement" onClick={() => setCount(c => c - 1)}>
+              <Minus size={14} />
+            </button>
+            <button className="btn" aria-label="Increment" onClick={() => setCount(c => c + 1)}>
+              <Plus size={14} />
+            </button>
+            <button className="btn" aria-label="Reset" onClick={() => { setCount(0); setActive(false) }}>
+              <RotateCcw size={14} />
+            </button>
+          </div>
+        </div>
+        <button
+          className={"toggle-btn " + (active ? 'active' : '')}
+          onClick={() => setActive(!active)}
+        >
+          {active ? '✨ Active' : 'Click to activate'}
+        </button>
+      </div>
+    </main>
+  )
+}
+`,
+          },
+          {
+            path: 'src/styles.css',
+            content: `.make-app-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background-color: #080808;
+  color: #edebe1;
+  background-image: linear-gradient(#222222 1px, transparent 1px), linear-gradient(90deg, #222222 1px, transparent 1px);
+  background-size: 120px 120px;
+}
+.card {
+  max-width: 440px;
+  width: 100%;
+  background: #111111;
+  border: 1px solid #222222;
+  border-radius: 8px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.card-header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  color: #edebe1;
+}
+.icon {
+  color: #81adec;
+}
+.description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #888888;
+}
+.counter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: #080808;
+  border: 1px solid #222222;
+  border-radius: 6px;
+}
+.count-label {
+  font-size: 15px;
+  font-weight: 600;
+  color: #edebe1;
+}
+.btn-group {
+  display: flex;
+  gap: 6px;
+}
+.btn {
+  background: #181818;
+  color: #edebe1;
+  border: 1px solid #333333;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.btn:hover {
+  border-color: #81adec;
+  background: #222222;
+}
+.toggle-btn {
+  background: #222222;
+  color: #edebe1;
+  border: 1px solid #333333;
+  padding: 10px 18px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.toggle-btn:hover {
+  border-color: #81adec;
+}
+.toggle-btn.active {
+  background: #81adec;
+  color: #080808;
+  border-color: #81adec;
+}
+`,
+          },
         ],
       })
     } else {

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createService } from '../dist/server/service.js'
 import { createAppProject } from '../dist/src/make/manifest.js'
+import { createAppPlan, approvePlan } from '../dist/src/make/plan.js'
 import { ServerModelGateway } from '../dist/server/model-gateway.js'
 
 const secret = 'a-persistent-secret-for-model-gateway-tests-12345'
@@ -659,4 +660,225 @@ test('draft planning reads supplied context without creating an app or permittin
   assert.match(observed.systemPrompt, /src\/Timer.tsx/)
   assert.equal(observed.appId, undefined)
   assert.deepEqual((await f.request('/api/apps', { headers: a.headers })).data.apps, [])
+})
+
+test('POST /api/apps/:id/generate with approved plan compiles and advances revision in storage', async t => {
+  const f = await fixture(t)
+  const a = await f.login('gen-alice')
+  const { data: app } = await f.request('/api/apps', {
+    method: 'POST',
+    headers: a.headers,
+    body: JSON.stringify({ project: createAppProject({ name: 'Counter Demo' }) }),
+  })
+  assert.equal(app.revision, 1)
+
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+
+  // Unapproved plan should be rejected
+  const unapproved = createAppPlan({
+    appId: app.id,
+    baseRevision: 1,
+    prompt: 'Add counter buttons',
+    summary: 'Draft',
+    files: [{ path: 'src/App.tsx', description: 'Counter' }],
+    interactions: ['Click'],
+  })
+  const unapprovedRes = await f.request(`/api/apps/${app.id}/generate`, {
+    method: 'POST',
+    headers: a.headers,
+    body: JSON.stringify({ plan: unapproved }),
+  })
+  assert.equal(unapprovedRes.status, 400)
+
+  // Stale plan (revision mismatch) should be rejected with 409
+  const staleRes = await f.request(`/api/apps/${app.id}/generate`, {
+    method: 'POST',
+    headers: a.headers,
+    body: JSON.stringify({ plan: { ...plan, baseRevision: 99 } }),
+  })
+  assert.equal(staleRes.status, 409)
+
+  // Generate with valid approved plan
+  const genRes = await f.request(`/api/apps/${app.id}/generate`, {
+    method: 'POST',
+    headers: a.headers,
+    body: JSON.stringify({ plan }),
+  })
+  assert.equal(genRes.status, 200)
+  assert.equal(genRes.data.success, true)
+  assert.equal(genRes.data.project.revision, 2)
+  assert.ok(genRes.data.assets)
+  assert.ok(genRes.data.assets.js.includes('Generated Prototype'))
+  assert.equal(genRes.data.diagnostics.length, 0)
+
+  // Verify storage updated to revision 2
+  const updated = (await f.request(`/api/apps/${app.id}`, { headers: a.headers })).data
+  assert.equal(updated.revision, 2)
+})
+
+test('POST /api/apps/:id/generate: invalid compilation DOES NOT overwrite last usable revision', async t => {
+  const f = await fixture(t, {
+    modelGateway: {
+      tokenBudget: 100000,
+      customAdapter: async request => ({
+        content: JSON.stringify(request.context?.mode === 'plan' ? planOutput : {
+          summary: 'Broken code',
+          files: [
+            { path: 'src/App.tsx', content: 'export default function App() { return <div><span> unclosed }' },
+          ],
+        }),
+      }),
+    },
+  })
+  const a = await f.login('fail-gen-alice')
+  const originalProject = createAppProject({ name: 'Safe Stable App' })
+  const { data: app } = await f.request('/api/apps', {
+    method: 'POST',
+    headers: a.headers,
+    body: JSON.stringify({ project: originalProject }),
+  })
+  assert.equal(app.revision, 1)
+
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+
+  const genRes = await f.request(`/api/apps/${app.id}/generate`, {
+    method: 'POST',
+    headers: a.headers,
+    body: JSON.stringify({ plan }),
+  })
+  assert.equal(genRes.status, 200)
+  assert.equal(genRes.data.success, false)
+  assert.equal(genRes.data.assets, null)
+  assert.ok(genRes.data.diagnostics.length > 0)
+  assert.equal(genRes.data.diagnostics[0].code, 'SYNTAX_ERROR')
+
+  // Storage MUST NOT be overwritten!
+  const current = (await f.request(`/api/apps/${app.id}`, { headers: a.headers })).data
+  assert.equal(current.revision, 1)
+  assert.deepEqual(current.files, originalProject.files)
+})
+
+async function approvedGenerationPlan(f, headers, app) {
+  const draft = await f.request(`/api/apps/${app.id}/plan`, { method: 'POST', headers, body: JSON.stringify({ prompt: 'Build an interactive counter', expectedRevision: app.revision }) })
+  assert.equal(draft.status, 200)
+  const approval = await f.request(`/api/apps/${app.id}/plan/approve`, { method: 'POST', headers, body: JSON.stringify({ plan: draft.data.plan, expectedRevision: app.revision }) })
+  assert.equal(approval.status, 200)
+  return approval.data.plan
+}
+
+test('generation rejects forged approvals before dispatching or spending budget', async t => {
+  const f = await fixture(t)
+  const a = await f.login('forged-alice')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject() }) })
+  const forged = approvePlan(createAppPlan({ appId: app.id, baseRevision: app.revision, prompt: 'Counter', summary: 'Counter', files: [{ path: 'src/App.tsx', description: 'Counter' }], interactions: ['Increment'] }), app.revision)
+  const result = await f.request(`/api/apps/${app.id}/generate`, { method: 'POST', headers: a.headers, body: JSON.stringify({ plan: forged }) })
+  assert.equal(result.status, 409)
+  assert.equal(f.modelGateway.getBudget(a.user.id).usedTurns, 0)
+  assert.equal((await f.storage.apps.read(a.user.id, app.id)).revision, 1)
+})
+
+test('generation durably preserves approved plan, validation diagnostics and rollback revision', async t => {
+  const f = await fixture(t, { modelGateway: { turnBudget: 10, tokenBudget: 100000 } })
+  const a = await f.login('provenance-alice')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject() }) })
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+  const result = await f.request(`/api/apps/${app.id}/generate`, { method: 'POST', headers: a.headers, body: JSON.stringify({ plan }) })
+  assert.equal(result.status, 200)
+  assert.equal(result.data.success, true)
+  const persisted = new ServerModelGateway({ provider: 'mock' })
+  await persisted.initialize(f.root)
+  const turn = persisted.listTurns(a.user.id, app.id).find(turn => turn.turnId === result.data.turnId)
+  assert.deepEqual(turn.generation.plan, plan)
+  assert.equal(turn.generation.sourceRevision, 1)
+  assert.equal(turn.generation.resultRevision, 2)
+  assert.equal(turn.generation.validation, 'passed')
+  assert.deepEqual(turn.generation.diagnostics, [])
+  assert.equal((await f.storage.apps.readRevision(a.user.id, app.id, 1)).project.revision, 1)
+})
+
+test('untrusted generation fails closed for malformed output, imports and unplanned files with durable diagnostics', async t => {
+  const cases = [
+    ['not json', 'INVALID_INPUT'],
+    [JSON.stringify({ files: [{ path: '../outside.tsx', content: 'export default () => null' }] }), 'INVALID_INPUT'],
+    [JSON.stringify({ files: [{ path: 'src/App.tsx', content: "import fs from 'node:fs'; export default () => <p>Denied</p>" }] }), 'DENIED_IMPORT'],
+    [JSON.stringify({ files: [{ path: 'src/App.tsx', content: 'export default () => <p>OK</p>' }, { path: 'src/unplanned.ts', content: 'export const extra = 1' }] }), 'INVALID_INPUT'],
+  ]
+  for (const [content, code] of cases) {
+    await t.test(code, async t => {
+      const f = await fixture(t, { modelGateway: { tokenBudget: 100000, customAdapter: async request => ({ content: request.context?.mode === 'plan' ? JSON.stringify(planOutput) : content }) } })
+      const a = await f.login('invalid-generation')
+      const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject() }) })
+      const plan = await approvedGenerationPlan(f, a.headers, app)
+      const result = await f.request(`/api/apps/${app.id}/generate`, { method: 'POST', headers: a.headers, body: JSON.stringify({ plan }) })
+      assert.equal(result.status, 200)
+      assert.equal(result.data.success, false)
+      assert.equal(result.data.assets, null)
+      assert.equal(result.data.diagnostics[0].code, code)
+      assert.deepEqual(await f.storage.apps.read(a.user.id, app.id), app)
+      assert.equal((await f.storage.apps.listRevisions(a.user.id, app.id)).length, 1)
+      const persisted = new ServerModelGateway({ provider: 'mock' })
+      await persisted.initialize(f.root)
+      const record = persisted.listTurns(a.user.id, app.id).find(turn => turn.turnId === result.data.turnId).generation
+      assert.deepEqual(record.plan, plan)
+      assert.equal(record.validation, 'failed')
+      assert.equal(record.diagnostics[0].code, code)
+    })
+  }
+})
+
+test('source updates during generation reject the late commit and retain manual edits', async t => {
+  let release, started
+  const pending = new Promise(resolve => { release = resolve })
+  const dispatched = new Promise(resolve => { started = resolve })
+  const f = await fixture(t, { modelGateway: { tokenBudget: 100000, timeoutMs: 3000, customAdapter: async request => {
+    if (request.context?.mode === 'plan') return { content: JSON.stringify(planOutput) }
+    started()
+    await pending
+    return { content: JSON.stringify({ files: [{ path: 'src/App.tsx', content: 'export default () => <p>Generated</p>' }] }) }
+  } } })
+  const a = await f.login('concurrent-generation')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject() }) })
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+  const generating = f.request(`/api/apps/${app.id}/generate`, { method: 'POST', headers: a.headers, body: JSON.stringify({ plan }) })
+  await dispatched
+  const manual = await f.storage.apps.put(a.user.id, app.id, { ...app, files: { 'src/App.tsx': { path: 'src/App.tsx', content: 'export default () => <p>Manual edit</p>' } } }, 1)
+  release()
+  assert.equal((await generating).status, 409)
+  assert.deepEqual(await f.storage.apps.read(a.user.id, app.id), manual)
+  assert.equal(f.modelGateway.listTurns(a.user.id, app.id)[0].generation.validation, 'conflict')
+})
+
+test('approved generation enforces authentication, CSRF, ownership and unchanged plan content', async t => {
+  const f = await fixture(t, { modelGateway: { tokenBudget: 100000 } })
+  const a = await f.login('generation-owner'), b = await f.login('generation-stranger')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject() }) })
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+  const path = `/api/apps/${app.id}/generate`
+  const post = (headers, candidate = plan) => f.request(path, { method: 'POST', headers, body: JSON.stringify({ plan: candidate }) })
+  assert.equal((await post({})).status, 401)
+  assert.equal((await post({ Cookie: a.headers.Cookie })).status, 403)
+  assert.equal((await post(b.headers)).status, 404)
+  assert.equal((await post(a.headers, { ...plan, summary: 'Tampered approved content' })).status, 409)
+  assert.equal(f.modelGateway.getBudget(a.user.id).usedTurns, 1)
+  assert.equal((await f.storage.apps.read(a.user.id, app.id)).revision, 1)
+})
+
+test('draft generation binds to issued plan and exact source without creating an account artifact', async t => {
+  const f = await fixture(t, { modelGateway: { tokenBudget: 100000 } })
+  const a = await f.login('draft-generation')
+  const project = createAppProject()
+  const draft = await f.request('/api/model/plan', { method: 'POST', headers: a.headers, body: JSON.stringify({ prompt: 'Interactive counter', project }) })
+  assert.equal(draft.status, 200)
+  const plan = approvePlan({ ...draft.data.plan, appId: project.id, baseRevision: project.revision }, project.revision)
+  const post = input => f.request('/api/model/generate', { method: 'POST', headers: a.headers, body: JSON.stringify(input) })
+  const tampered = await post({ plan, project: { ...project, name: 'Changed since planning' } })
+  assert.equal(tampered.status, 409)
+  const result = await post({ plan, project })
+  assert.equal(result.status, 200)
+  assert.equal(result.data.success, true)
+  assert.equal(result.data.project.id, project.id)
+  assert.equal(result.data.project.revision, project.revision + 1)
+  assert.equal(result.data.project.preview.status, 'ready')
+  assert.ok(result.data.assets.js.includes('Generated Prototype'))
+  assert.deepEqual(await f.storage.apps.list(a.user.id), [])
 })

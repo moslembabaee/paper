@@ -118,6 +118,16 @@ export interface ModelTurnRecord {
   readonly outputBytes: number
   readonly createdAt: string
   readonly errorMessage?: string
+  readonly generation?: AppGenerationRecord
+}
+
+export interface AppGenerationRecord {
+  readonly plan: AppPlan
+  readonly sourceRevision: number
+  readonly resultRevision?: number
+  readonly validation: 'pending' | 'passed' | 'failed' | 'conflict' | 'cancelled'
+  readonly diagnostics: readonly import('./compiler.ts').CompileDiagnostic[]
+  readonly changedFiles: readonly string[]
 }
 
 export interface ModelRequest {
@@ -201,4 +211,25 @@ export interface AppPlanApprovalResult {
   readonly ok: boolean
   readonly plan: AppPlan
   readonly approvedAt: string
+}
+
+export interface AppGenerateRequest {
+  readonly plan: AppPlan
+  readonly appId?: string
+  readonly expectedRevision?: number
+  readonly project?: AppProject
+}
+
+export interface AppGenerateResult {
+  readonly success: boolean
+  readonly project?: AppProject
+  readonly files?: Record<string, AppSourceFile>
+  readonly generatedFiles?: Record<string, AppSourceFile>
+  readonly assets?: import('./compiler.ts').CompilePreviewAssets | null
+  readonly diagnostics: readonly import('./compiler.ts').CompileDiagnostic[]
+  readonly plan: AppPlan
+  readonly turnId?: string
+  readonly usage?: ModelTurnUsage
+  readonly budget?: ModelBudget
+  readonly error?: string
 }

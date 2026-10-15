@@ -6,12 +6,14 @@ import { isPlanStale } from './plan.ts'
 export interface PlanInspectionProps {
   plan: AppPlan | null
   currentRevision: number
-  planStatus: 'idle' | 'generating' | 'approving' | 'approved' | 'stale'
+  planStatus: 'idle' | 'generating' | 'approving' | 'approved' | 'generating_app' | 'stale'
   planError: string
   onApprove: () => void
+  onGenerate?: () => void
   onRevise: (newPrompt: string) => void
   onDismiss: () => void
   busy?: boolean
+  applied?: boolean
 }
 
 export function PlanInspection({
@@ -20,11 +22,14 @@ export function PlanInspection({
   planStatus,
   planError,
   onApprove,
+  onGenerate,
   onRevise,
   onDismiss,
   busy = false,
+  applied = false,
 }: PlanInspectionProps) {
   const [revising, setRevising] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [revisionNotes, setRevisionNotes] = useState('')
   const card = useRef<HTMLElement>(null)
   const reviseButton = useRef<HTMLButtonElement>(null)
@@ -32,8 +37,9 @@ export function PlanInspection({
 
   if (!plan) return null
 
-  const stale = isPlanStale(plan, currentRevision) || planStatus === 'stale'
+  const stale = planStatus === 'stale' || (!applied && isPlanStale(plan, currentRevision))
   const approved = !stale && (plan.status === 'approved' || planStatus === 'approved')
+  const compact = applied && !expanded
 
   function handleReviseSubmit(e: FormEvent) {
     e.preventDefault()
@@ -45,7 +51,7 @@ export function PlanInspection({
 
   return (
     <section
-      className="make-plan-card"
+      className={`make-plan-card${compact ? " make-plan-applied" : ""}`}
       data-testid="make-plan-card"
       aria-label="App plan"
       role="region"
@@ -106,7 +112,7 @@ export function PlanInspection({
         </div>
       ) : null}
 
-      <div className="make-plan-sections">
+      <div className="make-plan-sections" hidden={compact}>
         {/* Files section */}
         <div className="make-plan-section" aria-label="Planned files">
           <div className="make-plan-section-header">
@@ -164,7 +170,8 @@ export function PlanInspection({
           </div>
       </div>
 
-      {revising ? (
+      {applied ? <button type="button" className="make-button make-plan-inspect" onClick={() => setExpanded(value => !value)}>{compact ? 'Inspect approved plan' : 'Collapse approved plan'}</button> : null}
+      {applied ? null : revising ? (
         <form className="make-plan-revise-form" onSubmit={handleReviseSubmit}>
           <label htmlFor="plan-revise-input" className="make-sr-only">
             Revise plan instructions
@@ -218,7 +225,7 @@ export function PlanInspection({
 
           <button
             type="button"
-            className="make-button make-primary"
+            className={`make-button ${approved ? '' : 'make-primary'}`}
             onClick={onApprove}
             disabled={busy || approved || stale}
             aria-label="Approve plan"
@@ -226,9 +233,22 @@ export function PlanInspection({
             <Check size={13} />
             <span>{approved ? 'Approved' : 'Approve plan'}</span>
           </button>
+
+          {approved && onGenerate ? (
+            <button
+              type="button"
+              className="make-button make-primary make-generate-btn"
+              onClick={onGenerate}
+              disabled={busy || stale || isPlanStale(plan, currentRevision)}
+              aria-label={planStatus === 'generating_app' ? 'Generating app in progress' : 'Generate app'}
+            >
+              {planStatus === 'generating_app' ? <span className="make-loader-inline" /> : <Sparkles size={13} />}
+              <span>{planStatus === 'generating_app' ? 'Generating…' : 'Generate app'}</span>
+            </button>
+          ) : null}
         </footer>
       )}
-      <p className="make-plan-note">{approved ? 'Plan approved. App generation is a separate step.' : 'Planning and approval keep your source files and revision unchanged.'}</p>
+      <p className="make-plan-note">{planStatus === 'generating_app' ? 'Generating your app into versioned files…' : approved ? applied ? `Approved plan applied to Rev ${currentRevision}.` : 'Plan approved. Ready to generate your app.' : 'Planning and approval keep your source files and revision unchanged.'}</p>
     </section>
   )
 }

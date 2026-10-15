@@ -9,8 +9,8 @@ import { APP_PROJECT_LIMITS, AppProjectValidationError, generateAppProjectId, pa
 import { compileAppProject, compileSourceFiles } from '../src/make/compiler.ts'
 import { ServerModelGateway, type ModelGatewayConfig } from './model-gateway.ts'
 import { MODEL_GATEWAY_LIMITS } from '../src/make/model-protocol.ts'
-import type { AppPlan, AppPlanApprovalRequest, AppPlanRequest, ModelRequest } from '../src/make/types.ts'
-import { formatPlanPrompt, parseModelPlanResponse, validateAppPlan, approvePlan, isPlanStale, PlanValidationError } from '../src/make/plan.ts'
+import type { AppPlan, AppPlanApprovalRequest, AppPlanRequest, AppProject, AppGenerateResult, AppGenerationRecord, ModelRequest } from '../src/make/types.ts'
+import { formatPlanPrompt, parseModelPlanResponse, validateAppPlan, approvePlan, isPlanStale, PlanValidationError, formatGeneratePrompt, parseModelGenerateResponse } from '../src/make/plan.ts'
 
 export interface ServiceConfig {
   root: string
@@ -96,13 +96,13 @@ export async function createService(config: ServiceConfig) {
     : new ServerModelGateway({ fetch: requestFetch, ...config.modelGateway })
   await modelGateway.initialize(config.root)
   // Approval is bound to the exact server-issued plan. Expiry/restart requires replanning.
-  const pendingPlans = new Map<string, { userId: string; plan: AppPlan; expiresAt: number }>()
-  function rememberPlan(userId: string, plan: AppPlan) {
+  const pendingPlans = new Map<string, { userId: string; plan: AppPlan; expiresAt: number; source?: string }>()
+  function rememberPlan(userId: string, plan: AppPlan, project?: AppProject) {
     for (const [id, item] of pendingPlans) {
       if (item.expiresAt < Date.now() || (item.userId === userId && item.plan.appId === plan.appId)) pendingPlans.delete(id)
     }
     while (pendingPlans.size >= 1000) pendingPlans.delete(pendingPlans.keys().next().value!)
-    pendingPlans.set(plan.planId, { userId, plan, expiresAt: Date.now() + 30 * 60_000 })
+    pendingPlans.set(plan.planId, { userId, plan, expiresAt: Date.now() + 30 * 60_000, source: project ? JSON.stringify(project) : undefined })
   }
   function parsePlan(content: string, options: { prompt: string; appId?: string; baseRevision: number }) {
     try { return parseModelPlanResponse(content, options) }
@@ -125,6 +125,84 @@ export async function createService(config: ServiceConfig) {
       req.removeListener('aborted', onDisconnect)
       res.removeListener('close', onDisconnect)
     }
+  }
+  async function generateApp(
+    req: IncomingMessage, res: ServerResponse, userId: string,
+    input: Record<string, unknown>, project: AppProject, saved: boolean,
+  ): Promise<AppGenerateResult> {
+    let plan: AppPlan
+    try { plan = validateAppPlan(input.plan) }
+    catch (error) { throw httpError(400, `Malformed plan: ${(error as Error).message}`) }
+    if (plan.status !== 'approved' || !plan.approvedAt) throw httpError(400, 'Only approved plans can be generated')
+    if (plan.appId !== project.id) throw httpError(400, 'Plan app ID does not match project')
+    if (isPlanStale(plan, project.revision) || input.expectedRevision !== undefined && input.expectedRevision !== project.revision) {
+      throw httpError(409, 'Stale plan generation: app revision has changed')
+    }
+    const issued = pendingPlans.get(plan.planId)
+    const expected = issued && (saved ? issued.plan : {
+      ...issued.plan, appId: project.id, baseRevision: project.revision,
+      status: 'approved', approvedAt: plan.approvedAt,
+    })
+    if (!issued || issued.userId !== userId || issued.expiresAt < Date.now() ||
+        JSON.stringify(validateAppPlan(expected)) !== JSON.stringify(plan) ||
+        (!saved && issued.source !== JSON.stringify(project))) {
+      throw httpError(409, 'Plan approval is expired, superseded or changed. Generate and approve a new plan.')
+    }
+    const { systemPrompt, userPrompt } = formatGeneratePrompt(plan, project)
+    const turn = await generate(req, res, userId, {
+      prompt: userPrompt, systemPrompt,
+      ...(saved ? { appId: project.id, expectedRevision: project.revision } : {}),
+      context: { mode: 'generate', planId: plan.planId },
+    })
+    let provenance: AppGenerationRecord = {
+      plan, sourceRevision: project.revision, validation: 'pending', diagnostics: [], changedFiles: [],
+    }
+    await modelGateway.recordGeneration(userId, turn.turnId, provenance)
+    const metadata = { plan, turnId: turn.turnId, usage: turn.usage, budget: turn.budget }
+    let candidate: AppProject
+    try {
+      const generated = parseModelGenerateResponse(turn.content)
+      const files = { ...project.files }
+      const targets = new Map(plan.files.map(file => [file.path, file]))
+      for (const file of Object.values(generated.files)) {
+        const target = targets.get(file.path)
+        if (!target || target.action === 'delete') throw new Error('Generated files must match the approved plan')
+        files[file.path] = file
+      }
+      for (const target of plan.files) {
+        if (target.action === 'delete') delete files[target.path]
+        else if (!Object.hasOwn(generated.files, target.path)) throw new Error(`Generated output is missing planned file ${target.path}`)
+      }
+      candidate = validateAppProject({ ...project, files, preview: { ...project.preview, status: 'ready' } })
+      provenance = { ...provenance, changedFiles: plan.files.map(file => file.path) }
+    } catch {
+      const diagnostics = [{ file: project.preview.entryPoint, line: 1, column: 1,
+        code: 'INVALID_INPUT' as const, severity: 'error' as const, message: 'Generated output must contain valid source files matching the approved plan.' }]
+      await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'failed', diagnostics })
+      return { ...metadata, success: false, project, assets: null, diagnostics, error: 'Generated output failed validation. The previous revision is unchanged.' }
+    }
+    const compiled = await compileAppProject(candidate)
+    provenance = { ...provenance, validation: compiled.success ? 'passed' : 'failed', diagnostics: compiled.diagnostics }
+    await modelGateway.recordGeneration(userId, turn.turnId, provenance)
+    if (!compiled.success || !compiled.assets) {
+      return { ...metadata, success: false, project, assets: null, diagnostics: compiled.diagnostics, error: 'Generated code failed compilation validation. The previous revision is unchanged.' }
+    }
+    if (req.aborted || res.destroyed) {
+      await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'cancelled' })
+      throw httpError(499, 'Request cancelled')
+    }
+    let updated: AppProject
+    try {
+      updated = saved ? await storage.apps.put(userId, project.id, candidate, project.revision)
+        : validateAppProject({ ...candidate, revision: project.revision + 1, updatedAt: new Date().toISOString() })
+    } catch (error) {
+      await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'conflict' })
+      throw error
+    }
+    await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, resultRevision: updated.revision })
+    pendingPlans.delete(plan.planId)
+    if (saved) emitApp(userId, updated, 'update')
+    return { ...metadata, success: true, project: updated, assets: compiled.assets, diagnostics: compiled.diagnostics }
   }
   function cookie(name: string, value: string, maxAge: number) { return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith('https:') ? '; Secure' : ''}` }
   async function providerJSON(url: string, init?: RequestInit) {
@@ -356,8 +434,14 @@ export async function createService(config: ServiceConfig) {
 
       // Model Gateway endpoints: general
       if (path === '/api/model/generate' && req.method === 'POST') {
-        const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as ModelRequest
-        const result = await generate(req, res, user.id, input)
+        const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as Record<string, unknown>
+        if (Object.hasOwn(input, 'plan')) {
+          const project = validateAppProject(input.project)
+          const result = await generateApp(req, res, user.id, input, project, false)
+          json(res, 200, result)
+          return
+        }
+        const result = await generate(req, res, user.id, input as unknown as ModelRequest)
         json(res, 200, result)
         return
       }
@@ -377,6 +461,7 @@ export async function createService(config: ServiceConfig) {
           prompt: input.prompt,
           baseRevision: 0,
         })
+        rememberPlan(user.id, plan, project)
         json(res, 200, { plan, turnId: turn.turnId, usage: turn.usage, budget: turn.budget })
         return
       }
@@ -406,8 +491,15 @@ export async function createService(config: ServiceConfig) {
           const id = safeId(decodeAppPath(appGenerateRoute[2]), 'app ID')
           const record = await storage.apps.read(user.id, id)
           if (!record) throw httpError(404, 'App project not found')
-          const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as ModelRequest
-          const result = await generate(req, res, user.id, { ...input, appId: id })
+          const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as Record<string, unknown>
+
+          if (Object.hasOwn(input, 'plan')) {
+            const result = await generateApp(req, res, user.id, input, record, true)
+            json(res, 200, result)
+            return
+          }
+
+          const result = await generate(req, res, user.id, { ...input, appId: id } as unknown as ModelRequest)
           json(res, 200, result)
           return
         }
@@ -474,7 +566,7 @@ export async function createService(config: ServiceConfig) {
             })
           }
           const approved = approvePlan(plan, record.revision)
-          pendingPlans.delete(plan.planId)
+          rememberPlan(user.id, approved)
           json(res, 200, { ok: true, plan: approved, approvedAt: approved.approvedAt })
           return
         }

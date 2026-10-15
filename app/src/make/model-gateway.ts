@@ -1,4 +1,6 @@
 import type {
+  AppGenerateRequest,
+  AppGenerateResult,
   AppPlan,
   AppPlanApprovalResult,
   AppPlanRequest,
@@ -105,5 +107,27 @@ export async function approveModelPlan(
     ok: res.ok,
     plan: validateAppPlan(res.plan),
     approvedAt: res.approvedAt,
+  }
+}
+
+export async function requestAppGeneration(
+  request: AppGenerateRequest,
+  options?: ModelRequestOptions
+): Promise<AppGenerateResult> {
+  const path = request.appId
+    ? `/apps/${encodeURIComponent(request.appId)}/generate`
+    : '/model/generate'
+
+  const res = await api<AppGenerateResult>(path, {
+    method: 'POST',
+    body: JSON.stringify(request),
+    signal: options?.signal,
+    headers: options?.accountId ? { 'X-Paper-Account': options.accountId } : undefined,
+    timeoutMs: MODEL_GATEWAY_LIMITS.DEFAULT_TIMEOUT_MS + 10_000,
+  })
+
+  return {
+    ...res,
+    plan: validateAppPlan(res.plan),
   }
 }

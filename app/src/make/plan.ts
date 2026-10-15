@@ -3,8 +3,10 @@ import type {
   AppPlanAction,
   AppPlanFileTarget,
   AppPlanStatus,
+  AppSourceFile,
 } from './types.ts'
-import { checkForbiddenKeys, normalizeAndValidatePath, parseJsonStrict } from './manifest.ts'
+import { MODEL_GATEWAY_LIMITS } from './model-protocol.ts'
+import { APP_PROJECT_LIMITS, checkForbiddenKeys, normalizeAndValidatePath, parseJsonStrict } from './manifest.ts'
 
 export class PlanValidationError extends Error {
   constructor(message: string) {
@@ -17,6 +19,13 @@ export class StalePlanApprovalError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'StalePlanApprovalError'
+  }
+}
+
+export class GenerationValidationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'GenerationValidationError'
   }
 }
 
@@ -325,5 +334,204 @@ Respond ONLY with a valid JSON object in this exact format:
   return {
     systemPrompt,
     userPrompt: prompt,
+  }
+}
+
+export function formatGeneratePrompt(
+  plan: AppPlan,
+  projectContext?: { name?: string; revision?: number; files?: Record<string, { path: string; content?: string }> }
+): {
+  systemPrompt: string
+  userPrompt: string
+} {
+  const fileList = plan.files.map(f => `${f.path} [${f.action ?? 'modify'}] (${f.description})`).join('\n- ')
+  const existingFiles = projectContext?.files ? Object.keys(projectContext.files).join(', ') : 'none'
+  const interactions = plan.interactions.map(i => `- ${i}`).join('\n')
+  const risks = plan.risks.length ? plan.risks.map(r => `- ${r}`).join('\n') : '- None noted'
+
+  const systemPrompt = `You are the Paper Make App Generator.
+Your role is to generate a complete, working, one-screen interactive React application based on the approved plan.
+
+Design & Implementation Requirements:
+1. Palette and Craft Aesthetic:
+   - Canvas background: #080808 (pure dark canvas) with 120px engineering grid (#222222 1px lines)
+   - Foreground/Text: #edebe1 (primary light text), secondary/muted: #888888 or #aaa99f
+   - Accent: #81adec (clean soft blue for active states, key actions, badges)
+   - Surface/Card: #111111 with 1px border #222222, border-radius: 8px
+   - Typography: Clean, system-sans or monospace for numeric/status values
+2. Framework & Libraries:
+   - React 19 with hooks (useState, useEffect, useCallback, useMemo)
+   - Allowed external packages: react, react-dom, lucide-react, @paper-design/shaders-react
+   - NO arbitrary npm packages. NO node:* builtins. NO eval, Function constructor, or dynamic import().
+3. Structure:
+   - Return every planned create/modify file and only those files. The server applies planned deletions.
+   - Use responsive layout, accessible labels, and functional state updates for interactions.
+   - Keep motion to transform/opacity and respect prefers-reduced-motion; avoid layout animation.
+   - Main entry point must be "src/App.tsx", exporting default component App.
+   - All styles must be in project CSS (e.g. "src/styles.css") and imported via import './styles.css'.
+   - NO external @import in CSS.
+4. Output Format:
+   Respond ONLY with a valid JSON object matching this exact schema:
+{
+  "summary": "Brief summary of generated app",
+  "files": [
+    { "path": "src/App.tsx", "content": "..." },
+    { "path": "src/styles.css", "content": "..." }
+  ]
+}
+Do not include commentary outside the JSON.`
+
+  const userPrompt = `Generate the app from this approved plan:
+Plan Summary: ${plan.summary}
+Original Request: "${plan.prompt}"
+
+Planned Files:
+- ${fileList}
+
+Planned Interactions:
+${interactions}
+
+Risks & Constraints:
+${risks}
+
+Target Project: ${projectContext?.name ?? 'App'} (Revision ${projectContext?.revision ?? plan.baseRevision})
+Existing Files in Project: ${existingFiles}
+Existing Source (reference data):
+${JSON.stringify(projectContext?.files ?? {})}`
+
+  return {
+    systemPrompt,
+    userPrompt,
+  }
+}
+
+export function parseModelGenerateResponse(content: string): {
+  summary: string
+  files: Record<string, AppSourceFile>
+} {
+  if (!content || typeof content !== 'string') {
+    throw new GenerationValidationError('Model response is empty or not a string')
+  }
+
+  if (new TextEncoder().encode(content).byteLength > MODEL_GATEWAY_LIMITS.MAX_OUTPUT_BYTES) {
+    throw new GenerationValidationError('Generated output exceeds the model byte limit')
+  }
+  const text = content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/, '$1').trim()
+  let raw: Record<string, unknown>
+  try {
+    raw = parseJsonStrict(text) as Record<string, unknown>
+  } catch (err) {
+    throw new GenerationValidationError(`Model output must contain valid JSON: ${(err as Error).message}`)
+  }
+
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new GenerationValidationError('Generated app output must be an object')
+  }
+
+  try {
+    checkForbiddenKeys(raw)
+  } catch (err) {
+    throw new GenerationValidationError((err as Error).message)
+  }
+
+  if (Object.keys(raw).some(key => !['summary', 'files'].includes(key))) {
+    throw new GenerationValidationError('Unknown field in generated output')
+  }
+  const summary = typeof raw.summary === 'string' && raw.summary.trim() ? raw.summary.trim() : 'Generated application'
+
+  if (!raw.files) {
+    throw new GenerationValidationError('Generated app output missing "files" field')
+  }
+
+  const fileMap: Record<string, AppSourceFile> = {}
+  let totalBytes = 0
+
+  if (Array.isArray(raw.files)) {
+    if (raw.files.length === 0) {
+      throw new GenerationValidationError('Generated app files array cannot be empty')
+    }
+    if (raw.files.length > APP_PROJECT_LIMITS.MAX_FILES_COUNT) {
+      throw new GenerationValidationError(`Generated app contains too many files (max ${APP_PROJECT_LIMITS.MAX_FILES_COUNT})`)
+    }
+
+    for (let i = 0; i < raw.files.length; i++) {
+      const item = raw.files[i]
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        throw new GenerationValidationError(`File entry at index ${i} must be an object`)
+      }
+      const fObj = item as Record<string, unknown>
+      if (typeof fObj.path !== 'string') {
+        throw new GenerationValidationError(`File entry at index ${i} missing path`)
+      }
+      if (typeof fObj.content !== 'string') {
+        throw new GenerationValidationError(`File entry at index ${i} missing content`)
+      }
+      let normPath: string
+      try {
+        normPath = normalizeAndValidatePath(fObj.path)
+      } catch (err) {
+        throw new GenerationValidationError(`Invalid file path in generated app: ${(err as Error).message}`)
+      }
+      if (fileMap[normPath]) {
+        throw new GenerationValidationError(`Duplicate file path in generated app: "${normPath}"`)
+      }
+      const bytes = new TextEncoder().encode(fObj.content).length
+      if (bytes > APP_PROJECT_LIMITS.MAX_FILE_BYTES) {
+        throw new GenerationValidationError(`Generated file "${normPath}" exceeds 512 KiB limit`)
+      }
+      totalBytes += bytes
+      fileMap[normPath] = { path: normPath, content: fObj.content }
+    }
+  } else if (typeof raw.files === 'object') {
+    const keys = Object.keys(raw.files)
+    if (keys.length === 0) {
+      throw new GenerationValidationError('Generated app files object cannot be empty')
+    }
+    if (keys.length > APP_PROJECT_LIMITS.MAX_FILES_COUNT) {
+      throw new GenerationValidationError(`Generated app contains too many files (max ${APP_PROJECT_LIMITS.MAX_FILES_COUNT})`)
+    }
+
+    for (const key of keys) {
+      const val = (raw.files as Record<string, unknown>)[key]
+      let normPath: string
+      try {
+        normPath = normalizeAndValidatePath(key)
+      } catch (err) {
+        throw new GenerationValidationError(`Invalid file path in generated app: ${(err as Error).message}`)
+      }
+      if (fileMap[normPath]) {
+        throw new GenerationValidationError(`Duplicate file path in generated app: "${normPath}"`)
+      }
+      let content = ''
+      if (typeof val === 'string') {
+        content = val
+      } else if (val && typeof val === 'object' && typeof (val as Record<string, unknown>).content === 'string') {
+        content = (val as Record<string, unknown>).content as string
+      } else {
+        throw new GenerationValidationError(`File "${key}" content must be a string`)
+      }
+      const bytes = new TextEncoder().encode(content).length
+      if (bytes > APP_PROJECT_LIMITS.MAX_FILE_BYTES) {
+        throw new GenerationValidationError(`Generated file "${normPath}" exceeds 512 KiB limit`)
+      }
+      totalBytes += bytes
+      fileMap[normPath] = { path: normPath, content }
+    }
+  } else {
+    throw new GenerationValidationError('Generated app "files" must be an array or object')
+  }
+
+  if (totalBytes > APP_PROJECT_LIMITS.MAX_TOTAL_FILES_BYTES) {
+    throw new GenerationValidationError(`Generated app total file size exceeds 2 MiB limit (${totalBytes} bytes)`)
+  }
+
+  // Ensure entry point exists
+  if (!fileMap['src/App.tsx']) {
+    throw new GenerationValidationError('Generated app must contain entry point "src/App.tsx"')
+  }
+
+  return {
+    summary,
+    files: fileMap,
   }
 }
