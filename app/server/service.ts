@@ -5,6 +5,7 @@ import { Storage, httpError, safeId } from './storage.ts'
 import { RemoteMcpGateway } from './mcp.ts'
 import { CollaborationServer } from '../collaboration/server.ts'
 import type { CloudProject } from '../src/cloud/model.ts'
+import { APP_PROJECT_LIMITS, AppProjectValidationError, generateAppProjectId, parseJsonStrict } from '../src/make/manifest.ts'
 
 export interface ServiceConfig {
   root: string
@@ -17,15 +18,48 @@ export interface ServiceConfig {
 function cookies(req: IncomingMessage) {
   return Object.fromEntries((req.headers.cookie ?? '').split(';').map(v => v.trim().split('=')))
 }
-async function body(req: IncomingMessage, parsed?: unknown): Promise<Record<string, unknown>> {
+async function body(req: IncomingMessage, parsed?: unknown, maxBytes = 17 * 1024 * 1024): Promise<Record<string, unknown>> {
   let value = parsed
+  const appBody = maxBytes === APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES
+  const parse = (text: string) => {
+    try { return appBody ? parseJsonStrict(text) : JSON.parse(text || '{}') }
+    catch (error) {
+      if (error instanceof AppProjectValidationError) throw error
+      throw httpError(400, 'Invalid JSON')
+    }
+  }
   if (value === undefined) {
     const chunks: Buffer[] = []; let size = 0
-    for await (const chunk of req) { size += chunk.length; if (size > 17 * 1024 * 1024) throw httpError(413, 'Project too large'); chunks.push(chunk) }
-    try { value = JSON.parse(Buffer.concat(chunks).toString() || '{}') } catch { throw httpError(400, 'Invalid JSON') }
+    for await (const chunk of req) {
+      size += chunk.length
+      if (size > maxBytes) throw httpError(413, maxBytes <= APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES ? 'App project payload too large' : 'Project too large')
+      chunks.push(chunk)
+    }
+    value = parse(Buffer.concat(chunks).toString())
+  } else if (appBody && typeof value === 'string') {
+    // Production passes unparsed app JSON so duplicate keys remain observable.
+    if (Buffer.byteLength(value) > maxBytes) throw httpError(413, 'App project payload too large')
+    value = parse(value)
+  } else {
+    const raw = JSON.stringify(value)
+    if (Buffer.byteLength(raw) > maxBytes) {
+      throw httpError(413, maxBytes <= APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES ? 'App project payload too large' : 'Project too large')
+    }
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw httpError(400, 'Expected an object')
   return value as Record<string, unknown>
+}
+function appInput(input: Record<string, unknown>): { project: Record<string, unknown>; expectedRevision: unknown } {
+  const { expectedRevision, ...rest } = input
+  if (!Object.hasOwn(rest, 'project')) return { project: rest, expectedRevision }
+  if (Object.keys(rest).length !== 1 || !rest.project || typeof rest.project !== 'object' || Array.isArray(rest.project)) {
+    throw httpError(400, 'Expected a project object and expectedRevision')
+  }
+  return { project: rest.project as Record<string, unknown>, expectedRevision }
+}
+function decodeAppPath(value: string): string {
+  try { return decodeURIComponent(value) }
+  catch { throw httpError(400, 'Invalid app path encoding') }
 }
 function json(res: ServerResponse, status: number, value: unknown) { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)) }
 export async function createService(config: ServiceConfig) {
@@ -41,6 +75,9 @@ export async function createService(config: ServiceConfig) {
   const emit = (user: string, record: CloudProject) => {
     mcp.notify(user, record)
     for (const stream of streams.get(user) ?? []) stream.write(`event: project\ndata: ${JSON.stringify({ id: record.id, revision: record.revision })}\n\n`)
+  }
+  const emitApp = (user: string, record: { id: string; revision: number }, action: 'update' | 'delete' = 'update') => {
+    for (const stream of streams.get(user) ?? []) stream.write(`event: app\ndata: ${JSON.stringify({ id: record.id, revision: record.revision, action })}\n\n`)
   }
   const mcp = new RemoteMcpGateway(auth, storage, emit)
   function cookie(name: string, value: string, maxAge: number) { return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith('https:') ? '; Secure' : ''}` }
@@ -178,10 +215,111 @@ export async function createService(config: ServiceConfig) {
         if (req.method === 'GET') { const record = await storage.read(user.id, id); if (!record) throw httpError(404, 'Project not found'); json(res, 200, record); return }
         if (req.method === 'PUT') { const input = await body(req, parsed); const record = await storage.put(user.id, id, input.document, input.expectedRevision, input.updatedAt); emit(user.id, record); json(res, 200, record); return }
       }
+      // App Projects CRUD collection
+      const appsCollection = path.match(/^\/api\/(apps|app-projects)$/)
+      if (appsCollection) {
+        if (req.method === 'GET') {
+          const list = await storage.apps.list(user.id)
+          json(res, 200, { apps: list, projects: list })
+          return
+        }
+        if (req.method === 'POST') {
+          const { project, expectedRevision } = appInput(await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES))
+          if (expectedRevision !== undefined && expectedRevision !== null) throw httpError(400, 'Create requires a null expected revision')
+          const id = safeId(project.id === undefined ? generateAppProjectId() : project.id, 'app ID')
+          const record = await storage.apps.put(user.id, id, project, null)
+          emitApp(user.id, record, 'update')
+          res.setHeader('Location', `/api/apps/${id}`)
+          json(res, 201, record)
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      // App Project sub-resources: revisions
+      const appRevisionsRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/revisions$/)
+      if (appRevisionsRoute) {
+        const id = safeId(decodeAppPath(appRevisionsRoute[2]), 'app ID')
+        if (req.method === 'GET') {
+          const head = await storage.apps.read(user.id, id)
+          if (!head) throw httpError(404, 'App project not found')
+          const revisions = await storage.apps.listRevisions(user.id, id)
+          json(res, 200, { revisions })
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      const appRevisionRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/revisions\/([^/]+)$/)
+      if (appRevisionRoute) {
+        const id = safeId(decodeAppPath(appRevisionRoute[2]), 'app ID')
+        const revNum = Number(appRevisionRoute[3])
+        if (!Number.isSafeInteger(revNum) || revNum < 1) throw httpError(400, 'Invalid revision number')
+        if (req.method === 'GET') {
+          const record = await storage.apps.readRevision(user.id, id, revNum)
+          if (!record) throw httpError(404, 'Revision not found')
+          json(res, 200, record)
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      // App Project sub-resources: files
+      const appFilesRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/files(\/.*)?$/)
+      if (appFilesRoute) {
+        const id = safeId(decodeAppPath(appFilesRoute[2]), 'app ID')
+        if (req.method === 'GET') {
+          let filePath = url.searchParams.get('path')
+          if (!filePath && appFilesRoute[3]) {
+            filePath = decodeAppPath(appFilesRoute[3].slice(1))
+          }
+          if (!filePath) throw httpError(400, 'File path is required')
+          const file = await storage.apps.readFile(user.id, id, filePath)
+          if (!file) throw httpError(404, 'File not found')
+          json(res, 200, file)
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      // PUT replaces the supplied manifest; POST is collection-only.
+      const appItemRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)$/)
+      if (appItemRoute) {
+        const id = safeId(decodeAppPath(appItemRoute[2]), 'app ID')
+        if (req.method === 'GET') {
+          const record = await storage.apps.read(user.id, id)
+          if (!record) throw httpError(404, 'App project not found')
+          json(res, 200, record)
+          return
+        }
+        if (req.method === 'PUT') {
+          const { project, expectedRevision } = appInput(await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES))
+          if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+            throw httpError(400, 'Update requires a positive expected revision')
+          }
+          if (project.id !== undefined && project.id !== id) throw httpError(400, 'App ID does not match URL')
+          const record = await storage.apps.put(user.id, id, project, expectedRevision)
+          emitApp(user.id, record, 'update')
+          json(res, 200, record)
+          return
+        }
+        if (req.method === 'DELETE') {
+          const deleted = await storage.apps.delete(user.id, id)
+          if (!deleted) throw httpError(404, 'App project not found')
+          emitApp(user.id, { id, revision: 0 }, 'delete')
+          json(res, 200, { ok: true })
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
       throw httpError(404, 'Not found')
     } catch (error) {
       if (res.headersSent) { res.end(); return }
-      const failure = error as Error & { status?: number; current?: CloudProject }
+      const failure = error as Error & { status?: number; current?: unknown }
+      if (failure instanceof AppProjectValidationError && !failure.status) {
+        failure.status = 400
+      }
       json(res, failure.status ?? 500, { error: failure.status ? failure.message : 'Server could not complete the request', ...(failure.status === 409 ? { current: failure.current ?? null } : {}) })
     }
   }

@@ -1,8 +1,8 @@
 # 🗺️ Live Development Roadmap & Task Tracker
 
-> **Last Updated:** `2026-10-15 00:57:29 UTC`  
+> **Last Updated:** `2026-10-15 01:20:50 UTC`  
 > **Supervisor:** Autonomous Tri-Agent Orchestra (`Claude Code` ↔ `OpenAI Codex` ↔ `Google Antigravity`)  
-> **Progress:** `[█████████████░░░░░░░]` **55 / 80** tasks completed (**68%**)
+> **Progress:** `[██████████████░░░░░░]` **56 / 80** tasks completed (**70%**)
 
 ---
 
@@ -22,6 +22,7 @@ _All queued tasks in this cycle are completed. New evolution tasks are continuou
 
 | Status | Task ID | Title | Agent | Phase | Completed At |
 |:---:|:---|:---|:---:|:---|:---|
+| 🟢 Done | `T-ISSUE-20` | Issue #20: feat(make 03): Authenticated app project CRUD API | `CLAUDE` | Paper Make | `2026-10-15 01:20:50` |
 | 🟢 Done | `T-ISSUE-19` | Issue #19: feat(make 02): Account-scoped atomic app artifact storage | `CLAUDE` | Paper Make | `2026-10-15 00:57:29` |
 | 🟢 Done | `T-ISSUE-18` | Issue #18: feat(make 01): Versioned app-project manifest and strict schema | `CLAUDE` | Paper Make | `2026-10-15 00:32:24` |
 | 🟢 Done | `T-EVOLVE-1791913138-3` | Expressive Variable Typography Studio with OpenType and Text-on-Path | `CLAUDE` | Continuous Polish & Evolution | `2026-10-13 20:21:15` |
