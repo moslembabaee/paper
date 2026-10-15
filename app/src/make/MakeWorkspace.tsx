@@ -5,6 +5,7 @@ import { PreviewFrame, type PreviewFrameStatus } from './PreviewFrame'
 import { createMakeWorkspaceStore, formatDiagnostic } from './workspace-model'
 import { PlanInspection } from './PlanInspection'
 import { DiffInspection } from './DiffInspection'
+import { AssetPanel } from './AssetPanel'
 import './make.css'
 
 export default function MakeWorkspace({ accountId, onDesign, designSelection }: { accountId?: string; onDesign: () => void; designSelection?: { reference: AppSceneReference; name: string } | null }) {
@@ -67,6 +68,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         {state.listError ? <div className="make-notice" role="alert"><p>Could not load saved apps: {state.listError}</p><button className="make-button" onClick={() => { void store.loadProjects() }}>Retry project list</button></div> : null}
         {state.projectError ? <div className="make-notice" role="alert"><p>{state.projectError}</p><button className="make-button" onClick={() => state.projectError && openingId ? choose(openingId) : void store.saveCopy()}>Retry project request</button></div> : null}
         {state.currentDiff ? <DiffInspection diff={state.currentDiff} rollbackRevision={state.rollbackPoint?.revision} busy={busy || planBusy} onRollback={() => { void store.rollback().catch(() => {}) }} /> : null}
+        <AssetPanel project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} onChange={store.acceptAssetProject} />
         <section className="make-files" aria-label="Source files"><h2><FileCode2 size={14} />Source files<span>{Object.keys(active.files).length}</span></h2>
           {Object.values(active.files).map(file => <details key={`${active.id}:${file.path}`}>
             <summary><Code2 size={13} /><span>{file.path}</span></summary><pre>{file.content}</pre>

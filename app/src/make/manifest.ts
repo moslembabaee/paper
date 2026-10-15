@@ -108,8 +108,8 @@ function timestamp(value: unknown, label: string): string {
   return text
 }
 
-function payloadLimit(text: string): void {
-  if (text.length > APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES || new TextEncoder().encode(text).length > APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES) {
+function payloadLimit(text: string, maxBytes = APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES): void {
+  if (text.length > maxBytes || new TextEncoder().encode(text).length > maxBytes) {
     fail('Manifest payload size exceeds limit; must be smaller than or equal to MAX_MANIFEST_BYTES')
   }
 }
@@ -169,8 +169,8 @@ export function normalizeAndValidatePath(rawPath: unknown): string {
   return cleaned
 }
 
-export function parseJsonStrict(text: string): unknown {
-  payloadLimit(text)
+export function parseJsonStrict(text: string, maxBytes = APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES): unknown {
+  payloadLimit(text, maxBytes)
   let depth = 0
   let i = 0
   const len = text.length

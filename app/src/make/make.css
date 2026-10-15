@@ -448,3 +448,17 @@
 .make-design-context input { accent-color: #81adec; flex: 0 0 auto; }
 .make-design-context strong { color: #edebe1; font-weight: 500; overflow-wrap: anywhere; }
 .make-context-detail { color: #81adec; font-variant-numeric: tabular-nums; }
+
+.make-assets { padding: 20px; border-bottom: 1px solid #222222; }
+.make-asset-help, .make-asset-limit { font-size: 11px; line-height: 1.7; color: #aaa99f; margin: 0 0 12px; }
+.make-asset-limit { font: 9px var(--font-mono); margin: 10px 0 0; }
+.make-asset-actions { display: flex; gap: 8px; }
+.make-asset { display: flex; gap: 10px; align-items: center; padding: 12px 0; border-top: 1px solid #222222; margin-top: 12px; }
+.make-asset > img, .make-font-icon { width: 32px; height: 32px; flex-shrink: 0; object-fit: contain; background: #222222; border-radius: 4px; }
+.make-font-icon { display: grid; place-items: center; color: #81adec; }
+.make-asset > div { flex: 1; min-width: 0; }
+.make-asset strong { display: block; font-size: 11px; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.make-asset div > span { display: block; font: 9px var(--font-mono); color: #aaa99f; margin: 5px 0; }
+.make-asset-reference { display: block; max-width: 100%; overflow: auto; border: 0; padding: 2px 0; background: none; color: #81adec; text-align: left; font: 9px var(--font-mono); cursor: copy; user-select: all; }
+.make-asset-remove { padding: 6px; }
+.make-asset-error { font-size: 11px; line-height: 1.6; color: #f0b7a9; overflow-wrap: anywhere; }

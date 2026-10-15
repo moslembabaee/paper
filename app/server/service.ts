@@ -1,3 +1,4 @@
+import { APP_ASSET_LIMITS, AppAssetValidationError, decodeAssetBase64, validateAssetId } from '../src/make/assets.ts'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomBytes, createHash } from 'node:crypto'
 import { Auth } from './auth.ts'
@@ -98,6 +99,9 @@ export async function createService(config: ServiceConfig) {
     ? config.modelGateway
     : new ServerModelGateway({ fetch: requestFetch, ...config.modelGateway })
   await modelGateway.initialize(config.root)
+  async function compileWithAssets(userId: string, project: AppProject, options = {}) {
+    return compileAppProject(project, options, await storage.apps.resolveAssets(userId, project))
+  }
   async function frameContext(userId: string, reference: unknown) {
     if (!reference || typeof reference !== 'object' || Array.isArray(reference)) throw httpError(400, 'Expected scene reference')
     const raw = reference as Record<string, unknown>
@@ -225,7 +229,7 @@ export async function createService(config: ServiceConfig) {
         await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'failed', diagnostics })
         return { ...metadata, success: false, project, assets: null, diagnostics, error: 'Generated output failed validation. The previous revision is unchanged.' }
       }
-      const compiled = await compileAppProject(candidate)
+      const compiled = await compileWithAssets(userId, candidate)
       provenance = { ...provenance, validation: compiled.success ? 'passed' : 'failed', diagnostics: compiled.diagnostics }
       await modelGateway.recordGeneration(userId, turn.turnId, provenance)
       if (!compiled.success || !compiled.assets) {
@@ -443,6 +447,55 @@ export async function createService(config: ServiceConfig) {
         throw httpError(405, 'Method not allowed')
       }
 
+      const copyRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/copy$/)
+      if (copyRoute) {
+        if (req.method !== 'POST') throw httpError(405, 'Method not allowed')
+        const input = await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES)
+        const project = validateAppProject(input.project)
+        const copied = await storage.apps.copyWithAssets(user.id, safeId(decodeAppPath(copyRoute[2]), 'app ID'), project)
+        emitApp(user.id, copied)
+        json(res, 201, copied); return
+      }
+
+      const assetRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/assets(?:\/([^/]+))?$/)
+      if (assetRoute) {
+        const id = safeId(decodeAppPath(assetRoute[2]), 'app ID')
+        if (!await storage.apps.read(user.id, id)) throw httpError(404, 'App project not found')
+        const assetId = assetRoute[3] === undefined ? undefined : validateAssetId(decodeAppPath(assetRoute[3]))
+        if (!assetId && req.method === 'GET') {
+          json(res, 200, { assets: await storage.apps.listAssets(user.id, id) }); return
+        }
+        if (!assetId && req.method === 'POST') {
+          const input = await body(req, parsed, 4 * Math.ceil(APP_ASSET_LIMITS.MAX_ASSET_BYTES / 3) + 4096)
+          if (typeof input.name !== 'string' || typeof input.content !== 'string' || Object.keys(input).some(key => !['name', 'content', 'expectedRevision'].includes(key))) throw httpError(400, 'Expected asset name, base64 content and optional expectedRevision')
+          if (input.expectedRevision !== undefined && (!Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 1)) throw httpError(400, 'Invalid expected revision')
+          if (input.content.length > 4 * Math.ceil(APP_ASSET_LIMITS.MAX_ASSET_BYTES / 3)) throw httpError(413, 'Asset exceeds 2 MiB limit')
+          const bytes = decodeAssetBase64(input.content)
+          const result = await storage.apps.uploadAsset(user.id, id, input.name, bytes, input.expectedRevision as number | undefined)
+          emitApp(user.id, result.project)
+          json(res, 201, result); return
+        }
+        if (assetId && req.method === 'GET') {
+          const asset = await storage.apps.readAsset(user.id, id, assetId)
+          res.writeHead(200, { 'Content-Type': asset.mimeType, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Disposition': 'inline', 'Content-Length': asset.byteSize })
+          res.end(Buffer.from(asset.dataBase64, 'base64')); return
+        }
+        if (assetId && req.method === 'DELETE') {
+          const input = await body(req, parsed, 4096)
+          if (input.expectedRevision !== undefined && (!Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 1)) throw httpError(400, 'Invalid expected revision')
+          const project = await storage.apps.detachAsset(user.id, id, assetId, input.expectedRevision as number | undefined)
+          emitApp(user.id, project)
+          json(res, 200, { ok: true, project }); return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+      const exportRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/export$/)
+      if (exportRoute) {
+        if (req.method !== 'GET') throw httpError(405, 'Method not allowed')
+        json(res, 200, await storage.apps.exportPackage(user.id, safeId(decodeAppPath(exportRoute[2]), 'app ID'))); return
+      }
+
       // App Project sub-resources: files
       const appFilesRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/files(\/.*)?$/)
       if (appFilesRoute) {
@@ -469,7 +522,7 @@ export async function createService(config: ServiceConfig) {
         const options = { entryPoint: typeof input.entryPoint === 'string' ? input.entryPoint : undefined }
         const result = Object.hasOwn(input, 'files') && !Object.hasOwn(input, 'format')
           ? await compileSourceFiles(input.files, options)
-          : await compileAppProject(validateAppProject(input.project ?? input), options)
+          : await compileWithAssets(user.id, validateAppProject(input.project ?? input), options)
         json(res, 200, result)
         return
       }
@@ -480,7 +533,7 @@ export async function createService(config: ServiceConfig) {
         if (req.method === 'POST') {
           const record = await storage.apps.read(user.id, id)
           if (!record) throw httpError(404, 'App project not found')
-          const result = await compileAppProject(record)
+          const result = await compileWithAssets(user.id, record)
           json(res, 200, result)
           return
         }
@@ -670,7 +723,7 @@ export async function createService(config: ServiceConfig) {
           }
           const targetRecord = await storage.apps.readRevision(user.id, id, targetRevision)
           if (!targetRecord) throw httpError(404, 'Rollback target revision not found')
-          const compiled = await compileAppProject(targetRecord.project)
+          const compiled = await compileWithAssets(user.id, targetRecord.project)
           if (!compiled.success || !compiled.assets) throw httpError(422, 'Rollback build validation failed. Current revision is unchanged.')
           if (req.aborted || res.destroyed) throw httpError(499, 'Request cancelled')
           const updated = await storage.apps.put(user.id, id, targetRecord.project, record.revision)
@@ -716,7 +769,7 @@ export async function createService(config: ServiceConfig) {
     } catch (error) {
       if (res.headersSent) { res.end(); return }
       const failure = error as Error & { status?: number; current?: unknown }
-      if (failure instanceof AppProjectValidationError && !failure.status) {
+      if ((failure instanceof AppProjectValidationError || failure instanceof AppAssetValidationError) && !failure.status) {
         failure.status = 400
       }
       json(res, failure.status ?? 500, { error: failure.status ? failure.message : 'Server could not complete the request', ...(failure.status === 409 ? { current: failure.current ?? null } : {}) })

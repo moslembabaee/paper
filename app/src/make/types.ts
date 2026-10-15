@@ -175,6 +175,16 @@ export interface AppPlanFileTarget {
 export type AppPlanStatus = 'draft' | 'approved' | 'rejected' | 'revised'
 
 export type { BoundedDesignContext, BoundedDesignAsset, LinkedDesignToken } from './design-context.ts'
+export type {
+  AppAsset,
+  AppAssetType,
+  ApprovedImageMimeType,
+  ApprovedFontMimeType,
+  ApprovedAssetMimeType,
+  AppAssetExportRecord,
+  AppProjectPackage,
+} from './assets.ts'
+
 
 export interface AppPlan {
   readonly planId: string

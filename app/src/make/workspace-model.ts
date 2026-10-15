@@ -427,6 +427,7 @@ export interface MakeRepository {
   list(signal?: AbortSignal): Promise<AppProjectSummary[]>
   read(id: string, signal?: AbortSignal): Promise<AppProject>
   create(project: AppProject, signal?: AbortSignal): Promise<AppProject>
+  copy?(sourceId: string, project: AppProject, signal?: AbortSignal): Promise<AppProject>
   compile(project: AppProject, signal?: AbortSignal): Promise<CompileResult>
   rollback?(id: string, expectedRevision: number, targetRevision?: number, signal?: AbortSignal): Promise<AppProjectRollbackResult>
 }
@@ -438,6 +439,7 @@ export function createMakeRepository(accountId?: string): MakeRepository {
     read: (id, signal) => api(`/apps/${encodeURIComponent(id)}`, { headers, signal }),
     create: (project, signal) => api('/apps', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     compile: (project, signal) => api('/apps/compile', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
+    copy: (sourceId, project, signal) => api(`/apps/${encodeURIComponent(sourceId)}/copy`, { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     rollback: (id, expectedRevision, targetRevision, signal) => api(`/apps/${encodeURIComponent(id)}/rollback`, { method: 'POST', headers, signal, body: JSON.stringify({ expectedRevision, targetRevision }) }),
   }
 }
@@ -536,6 +538,11 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       const project = state.projects.find(item => item.id === id)
       if (project) selectProject(project)
     },
+    acceptAssetProject(previous: AppProject, project: AppProject) {
+      if (sourceKey(state.activeProject) !== sourceKey(previous)) return
+      selectProject(project)
+      setState({ savedProjects: [project, ...state.savedProjects.filter(item => item.id !== project.id)] })
+    },
     async loadProjects() {
       const generation = ++listGeneration
       listRequest?.abort()
@@ -570,7 +577,9 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       setState({ projectStatus: 'saving', projectError: '' })
       try {
         const copy = createAppProject({ name: draft.name, description: draft.description, files: draft.files, assetIds: draft.assetIds, sceneReference: draft.sceneReference, preview: { entryPoint: draft.preview.entryPoint } })
-        const saved = await repository.create(copy, projectRequest.signal)
+        const saved = draft.assetIds.length && repository.copy
+          ? await repository.copy(draft.id, copy, projectRequest.signal)
+          : await repository.create(copy, projectRequest.signal)
         if (generation !== projectGeneration) return
         selectProject(saved)
         setState({ savedProjects: [saved, ...state.savedProjects.filter(item => item.id !== saved.id)] })

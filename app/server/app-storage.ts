@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join, resolve, dirname } from 'node:path'
@@ -7,6 +7,18 @@ import {
   validateAppProject, normalizeAndValidatePath, APP_PROJECT_LIMITS,
 } from '../src/make/manifest.ts'
 import type { AppProject, AppProjectSummary, AppRevisionRecord, AppSourceFile } from '../src/make/types.ts'
+import {
+  APP_ASSET_LIMITS,
+  type AppAsset,
+  type AppAssetExportRecord,
+  type AppProjectPackage,
+  validateAssetBuffer,
+  validateAssetId,
+  generateAssetId,
+  exportAppPackage,
+  decodeAssetBase64,
+  AppAssetValidationError,
+} from '../src/make/assets.ts'
 import { httpError, safeId, hash } from './storage.ts'
 
 // Like scene storage, one service process owns the volume. Share locks across
@@ -212,7 +224,10 @@ export class AppStorage {
     // Validation must see the original descriptors/fields before any spread or
     // normalization. A malformed v1 manifest never falls back to a legacy draft.
     const inputProject = migrateAppProject(input)
-    return this.locked(user, id, async () => {
+    return this.locked(user, id, () => this.publish(user, id, inputProject, expectedRevision))
+  }
+
+  private async publish(user: string, id: string, inputProject: AppProject, expectedRevision: number | null): Promise<AppProject> {
       const current = await this.read(user, id)
       if (expectedRevision !== (current?.revision ?? null)) {
         throw Object.assign(httpError(409, 'Revision conflict'), { current })
@@ -220,6 +235,10 @@ export class AppStorage {
       const now = new Date().toISOString()
       const candidate = validateAppProject({ ...inputProject, id, revision: (current?.revision ?? 0) + 1,
         createdAt: current?.createdAt ?? now, updatedAt: now })
+      // Private IDs may only refer to bytes already stored in this account/app.
+      for (const assetId of candidate.assetIds) {
+        if (assetId.startsWith('ast_')) await this.assetRecord(user, id, assetId)
+      }
       const manifest = serializeAppProject(candidate)
       const record: AppRevisionRecord = { revision: candidate.revision, hash: hash(manifest), timestamp: now, project: candidate }
       // Keep the revision envelope under the same strict JSON parser's cap.
@@ -284,7 +303,116 @@ export class AppStorage {
         if (installed && !published) await fs.rm(snapshot, { recursive: true, force: true }).catch(() => {})
       }
       return candidate
+  }
+
+  private async assetRecord(user: string, id: string, assetId: string): Promise<AppAssetExportRecord> {
+    validateAssetId(assetId)
+    try {
+      const appDir = await this.appDirectory(user, id)
+      const assetsDir = await this.directory(join(appDir, 'assets'))
+      const raw = parseJsonStrict(await this.readText(join(assetsDir, `${assetId}.json`), 3 * 1024 * 1024)) as AppAssetExportRecord
+      const bytes = decodeAssetBase64(raw.dataBase64)
+      const sniffed = validateAssetBuffer(bytes, raw.name)
+      if (raw.id !== assetId || raw.byteSize !== bytes.length || raw.sha256 !== createHash('sha256').update(bytes).digest('hex') ||
+          raw.mimeType !== sniffed.mimeType || raw.type !== sniffed.type) throw httpError(500, 'Stored asset integrity check failed')
+      return raw
+    } catch (error) {
+      if (missing(error)) throw httpError(404, 'App asset not found')
+      throw error
+    }
+  }
+
+  async resolveAssets(user: string, project: AppProject): Promise<AppAssetExportRecord[]> {
+    if (!project.assetIds.length) return []
+    if (!await this.read(user, project.id)) throw httpError(404, 'App project not found')
+    const records: AppAssetExportRecord[] = []
+    for (const id of project.assetIds) records.push(await this.assetRecord(user, project.id, id))
+    return records
+  }
+
+  async listAssets(user: string, id: string): Promise<AppAsset[]> {
+    const project = await this.read(user, id)
+    if (!project) throw httpError(404, 'App project not found')
+    return (await this.resolveAssets(user, project)).map(({ dataBase64: _data, ...asset }) => ({ ...asset, appId: id }))
+  }
+
+  async readAsset(user: string, id: string, assetId: string): Promise<AppAssetExportRecord> {
+    validateAssetId(assetId)
+    const project = await this.read(user, id)
+    if (!project || !project.assetIds.includes(assetId)) throw httpError(404, 'App asset not found')
+    return this.assetRecord(user, id, assetId)
+  }
+
+  async uploadAsset(user: string, id: string, name: string, bytes: Uint8Array, expectedRevision?: number): Promise<{ asset: AppAsset; project: AppProject }> {
+    const sniffed = validateAssetBuffer(bytes, name)
+    return this.locked(user, id, async () => {
+      const current = await this.read(user, id)
+      if (!current) throw httpError(404, 'App project not found')
+      if (expectedRevision !== undefined && current.revision !== expectedRevision) throw httpError(409, 'Revision conflict')
+      const directory = await this.directory(join(await this.appDirectory(user, id), 'assets'), true)
+      // Detached assets remain available to immutable revisions and count toward quota.
+      const names = (await fs.readdir(directory)).filter(name => /^ast_[a-zA-Z0-9_-]+\.json$/.test(name))
+      if (names.length >= APP_ASSET_LIMITS.MAX_ASSETS_COUNT) throw httpError(413, 'App asset count quota exceeded')
+      let total = bytes.length
+      for (const filename of names) total += (await this.assetRecord(user, id, filename.slice(0, -5))).byteSize
+      if (total > APP_ASSET_LIMITS.MAX_TOTAL_ASSETS_BYTES) throw httpError(413, 'App asset byte quota exceeded')
+      const record: AppAssetExportRecord = { id: generateAssetId(), name, ...sniffed, byteSize: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex'), dataBase64: Buffer.from(bytes).toString('base64'), createdAt: new Date().toISOString() }
+      const path = join(directory, `${record.id}.json`)
+      const staging = join(directory, `.upload_${randomUUID()}`)
+      try {
+        await this.writeText(staging, JSON.stringify(record))
+        await fs.rename(staging, path)
+        await this.syncDirectory(directory)
+        const project = await this.publish(user, id, { ...current, assetIds: [...current.assetIds, record.id] }, current.revision)
+        const { dataBase64: _data, ...metadata } = record
+        return { asset: { ...metadata, appId: id }, project }
+      } catch (error) {
+        await fs.rm(path, { force: true }).catch(() => {})
+        throw error
+      } finally { await fs.rm(staging, { force: true }).catch(() => {}) }
     })
+  }
+
+  async detachAsset(user: string, id: string, assetId: string, expectedRevision?: number): Promise<AppProject> {
+    validateAssetId(assetId)
+    return this.locked(user, id, async () => {
+      const current = await this.read(user, id)
+      if (!current || !current.assetIds.includes(assetId)) throw httpError(404, 'App asset not found')
+      if (expectedRevision !== undefined && current.revision !== expectedRevision) throw httpError(409, 'Revision conflict')
+      return this.publish(user, id, { ...current, assetIds: current.assetIds.filter(value => value !== assetId) }, current.revision)
+    })
+  }
+
+  async copyWithAssets(user: string, sourceId: string, project: AppProject): Promise<AppProject> {
+    const source = await this.read(user, sourceId)
+    if (!source) throw httpError(404, 'App project not found')
+    if (project.id === sourceId) throw httpError(400, 'Copy requires a new app ID')
+    const records: AppAssetExportRecord[] = []
+    for (const assetId of project.assetIds) {
+      if (!source.assetIds.includes(assetId)) throw httpError(404, 'App asset not found')
+      records.push(await this.assetRecord(user, sourceId, assetId))
+    }
+    return this.locked(user, project.id, async () => {
+      if (await this.read(user, project.id)) throw httpError(409, 'App project already exists')
+      const appDir = await this.appDirectory(user, project.id, true)
+      try {
+        const directory = await this.directory(join(appDir, 'assets'), true)
+        for (const record of records) await this.writeText(join(directory, `${record.id}.json`), JSON.stringify(record))
+        await this.syncDirectory(directory)
+        return await this.publish(user, project.id, project, null)
+      } catch (error) {
+        if (!await this.head(appDir, project.id)) await fs.rm(appDir, { recursive: true, force: true })
+        throw error
+      }
+    })
+  }
+
+  async exportPackage(user: string, id: string): Promise<AppProjectPackage> {
+    const project = await this.read(user, id)
+    if (!project) throw httpError(404, 'App project not found')
+    try { return exportAppPackage(project, await this.resolveAssets(user, project)) }
+    catch (error) { if (error instanceof AppAssetValidationError) throw httpError(400, error.message); throw error }
   }
 
   async delete(user: string, id: string): Promise<boolean> {

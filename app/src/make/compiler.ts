@@ -1,3 +1,4 @@
+import { exportAppPackage, createFontFacesCss, type AppAssetExportRecord } from './assets.ts'
 // Host-only compiler. Generated modules are transformed as text and never executed here.
 import ts from 'typescript'
 import postcss from 'postcss'
@@ -698,6 +699,23 @@ export async function compileSourceFiles(
   }
 }
 
-export async function compileAppProject(project: AppProject, options: CompileOptions = {}): Promise<CompileResult> {
-  return compileSourceFiles(project?.files, { ...options, entryPoint: options.entryPoint ?? project?.preview?.entryPoint })
+export async function compileAppProject(project: AppProject, options: CompileOptions = {}, assetRecords: readonly AppAssetExportRecord[] = []): Promise<CompileResult> {
+  const result = await compileSourceFiles(project?.files, { ...options, entryPoint: options.entryPoint ?? project?.preview?.entryPoint })
+  if (!result.success || !result.assets) return result
+  try {
+    if (project.assetIds.length || assetRecords.length) exportAppPackage(project, assetRecords)
+    const records = new Map(assetRecords.map(asset => [asset.id, asset]))
+    const resolve = (source: string) => source.replace(/paper-asset:([a-zA-Z0-9_-]+)/g, (_match, id: string) => {
+      const asset = records.get(id)
+      if (!asset) throw new Error(`Unknown private asset: ${id}`)
+      return `data:${asset.mimeType};base64,${asset.dataBase64}`
+    })
+    const js = resolve(result.assets.js)
+    const css = [createFontFacesCss(assetRecords), resolve(result.assets.css)].filter(Boolean).join('\n')
+    const assets = { ...result.assets, js, css, html: generatePreviewHtml({ js, css, entryPoint: result.entryPoint }) }
+    return { ...result, assets, stats: { ...result.stats, totalOutputBytes: new TextEncoder().encode(js + css + assets.html).length } }
+  } catch (error) {
+    return { ...result, success: false, assets: null, modules: {}, diagnostics: [...result.diagnostics,
+      { file: result.entryPoint, line: 1, column: 1, severity: 'error', code: 'INVALID_INPUT', message: error instanceof Error ? error.message : 'Invalid assets' }] }
+  }
 }

@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-28",
+  "current_task_id": "T-ISSUE-29",
   "tasks": [
     {
       "id": "T-ISSUE-17",
@@ -798,7 +798,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 28,
-      "completed_at": "2026-10-15T06:13:48.917173"
+      "completed_at": "2026-10-15T06:13:48.917173",
+      "closed_at": "2026-10-15T06:13:53Z"
     },
     {
       "id": "T-ISSUE-29",
@@ -806,10 +807,11 @@
       "title": "Issue #29: feat(make 12): Validated image and font asset pipeline",
       "description": "Scope: Attach images and approved fonts to an App Project using content sniffing, quotas and private asset IDs; resolve them in sandbox without external hotlinks by default.\nAcceptance: Upload/preview/export round-trip; SVG active content, traversal, oversized files and cross-account asset access reject.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 29
+      "github_issue_number": 29,
+      "completed_at": "2026-10-15T07:09:25.744154"
     },
     {
       "id": "T-ISSUE-30",
