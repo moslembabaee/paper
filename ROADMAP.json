@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-31",
+  "current_task_id": "T-ISSUE-32",
   "tasks": [
     {
       "id": "T-ISSUE-42",
@@ -863,7 +863,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 31,
-      "completed_at": "2026-10-15T08:40:41.184065"
+      "completed_at": "2026-10-15T08:40:41.184065",
+      "closed_at": "2026-10-15T08:40:44Z"
     },
     {
       "id": "T-ISSUE-32",
@@ -871,10 +872,11 @@
       "title": "Issue #32: feat(make 15): Direct visual properties for selected Make element",
       "description": "Scope: Expose a limited typography/spacing/color inspector for eligible generated elements with deterministic source updates, diff preview and revision validation.\nAcceptance: Inspector changes survive rebuild/undo and mobile view; unsupported elements stay read-only; no unsafe string-substitution corruption.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 32
+      "github_issue_number": 32,
+      "completed_at": "2026-10-15T10:02:18.879214"
     },
     {
       "id": "T-ISSUE-33",

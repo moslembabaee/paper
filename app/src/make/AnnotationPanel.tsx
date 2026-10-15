@@ -16,7 +16,7 @@ function AnnotationForm({ target, saved, disabled, store, count }: {
     <form onSubmit={event => {
       event.preventDefault()
       try {
-        const { bounds: _bounds, ...metadata } = target
+        const { bounds: _bounds, styles: _styles, ...metadata } = target
         store.addAnnotation({ ...metadata, text })
         setText('')
         setError('')

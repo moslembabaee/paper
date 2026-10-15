@@ -288,3 +288,50 @@ The selected-frame browser test uses the real service/compiler with a determinis
 model adapter and checks frame-derived styling, functional interaction, layer IDs,
 desktop/mobile layout, detachment and design preservation. Localhost/Chromium
 restrictions block browser acceptance; they do not waive that release gate.
+
+## Direct visual properties
+
+Run a Make preview, choose **Select element**, then click a native HTML element.
+The **Visual properties** inspector exposes a bounded set of typography, spacing,
+color and border overrides. Existing source overrides appear as values; computed
+styles are placeholders. Clear an override to inherit. Bare numbers retain React's
+numeric CSS semantics; use units for shorthand values. Colors accept hex, rgb/rgba
+and a small set of common keywords. Repeated component/list instances share the
+same JSX source style; this is stated in the inspector.
+
+**Review changes** shows the exact bounded source diff without changing the app.
+**Apply visual changes** checks the reviewed source and revision, compiles with the
+project's real entry point and account asset resolver, then saves using the existing
+optimistic revision API. A failed build, save, conflict or late response retains the
+working source, preview and rollback point. The save response must match the
+validated source, next revision, preview configuration and asset references.
+**Undo last edit** restores the source
+as a new immutable revision. Rebuild, resize and reload use the persisted source.
+Undo also validates the restored app identity, next revision, source, entry point,
+asset references and compiler diagnostics before replacing the working preview.
+
+The transformer uses TypeScript AST ranges to change only selected property values,
+insertions or removals. Untouched comments, numeric values, quoted/custom keys,
+attributes and sibling files are preserved. Dynamic/computed/spread styles,
+spread/duplicate attributes, ambiguous IDs and unmapped DOM are read-only.
+ID matching accounts for JSX entities and the guest's ID sanitization/truncation
+across source files; colliding source sites remain read-only. Explicit
+source IDs that are dynamic, empty or spread-overridden cannot be mapped safely,
+so visual editing stays read-only in those projects. Guest
+computed styles are bounded display data, never trusted source edits or persisted
+annotation fields. The TypeScript parser and inspector load only on selection;
+normal Design/Make startup does not fetch this chunk. No scene or MCP mutation is
+involved.
+
+```sh
+node --experimental-strip-types --test --test-isolation=none tests/make-visual-inspector.test.mjs
+npm test && npm run build
+npx playwright test --config playwright.visual.config.ts
+```
+
+The browser suite serves built artifacts in-process and covers diff review,
+rendered styles, rebuild, reload, immutable undo, a mobile preview and 390px host,
+read-only elements, injection rejection, failed validation and revision conflicts.
+It also runs annotation and responsive regressions. Chromium must launch for this
+gate to pass; a sandbox launch failure blocks browser acceptance. Screenshots are
+written to `/tmp/paper-visual-inspector-{desktop,mobile}.png`.

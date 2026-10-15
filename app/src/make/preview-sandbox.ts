@@ -164,7 +164,7 @@ function validateEnvelope(raw: unknown, expectedSource: string | undefined, maxB
       if (m.type === 'preview:console') valid = ['log', 'warn', 'error', 'info'].includes(p.level as string) &&
         Array.isArray(p.args) && p.args.length <= 16 && p.args.every(arg => text(arg, 4096))
       if (m.type === 'preview:element-selected') {
-        const allowed = ['bounds', 'elementId', 'layerId', 'previewText', 'selector', 'tagName']
+        const allowed = ['bounds', 'elementId', 'layerId', 'previewText', 'selector', 'styles', 'tagName']
         const keys = Object.keys(p)
         const safeId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_~.:-]+$/.test(v) && v.length <= 128
         const safeTag = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9-]+$/.test(v) && v.length <= 32
@@ -176,13 +176,24 @@ function validateEnvelope(raw: unknown, expectedSource: string | undefined, maxB
             ['height', 'width', 'x', 'y'].every(k => typeof bo[k] === 'number' && Number.isFinite(bo[k]) && Math.abs(bo[k] as number) <= 10000000) &&
             (bo.width as number) >= 0 && (bo.height as number) >= 0
         }
+        const validStyles = (s: unknown) => {
+          if (!s || typeof s !== 'object' || Array.isArray(s)) return false
+          const so = s as Record<string, unknown>
+          const allowedProps = [
+            'fontSize', 'fontWeight', 'lineHeight', 'textAlign', 'letterSpacing', 'textTransform',
+            'padding', 'margin', 'gap',
+            'color', 'backgroundColor', 'borderColor', 'borderRadius', 'borderWidth',
+          ]
+          return Object.keys(so).every(k => allowedProps.includes(k) && typeof so[k] === 'string' && (so[k] as string).length <= 128 && !/[<>{}\\]/.test(so[k] as string))
+        }
         valid = keys.every(k => allowed.includes(k)) &&
           safeId(p.elementId) &&
           safeTag(p.tagName) &&
           (p.selector === undefined || (text(p.selector, 256) && !/[<]/.test(p.selector as string))) &&
           (p.layerId === undefined || (safeId(p.layerId) && text(p.layerId, 64))) &&
           (p.previewText === undefined || (safeText(p.previewText) && text(p.previewText, 128))) &&
-          (p.bounds === undefined || validBounds(p.bounds))
+          (p.bounds === undefined || validBounds(p.bounds)) &&
+          (p.styles === undefined || validStyles(p.styles))
       }
     }
     if (!valid) return 'Invalid message type or payload'
@@ -330,10 +341,33 @@ export function getPreviewGuestScript(): string {
       highlightNode(target);
       const rect = target.getBoundingClientRect();
       const previewText = (target.textContent || '').replace(/[<>]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 128);
+      let styles = undefined;
+      try {
+        const computed = window.getComputedStyle(target);
+        if (computed) {
+          styles = {
+            fontSize: String(computed.fontSize || '').slice(0, 32),
+            fontWeight: String(computed.fontWeight || '').slice(0, 32),
+            lineHeight: String(computed.lineHeight || '').slice(0, 32),
+            textAlign: String(computed.textAlign || '').slice(0, 32),
+            letterSpacing: String(computed.letterSpacing || '').slice(0, 32),
+            textTransform: String(computed.textTransform || '').slice(0, 32),
+            color: String(computed.color || '').slice(0, 64),
+            backgroundColor: String(computed.backgroundColor || '').slice(0, 64),
+            borderColor: String(computed.borderColor || '').slice(0, 64),
+            borderRadius: String(computed.borderRadius || '').slice(0, 32),
+            borderWidth: String(computed.borderWidth || '').slice(0, 32),
+            padding: String(computed.padding || '').slice(0, 64),
+            margin: String(computed.margin || '').slice(0, 64),
+            gap: String(computed.gap || '').slice(0, 32),
+          };
+        }
+      } catch (_) {}
       const payload = {
         elementId, tagName: target.tagName.toLowerCase(), previewText,
         bounds: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
       };
+      if (styles) payload.styles = styles;
       const layerId = target.getAttribute('data-layer-id');
       if (layerId && /^[a-zA-Z0-9_~.:-]{1,64}$/.test(layerId)) payload.layerId = layerId;
       send('preview:element-selected', payload);

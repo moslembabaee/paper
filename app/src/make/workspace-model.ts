@@ -6,6 +6,7 @@ import { fetchModelBudget, requestModelPlan, approveModelPlan, requestAppGenerat
 import { approvePlan, isPlanStale, StalePlanApprovalError, validateAppPlan, PlanValidationError } from './plan.ts'
 import { computeBoundedDiff, type BoundedDiff } from './diff.ts'
 import { createPreviewMessage } from './preview-sandbox.ts'
+import type { VisualUpdateResult } from './visual-inspector.ts'
 
 export function formatAnnotationPrompt(annotation: AppAnnotation): string {
   return `[Target: <${annotation.tagName}> #${annotation.elementId}]\n${annotation.text}`
@@ -623,6 +624,64 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       if (target) createPreviewMessage('paper-preview', 'preview:element-selected', target)
       setState({ selectedElement: target ? structuredClone(target) : null })
     },
+    async applyVisualProperties(elementId: string, properties: Record<string, string>, expectedRevision = state.activeProject.revision, expectedProject?: AppProject): Promise<VisualUpdateResult> {
+      if (state.projectStatus !== 'idle' || state.planStatus === 'generating_app') throw new Error('Wait for the current project operation to finish')
+      const project = state.activeProject
+      if (project.revision !== expectedRevision) throw new Error('Stale visual edit: project revision has changed')
+      if (expectedProject && sourceKey(project) !== sourceKey(expectedProject)) throw new Error('Stale visual edit: source changed after review')
+      const target = state.selectedElement
+      if (!target || target.elementId !== elementId) throw new Error('Unsupported or unselected element; select it in the current preview')
+      const source = sourceKey(project)
+      const previousAssets = state.assets
+      const saved = state.savedProjects.some(p => p.id === project.id)
+      cancelProject()
+      invalidatePlan()
+      previewGeneration++
+      previewRequest?.abort()
+      const generation = projectGeneration
+      const request = new AbortController()
+      projectRequest = request
+      setState({ projectStatus: 'saving', projectError: '', previewStatus: previousAssets ? 'ready' : 'idle' })
+      const assertCurrent = () => {
+        if (generation !== projectGeneration || request.signal.aborted || sourceKey(state.activeProject) !== source) throw new Error('Stale visual edit: the project changed or the operation was cancelled')
+      }
+      try {
+        const { applyVisualPropertyUpdate } = await import('./visual-inspector.ts')
+        const result = await applyVisualPropertyUpdate(project, target, properties)
+        assertCurrent()
+        if (!result.updatedProject) throw new Error('Visual property update failed')
+        const candidate = result.updatedProject
+        const compiled = await (options.compiler ? options.compiler(candidate) : repository.compile(candidate, request.signal))
+        assertCurrent()
+        if (!compiled.success || !compiled.assets || compiled.diagnostics.some(d => d.severity === 'error')) {
+          throw new Error('Visual edit build validation failed. ' + compiled.diagnostics.map(d => d.message).join(' '))
+        }
+        let committed = candidate
+        if (saved) {
+          if (!repository.update) throw new Error('Visual property saving is unavailable for this repository')
+          committed = validateAppProject(await repository.update(candidate, project.revision, request.signal))
+          assertCurrent()
+          if (committed.id !== project.id || committed.revision !== candidate.revision ||
+            JSON.stringify(committed.files) !== JSON.stringify(candidate.files) ||
+            JSON.stringify(committed.preview) !== JSON.stringify(candidate.preview) ||
+            JSON.stringify(committed.assetIds) !== JSON.stringify(candidate.assetIds)) {
+            throw new Error('Saved visual edit does not match the validated project revision')
+          }
+        }
+        setState({
+          projects: [committed, ...state.projects.filter(p => p.id !== committed.id)],
+          activeProject: committed, assets: compiled.assets, previewStatus: 'ready', projectStatus: 'idle', projectError: '', errorMessage: '',
+          diagnostics: [...compiled.diagnostics], currentDiff: result.diff ?? null,
+          rollbackPoint: { revision: project.revision, project: structuredClone(project), assets: previousAssets },
+          selectedElement: { ...target, styles: undefined }, annotationDirty: saved ? false : state.annotationDirty,
+          savedProjects: saved ? [committed, ...state.savedProjects.filter(p => p.id !== committed.id)] : state.savedProjects,
+        })
+        return { ...result, updatedProject: committed }
+      } catch (error) {
+        if (generation === projectGeneration) setState({ projectStatus: 'idle', projectError: message(error) })
+        throw error
+      }
+    },
     addAnnotation(input: Omit<AppAnnotation, 'id' | 'createdAt' | 'updatedAt'>): AppAnnotation {
       if (state.projectStatus !== 'idle' || state.planStatus === 'generating_app') throw new Error('Wait for the current project operation to finish')
       const annotation: AppAnnotation = { ...input, text: input.text.trim(), id: `ann_${crypto.randomUUID()}`, createdAt: new Date().toISOString() }
@@ -954,7 +1013,13 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           if (!repository.rollback) throw new Error('Rollback is unavailable for this repository')
           const result = await repository.rollback(current.id, current.revision, point.revision, projectRequest.signal)
           if (!result.ok) throw new Error('Rollback validation failed')
-          restored = result.project
+          restored = validateAppProject(result.project)
+          if (restored.id !== current.id || restored.revision !== current.revision + 1 ||
+            JSON.stringify(restored.files) !== JSON.stringify(point.project.files) ||
+            JSON.stringify(restored.preview) !== JSON.stringify(point.project.preview) ||
+            JSON.stringify(restored.assetIds) !== JSON.stringify(point.project.assetIds)) {
+            throw new Error('Rollback revision does not match the expected project and source')
+          }
           compiled = { success: true, assets: result.assets, diagnostics: result.diagnostics }
         } else {
           restored = validateAppProject({ ...point.project, revision: current.revision + 1, updatedAt: new Date().toISOString() })
@@ -965,7 +1030,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           setState({ projectStatus: 'idle', projectError: 'Rollback conflict: the app has changed.' })
           return null
         }
-        if (!compiled.success || !compiled.assets) throw new Error('Rollback build validation failed. Current revision is unchanged.')
+        if (!compiled.success || !compiled.assets || compiled.diagnostics.some(d => d.severity === 'error')) throw new Error('Rollback build validation failed. Current revision is unchanged.')
         planSource = null
         setState({
           projects: [restored, ...state.projects.filter(p => p.id !== restored.id)],

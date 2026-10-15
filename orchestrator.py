@@ -30,7 +30,7 @@ LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "orchestrator.log"
 
-AGENT_CHAIN = ["claude", "antigravity", "codex"]
+AGENT_CHAIN = ["codex", "claude", "antigravity"]
 
 def log(msg: str):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -114,20 +114,20 @@ def reconcile_issue_before_dispatch(roadmap: dict, task: dict) -> bool:
 def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple[int, str]:
     log(f"Dispatching task to agent [{agent.upper()}] (retry={is_retry})...")
     
-    if agent == "claude":
-        # Run Claude Code in non-interactive print mode (clamped to 25 turns for decomposed sub-tasks)
-        cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 25'
-        return run_cmd(cmd, timeout=600)
-        
-    elif agent == "codex":
+    if agent == "codex":
         # Run OpenAI Codex non-interactively in workspace-write sandbox
         cmd = f'codex exec --sandbox workspace-write -c \'model_reasoning_effort="high"\' {shlex.quote(prompt)}'
-        return run_cmd(cmd, timeout=600)
+        return run_cmd(cmd, timeout=360)
+        
+    elif agent == "claude":
+        # Run Claude Code in non-interactive print mode (clamped to 25 turns for decomposed sub-tasks)
+        cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 25'
+        return run_cmd(cmd, timeout=360)
         
     elif agent == "antigravity":
         # Run Antigravity CLI with Gemini 3.8 Flash High
-        cmd = f'agy -p {shlex.quote(prompt)} --model gemini-3.8-flash-high --effort high --dangerously-skip-permissions --print-timeout 10m'
-        return run_cmd(cmd, timeout=600)
+        cmd = f'agy -p {shlex.quote(prompt)} --model gemini-3.8-flash-high --effort medium --dangerously-skip-permissions --print-timeout 6m'
+        return run_cmd(cmd, timeout=360)
         
     else:
         return -1, f"Unknown agent: {agent}"
@@ -197,7 +197,7 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
     "phase": "Continuous Polish & Evolution",
     "title": "Title here",
     "description": "Concrete requirements here",
-    "assigned_agent": "claude",
+    "assigned_agent": "codex",
     "status": "waiting_approval",
     "retry_count": 0,
     "verification_cmd": "cd /root/projects/paper/app && npm run build"
@@ -281,7 +281,7 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
         if issue_num:
             run_cmd(f'gh issue edit {issue_num} --repo moslembabaee/paper --add-label "in-progress"', timeout=30)
 
-        assigned_agent = pending_task.get("assigned_agent", "claude")
+        assigned_agent = pending_task.get("assigned_agent", "codex")
         task_success = False
         task_closed = False
         error_output = None
@@ -298,10 +298,15 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
             exit_code, agent_out = execute_agent_task(current_agent, prompt, is_retry=(error_output is not None))
             log(f"Agent [{current_agent}] finished with exit code {exit_code}")
             
-            # Run verification command
-            verify_cmd = pending_task["verification_cmd"]
-            log(f"Running quality gate verification: '{verify_cmd}'...")
-            v_code, v_out = run_cmd(verify_cmd, timeout=300)
+            # Run verification command ONLY IF agent succeeded
+            if exit_code == 0:
+                verify_cmd = pending_task["verification_cmd"]
+                log(f"Running quality gate verification: '{verify_cmd}'...")
+                v_code, v_out = run_cmd(verify_cmd, timeout=300)
+            else:
+                log(f"⏩ Skipping full verification because agent [{current_agent}] failed or timed out (exit code {exit_code}).")
+                v_code = -1
+                v_out = f"Skipped verification due to agent error: {agent_out[-300:] if agent_out else 'no output'}"
             
             # A webhook/bot can close the issue while an agent or build runs.
             # Reload before retrying or reporting implementation completion.

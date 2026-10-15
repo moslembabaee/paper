@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowLeft, Code2, Crosshair, FileCode2, Monitor, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
 import type { AppSceneReference } from './types'
 import { PreviewFrame, type PreviewFrameStatus } from './PreviewFrame'
@@ -9,6 +9,8 @@ import { AssetPanel } from './AssetPanel'
 import { AnnotationPanel } from './AnnotationPanel'
 import { PREVIEW_VIEWPORTS, formatViewportDimensions, getViewportConfig, isValidDeviceViewport } from './breakpoints'
 import './make.css'
+
+const VisualInspector = lazy(() => import('./VisualInspector'))
 
 export default function MakeWorkspace({ accountId, onDesign, designSelection }: { accountId?: string; onDesign: () => void; designSelection?: { reference: AppSceneReference; name: string } | null }) {
   const [store] = useState(() => createMakeWorkspaceStore({ accountId }))
@@ -70,6 +72,9 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         {state.listStatus === 'loading' ? <p className="make-notice" role="status">Loading saved apps…</p> : null}
         {state.listError ? <div className="make-notice" role="alert"><p>Could not load saved apps: {state.listError}</p><button className="make-button" onClick={() => { void store.loadProjects() }}>Retry project list</button></div> : null}
         {state.projectError ? <div className="make-notice" role="alert"><p>{state.projectError}</p><button className="make-button" onClick={() => state.annotationDirty && savedIds.has(active.id) ? void store.saveAnnotations() : state.projectError && openingId ? choose(openingId) : void store.saveCopy()}>Retry project request</button></div> : null}
+        {state.selectedElement ? <Suspense fallback={<p className="make-notice" role="status">Loading visual properties…</p>}>
+          <VisualInspector key={`${active.id}:${active.revision}:${active.updatedAt}:${state.selectedElement.elementId}`} store={store} state={state} disabled={busy || planBusy} />
+        </Suspense> : null}
         <AnnotationPanel store={store} state={state} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         {state.currentDiff ? <DiffInspection diff={state.currentDiff} rollbackRevision={state.rollbackPoint?.revision} busy={busy || planBusy} onRollback={() => { void store.rollback().catch(() => {}) }} /> : null}
         <AssetPanel project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} onChange={store.acceptAssetProject} />

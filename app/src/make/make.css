@@ -18,6 +18,26 @@
 .make-primary { background: #81adec; border-color: #81adec; color: #080808; font-weight: 600; }
 .make-primary:hover { background: #a0c2f1; }
 .make-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); flex: 1; min-height: 0; }
+.make-visual-inspector { padding: 20px; border-bottom: 1px solid #222222; min-width: 0; }
+.make-visual-target { display: flex; gap: 8px; min-width: 0; align-items: baseline; }
+.make-visual-target code { color: #81adec; font: 10px var(--font-mono); }
+.make-visual-target > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #edebe1; font-size: 11px; }
+.make-visual-help { color: #aaa99f; font-size: 10px; line-height: 1.7; overflow-wrap: anywhere; margin: 10px 0 14px; }
+.make-visual-inspector fieldset { border: 0; border-top: 1px solid #222222; margin: 18px 0 0; padding: 12px 0 0; min-width: 0; }
+.make-visual-inspector legend { font-size: 10px; color: #aaa99f; padding: 0 8px 0 0; }
+.make-visual-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.make-visual-fields label { display: grid; gap: 5px; min-width: 0; font-size: 10px; color: #aaa99f; }
+.make-visual-fields input { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; background: #151515; color: #edebe1; border: 1px solid #333; border-radius: 4px; font: 11px var(--font-mono); min-height: 34px; }
+.make-visual-fields input:focus-visible { outline: 2px solid #81adec; outline-offset: 1px; }
+.make-visual-fields input::placeholder { color: #88877f; }
+.make-visual-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.make-visual-review { border-top: 1px solid #333; padding-top: 10px; margin-top: 16px; font-size: 10px; color: #81adec; }
+.make-visual-review > p { margin: 0 0 12px; }
+.make-visual-review code { font-size: 9px; color: #aaa99f; overflow-wrap: anywhere; }
+.make-visual-review .make-button { width: 100%; }
+.make-visual-readonly { font: 10px/1.7 var(--font-mono); color: #aaa99f; }
+.make-visual-readonly > div { display: flex; justify-content: space-between; gap: 8px; overflow-wrap: anywhere; }
+.make-visual-readonly dd { margin: 0; color: #edebe1; text-align: right; }
 .make-sidebar { border-right: 1px solid #222222; overflow-y: auto; }
 .make-project-meta { padding: 26px 20px; border-bottom: 1px solid #222222; }
 .make-eyebrow { font: 9px var(--font-mono); letter-spacing: .08em; color: #aaa99f; }

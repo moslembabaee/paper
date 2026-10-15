@@ -53,6 +53,7 @@ export interface PreviewElementTarget {
     readonly width: number
     readonly height: number
   }
+  readonly styles?: Record<string, string>
 }
 
 export interface AppProject {
