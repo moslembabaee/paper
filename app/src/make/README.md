@@ -46,10 +46,46 @@ pass. Callers must replace their stored manifest only after successful validatio
 a thrown `AppProjectValidationError` must never be used as permission to fall back
 to a permissive import.
 
+## Account-scoped artifact storage
+
+`AppStorage` (`server/app-storage.ts`, re-exported from `server/storage.ts`) persists
+app artifacts under `apps/<userId>/<appId>/`:
+
+- `manifest.json`: Canonical `AppProject` manifest and the sole publication point.
+- `revisions/<revision>/files/`: Immutable materialized source files for that revision.
+- `revisions/<revision>/record.json`: Immutable revision number, SHA-256 manifest hash,
+  timestamp, and complete project snapshot. Reads verify the record's identity and hash.
+
+Confinement and safety guarantees:
+
+- **Atomic publication**: A writer stages a complete snapshot in `.staging_<uuid>/`
+  inside the app, syncs files and directories, installs the snapshot, then atomically
+  replaces the manifest. The live app directory is never moved. A directory-sync
+  failure after publication rolls back the prior manifest. A crash leaves either
+  the old or new complete revision. Unpublished snapshots are hidden from readers
+  and reclaimed by the next writer holding that app's lock; readers never clean
+  another operation's staging tree.
+- **Optimistic revision check**: Updates require matching `expectedRevision` (`null` for new
+  apps; positive integer matching current revision for updates). Stale writes reject
+  with `409 Revision conflict` and include `{ current }`. Invalid revision tokens
+  reject with `400`. As with scene storage, one service process owns the volume;
+  concurrent writes serialize per volume/account/app across all store instances
+  in that process. Multiple independent writer processes are unsupported.
+- **Account isolation & symlink confinement**: Account and app directories, manifests,
+  every intermediate artifact directory, and files reject symbolic links with `403`.
+  Reads require bounded regular files opened with `O_NOFOLLOW` and `O_NONBLOCK`.
+  Traversals (`..`, absolute paths, encoded slashes, control characters) reject with `400` or validation errors. Accounts
+  cannot read, overwrite, list or delete another user's artifacts.
+- **Strict input validation**: v1 manifests keep the strict schema from Make 01;
+  storage does not drop unknown file fields, collapse duplicate legacy paths, or
+  execute accessors. Only explicit legacy drafts go through migration. The account
+  ID must come from authenticated server context, never an untrusted request body.
+
 Verification from `app/`:
 
 ```sh
 node --experimental-strip-types tests/app-project-manifest.test.mjs
+node --experimental-strip-types tests/app-storage.test.mjs
 npx --no-install playwright test e2e/app-project-manifest.spec.ts
 npm test && npm run build
 ```

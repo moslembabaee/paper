@@ -2,7 +2,7 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-18",
+  "current_task_id": "T-ISSUE-19",
   "tasks": [
     {
       "id": "T-ISSUE-17",
@@ -668,7 +668,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 18,
-      "completed_at": "2026-10-15T00:32:24.634090"
+      "completed_at": "2026-10-15T00:32:24.634090",
+      "closed_at": "2026-10-15T00:32:28Z"
     },
     {
       "id": "T-ISSUE-19",
@@ -676,10 +677,11 @@
       "title": "Issue #19: feat(make 02): Account-scoped atomic app artifact storage",
       "description": "Scope: Persist manifest/files/revisions under the authenticated account with atomic writes and optimistic revision checks. Reuse existing storage confinement rules.\nAcceptance: Restart/revision-race/storage-failure tests; another user and symlink traversal cannot read or overwrite artifacts.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "waiting_approval",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 19
+      "github_issue_number": 19,
+      "completed_at": "2026-10-15T00:57:29.029211"
     },
     {
       "id": "T-ISSUE-20",

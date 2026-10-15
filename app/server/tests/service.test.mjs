@@ -731,3 +731,44 @@ test('remote atomic plans preview without disk effects, serialize agents, and re
   const persisted = await f.storage.read(a.user.id, project_id)
   assert.equal(['agent-one', 'agent-two'].filter(id => persisted.document.scene.elements[id]).length, 1)
 })
+
+test('cloud storage confines account app artifacts, prevents symlinks, and enforces revision checks', async t => {
+  const { createAppProject } = await import('../dist/src/make/manifest.js')
+  const f = await fixture(t), a = await f.login('cloud-make-a'), b = await f.login('cloud-make-b')
+  const appId = 'cloud_make_app'
+  const project = createAppProject({ id: appId, name: 'Cloud App A', files: { 'src/App.tsx': 'export const a = 1' } })
+
+  const saved = await f.storage.apps.put(a.user.id, appId, project, null)
+  assert.equal(saved.revision, 1)
+
+  // Stale expectedRevision rejected
+  await assert.rejects(
+    f.storage.apps.put(a.user.id, appId, project, 999),
+    err => err.status === 409
+  )
+
+  // Account B cannot read A's app, files, or revisions
+  assert.equal(await f.storage.apps.read(b.user.id, appId), null)
+  assert.equal(await f.storage.apps.readFile(b.user.id, appId, 'src/App.tsx'), null)
+  assert.equal(await f.storage.apps.readRevision(b.user.id, appId, 1), null)
+  assert.deepEqual(await f.storage.apps.list(b.user.id), [])
+  await assert.rejects(
+    f.storage.apps.put(b.user.id, appId, { ...project, name: 'Attempted overwrite' }, 1),
+    err => err.status === 409 && err.current === null
+  )
+  assert.equal(await f.storage.apps.delete(b.user.id, appId), false)
+  await f.storage.apps.put(b.user.id, appId, { ...project, name: 'B independent app' }, null)
+  assert.equal((await f.storage.apps.read(a.user.id, appId)).name, 'Cloud App A')
+
+  // Symlink account traversal rejected
+  const appsDir = join(f.root, 'apps')
+  const dirA = join(appsDir, a.user.id), dirB = join(appsDir, b.user.id)
+  await mkdir(dirB, { recursive: true })
+  await symlink(join(dirA, appId), join(dirB, 'shortcut_app'))
+  await assert.rejects(f.storage.apps.read(b.user.id, 'shortcut_app'), err => err.status === 403)
+  await assert.rejects(f.storage.apps.readFile(b.user.id, 'shortcut_app', 'src/App.tsx'), err => err.status === 403)
+  await assert.rejects(f.storage.apps.readRevision(b.user.id, 'shortcut_app', 1), err => err.status === 403)
+  await assert.rejects(f.storage.apps.put(b.user.id, 'shortcut_app', project, 1), err => err.status === 403)
+  await assert.rejects(f.storage.apps.delete(b.user.id, 'shortcut_app'), err => err.status === 403)
+  assert.deepEqual(await f.storage.apps.read(a.user.id, appId), saved)
+})

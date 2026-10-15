@@ -68,3 +68,21 @@ export interface AppProjectLimits {
   readonly MAX_PATH_LENGTH: number
   readonly MAX_MANIFEST_BYTES: number
 }
+
+export interface AppProjectSummary {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly revision: number
+  readonly release: AppReleaseMetadata
+  readonly preview: AppPreviewConfig
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+export interface AppRevisionRecord {
+  readonly revision: number
+  readonly hash: string
+  readonly timestamp: string
+  readonly project: AppProject
+}

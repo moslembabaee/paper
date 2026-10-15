@@ -6,9 +6,11 @@ import { canonical } from '../src/cloud/model.ts'
 import type { CloudProject } from '../src/cloud/model.ts'
 import { parseProject } from '../src/io/project.ts'
 
+import { AppStorage } from './app-storage.ts'
+
 export function httpError(status: number, message: string) { return Object.assign(new Error(message), { status }) }
-export function safeId(id: unknown): string {
-  if (typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,159}$/.test(id)) throw httpError(400, 'Invalid project ID')
+export function safeId(id: unknown, label = 'project ID'): string {
+  if (typeof id !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,159}$/.test(id)) throw httpError(400, `Invalid ${label}`)
   return id
 }
 export function hash(value: string): string { return createHash('sha256').update(value).digest('hex') }
@@ -25,11 +27,16 @@ export async function atomicFile(path: string, value: unknown) {
     await unlink(temp).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error })
   }
 }
+export { AppStorage }
 /** A single service owns the volume. Serialize read/compare/write, including MCP edits. */
 export class Storage {
   private pending = new Map<string, Promise<unknown>>()
   readonly root: string
-  constructor(root: string) { this.root = resolve(root) }
+  readonly apps: AppStorage
+  constructor(root: string) {
+    this.root = resolve(root)
+    this.apps = new AppStorage(this.root)
+  }
   async locked<T>(key: string, fn: () => Promise<T>): Promise<T> {
     const previous = this.pending.get(key) ?? Promise.resolve()
     const next = previous.catch(() => {}).then(fn)
