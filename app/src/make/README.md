@@ -132,3 +132,23 @@ Targeted API/security verification:
 npm run build:server
 node --test server/tests/apps-api.test.mjs
 ```
+
+## Safe static React/TSX compiler
+
+`compileSourceFiles` and `compileAppProject` (`src/make/compiler.ts`) compile editable
+React/TSX, CSS and JSON sources into preview assets without executing generated scripts,
+running shell commands, or invoking arbitrary dependency installers.
+
+- **Transform-only pipeline**: Analyzes and transpiles source code into CommonJS modules using TypeScript's AST parser and transpiler. CSS is parsed with PostCSS; JSON is strictly parsed and serialized. Modules are bundled into a standalone HTML/JS/CSS bundle carrying data URI assets.
+- **Strict package allowlist**: Only allowlisted modules can be imported: `react`, `react/jsx-runtime`, `react/jsx-dev-runtime`, `react-dom`, `react-dom/client`, `lucide-react`, `@paper-design/shaders-react`. All other package imports produce `DENIED_IMPORT` diagnostics with exact line and column numbers.
+- **Execution bans**: Dynamic `import(...)`, `eval(...)`, `Function(...)`, `new Function(...)`, `require(...)`, JSX runtime pragma overrides, and CSS `@import` are rejected with targeted diagnostics (`DYNAMIC_IMPORT_FORBIDDEN`, `FORBIDDEN_CALL`, `FORBIDDEN_CSS_IMPORT`).
+- **Input bounds & diagnostics**: Max 512 KiB per file, 2 MiB total input, max 100 files, and max AST depth of 128. Path traversal and duplicate files are rejected safely. Syntax errors return exact line and column locations (`SYNTAX_ERROR`).
+- **Preview assets**: Returns `{ js, css, html }` where the runtime loader mounts the entry component in an isolated DOM container matching Paper aesthetics (`#080808` background, `#edebe1` text, `#81adec` accents).
+
+Targeted compiler verification:
+
+```sh
+node --experimental-strip-types tests/app-compiler.test.mjs
+npx playwright test app-compiler.spec.ts --config=playwright.compiler.config.ts
+```
+
