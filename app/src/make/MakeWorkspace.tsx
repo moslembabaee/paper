@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ArrowLeft, Code2, Crosshair, FileCode2, Monitor, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
+import { ArrowLeft, Code2, Crosshair, Monitor, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
 import type { AppSceneReference } from './types'
 import { PreviewFrame, type PreviewFrameStatus } from './PreviewFrame'
 import { createMakeWorkspaceStore, formatDiagnostic } from './workspace-model'
@@ -7,6 +7,7 @@ import { PlanInspection } from './PlanInspection'
 import { DiffInspection } from './DiffInspection'
 import { AssetPanel } from './AssetPanel'
 import { AnnotationPanel } from './AnnotationPanel'
+import { SourceEditor } from './SourceEditor'
 import { PREVIEW_VIEWPORTS, formatViewportDimensions, getViewportConfig, isValidDeviceViewport } from './breakpoints'
 import './make.css'
 
@@ -78,11 +79,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         <AnnotationPanel store={store} state={state} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         {state.currentDiff ? <DiffInspection diff={state.currentDiff} rollbackRevision={state.rollbackPoint?.revision} busy={busy || planBusy} onRollback={() => { void store.rollback().catch(() => {}) }} /> : null}
         <AssetPanel project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} onChange={store.acceptAssetProject} />
-        <section className="make-files" aria-label="Source files"><h2><FileCode2 size={14} />Source files<span>{Object.keys(active.files).length}</span></h2>
-          {Object.values(active.files).map(file => <details key={`${active.id}:${file.path}`}>
-            <summary><Code2 size={13} /><span>{file.path}</span></summary><pre>{file.content}</pre>
-          </details>)}
-        </section>
+        <SourceEditor store={store} state={state} disabled={busy} planBusy={planBusy} />
         <section className="make-diagnostics" data-testid="make-diagnostics" aria-label="Compiler diagnostics">
           <h2>Diagnostics<span>{state.diagnostics.length.toString().padStart(2, '0')}</span></h2>
           {state.diagnostics.length ? state.diagnostics.map((diagnostic, index) => {

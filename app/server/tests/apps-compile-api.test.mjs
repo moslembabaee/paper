@@ -203,3 +203,44 @@ test('compilation enforces account isolation, origin, source policy and bounded 
   assert.deepEqual((await open('/api/apps/private-compile', { headers })).data.files, project.files)
   assert.equal((await open('/api/apps/private-compile', { headers })).data.revision, 1)
 })
+
+test('source formatting is authenticated, bounded, draft-only and preserves code and CSS literals', async t => {
+  const { service, open } = await fixture(t)
+  const cookie = await login(service)
+  const headers = { Cookie: `paper_session=${cookie}`, 'X-Paper-Client': 'web', Origin: 'http://localhost:3000' }
+  const format = (path, content, h = headers) => open('/api/apps/format', { method: 'POST', headers: h, body: { path, content } })
+  assert.equal((await format('src/App.tsx', 'export default () => null', { 'X-Paper-Client': 'web' })).status, 401)
+  assert.equal((await format('src/App.tsx', 'export default () => null', { Cookie: headers.Cookie, Origin: headers.Origin })).status, 403)
+  assert.equal((await format('src/App.tsx', 'export default () => null', { ...headers, Origin: 'https://evil.test' })).status, 403)
+  const tsx = await format('src/App.tsx', 'export default function App(){const text=`  exact\\n whitespace  `;return <h1>{text}</h1>}')
+  assert.equal(tsx.status, 200)
+  assert.match(tsx.data.content, /function App\(\) \{/)
+  assert.match(tsx.data.content, /`  exact\\n whitespace  `/)
+  assert.equal((await format('src/App.tsx', tsx.data.content)).data.content, tsx.data.content)
+  const css = await format('src/styles.css', '@media (min-width: 20px){.title{color:#81adec;content:"a;{b}  c"}}')
+  assert.equal(css.status, 200)
+  assert.match(css.data.content, /\n  \.title/)
+  assert.match(css.data.content, /\n    color: #81adec;/)
+  assert.match(css.data.content, /content: "a;\{b\}  c"/)
+  assert.equal((await format('src/styles.css', css.data.content)).data.content, css.data.content)
+  assert.equal((await format('../secret.ts', 'export {}')).status, 400)
+  assert.equal((await format('src/App.tsx', 'export default () => <main>')).status, 400)
+  assert.equal((await format('src/styles.css', 'a { color: red')).status, 400)
+  assert.equal((await format('src/App.tsx', 'x'.repeat(512 * 1024 + 1))).status, 400)
+  assert.deepEqual((await open('/api/apps', { headers })).data.apps, [])
+})
+
+test('manual source writes use real expected revision guard and preserve the concurrent revision', async t => {
+  const { service, open } = await fixture(t)
+  const cookie = await login(service)
+  const headers = { Cookie: `paper_session=${cookie}`, 'X-Paper-Client': 'web', Origin: 'http://localhost:3000' }
+  const project = createAppProject({ id: 'manual-conflict', files: { 'src/App.tsx': 'export default () => <main>Original</main>' } })
+  assert.equal((await open('/api/apps', { method: 'POST', headers, body: { project } })).status, 201)
+  const model = { ...project, files: { 'src/App.tsx': { path: 'src/App.tsx', content: 'export default () => <main>Model</main>' } } }
+  assert.equal((await open('/api/apps/manual-conflict', { method: 'PUT', headers, body: { project: model, expectedRevision: 1 } })).status, 200)
+  const stale = await open('/api/apps/manual-conflict', { method: 'PUT', headers, body: { project, expectedRevision: 1 } })
+  assert.equal(stale.status, 409)
+  const current = (await open('/api/apps/manual-conflict', { headers })).data
+  assert.equal(current.revision, 2)
+  assert.deepEqual(current.files, model.files)
+})

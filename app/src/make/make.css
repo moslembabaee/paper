@@ -510,3 +510,53 @@
 .make-annotation-actions .make-button { font-size: 10px; }
 .make-annotation-save { display: grid; gap: 8px; margin-top: 12px; color: #aaa99f; font-size: 10px; line-height: 1.6; }
 .make-prompt-input { resize: vertical; min-height: 36px; max-height: 160px; line-height: 1.5; }
+
+/* Source editor */
+.make-source-editor { padding: 20px; border-bottom: 1px solid #222222; min-width: 0; }
+.make-source-tab { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
+  border: 1px solid #333; border-radius: 4px; background: #151515; color: #aaa99f; font: 10px var(--font-mono);
+  padding: 5px 9px; cursor: pointer; transition: border-color 120ms, background 120ms, color 120ms; }
+.make-source-tab:hover { border-color: #81adec; color: #edebe1; }
+.make-source-tab.active { border-color: #81adec; color: #81adec; background: #81adec14; }
+.make-source-tab.has-errors { border-color: #f0b7a9; color: #f0b7a9; }
+.make-source-tab:disabled { opacity: .5; cursor: default; }
+.make-source-tab > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.make-source-entry-badge { font-size: 8px; color: #81adec; letter-spacing: .05em; text-transform: uppercase; opacity: .8; }
+.make-source-error-dot { width: 6px; height: 6px; border-radius: 50%; background: #f0b7a9; flex-shrink: 0; }
+.make-source-header { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.make-source-path { color: #81adec; font: 10px var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
+.make-source-meta { color: #88877f; font: 9px var(--font-mono); flex-shrink: 0; }
+.make-source-textarea { width: 100%; min-width: 0; box-sizing: border-box; min-height: 220px; max-height: 420px;
+  resize: vertical; background: #0d0d0d; border: 1px solid #333; border-radius: 5px; padding: 10px 12px;
+  color: #d7d5cb; font: 11px/1.7 var(--font-mono); outline: none; tab-size: 2; white-space: pre; overflow: auto; }
+.make-source-textarea:focus-visible { outline: 2px solid #81adec; outline-offset: 1px; }
+.make-source-textarea:disabled { opacity: .55; }
+.make-source-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.make-source-toolbar-actions { display: flex; gap: 8px; }
+.make-source-shortcut { color: #88877f; font: 9px var(--font-mono); }
+.make-source-diagnostics { margin-top: 12px; border: 1px solid #f0b7a944; border-radius: 5px; background: #f0b7a90a; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.make-source-diagnostic { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font: 10px/1.6 var(--font-mono); }
+.make-source-diag-location { color: #f0b7a9; font-weight: 600; }
+.make-source-diag-code { color: #81adec; font-size: 9px; }
+.make-source-diag-msg { color: #d7d5cb; overflow-wrap: anywhere; }
+.make-source-error { margin: 10px 0 0; padding: 8px 12px; border-radius: 4px; background: rgba(240, 183, 169, 0.1);
+  border: 1px solid rgba(240, 183, 169, 0.3); color: #f0b7a9; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .make-source-editor { padding: 16px 12px; }
+  .make-source-textarea { min-height: 180px; max-height: 320px; }
+  .make-source-toolbar { align-items: stretch; flex-direction: column; }
+  .make-source-shortcut { order: -1; }
+}
+.make-source-tree { display: grid; gap: 3px; margin-bottom: 16px; max-height: 200px; overflow: auto; }
+.make-source-tree .make-source-tab { width: 100%; border-color: transparent; border-radius: 3px; text-align: left; padding-top: 7px; padding-bottom: 7px; }
+.make-source-tree .make-source-tab.active { border-color: #81adec44; }
+.make-source-tree .make-source-tab > span { flex: 1; }
+.make-source-tree small { color: #81adec; font-size: 8px; }
+.make-source-toolbar-actions { flex-wrap: wrap; gap: 6px; }
+.make-source-toolbar-actions .make-button { padding: 6px 8px; font-size: 10px; }
+.make-source-diag-location { border: 0; padding: 0; background: none; font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.make-source-error p { margin: 0 0 8px; }
+.make-source-tab:focus-visible, .make-source-diag-location:focus-visible { outline: 2px solid #81adec; outline-offset: 2px; }
+.make-source-latest { margin: 12px 0; }
+.make-source-latest summary { cursor: pointer; color: #edebe1; }
+.make-source-latest pre { padding: 10px; background: #080808; border: 1px solid #222222; overflow: auto; max-height: 200px; font: 10px/1.7 var(--font-mono); color: #edebe1; }

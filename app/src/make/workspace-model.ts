@@ -1,6 +1,6 @@
 import type { AppAnnotation, PreviewElementTarget, AppSceneReference, AppGenerateResult, AppPlan, AppProject, AppProjectSummary, AppProjectRollbackResult, ModelBudget } from './types.ts'
 import { api, ApiError } from '../cloud/api.ts'
-import { createAppProject, validateAppProject } from './manifest.ts'
+import { createAppProject, normalizeAndValidatePath, validateAppProject } from './manifest.ts'
 import type { CompileDiagnostic, CompilePreviewAssets, CompileResult } from './compiler.ts'
 import { fetchModelBudget, requestModelPlan, approveModelPlan, requestAppGeneration } from './model-gateway.ts'
 import { approvePlan, isPlanStale, StalePlanApprovalError, validateAppPlan, PlanValidationError } from './plan.ts'
@@ -441,6 +441,7 @@ export interface MakeRepository {
   update?(project: AppProject, expectedRevision: number, signal?: AbortSignal): Promise<AppProject>
   copy?(sourceId: string, project: AppProject, signal?: AbortSignal): Promise<AppProject>
   compile(project: AppProject, signal?: AbortSignal): Promise<CompileResult>
+  format?(path: string, content: string): Promise<{ content: string }>
   rollback?(id: string, expectedRevision: number, targetRevision?: number, signal?: AbortSignal): Promise<AppProjectRollbackResult>
 }
 
@@ -452,6 +453,7 @@ export function createMakeRepository(accountId?: string): MakeRepository {
     update: (project, expectedRevision, signal) => api(`/apps/${encodeURIComponent(project.id)}`, { method: 'PUT', headers, signal, body: JSON.stringify({ project, expectedRevision }) }),
     create: (project, signal) => api('/apps', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     compile: (project, signal) => api('/apps/compile', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
+    format: (path, content) => api('/apps/format', { method: 'POST', headers, body: JSON.stringify({ path, content }) }),
     copy: (sourceId, project, signal) => api(`/apps/${encodeURIComponent(sourceId)}/copy`, { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     rollback: (id, expectedRevision, targetRevision, signal) => api(`/apps/${encodeURIComponent(id)}/rollback`, { method: 'POST', headers, signal, body: JSON.stringify({ expectedRevision, targetRevision }) }),
   }
@@ -620,6 +622,86 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       setState({ projects: state.projects.map(project => project.id === updated.id ? updated : project), activeProject: updated, currentDiff: null })
     },
     setInspectMode: (inspectMode: boolean) => setState({ inspectMode }),
+    async formatSourceFile(path: string, content: string): Promise<string> {
+      if (!repository.format) throw new Error('Source formatting is unavailable for this repository')
+      return (await repository.format(normalizeAndValidatePath(path), content)).content
+    },
+    async saveSourceFile(path: string, content: string, expectedRevision = state.activeProject.revision): Promise<{
+      success: boolean
+      assets?: CompilePreviewAssets
+      diagnostics: CompileDiagnostic[]
+      diff?: BoundedDiff
+      rollbackPoint?: { revision: number; project: AppProject } | null
+    }> {
+      if (state.projectStatus !== 'idle' || state.planStatus === 'generating_app') throw new Error('Wait for the current project operation to finish')
+      const project = state.activeProject
+      if (!Number.isSafeInteger(expectedRevision) || project.revision !== expectedRevision) {
+        setState({ projectError: 'Revision conflict: the project was modified externally. Reload and retry.' })
+        throw new Error('Revision conflict: expected ' + expectedRevision + ' but current is ' + project.revision)
+      }
+      const pathKey = normalizeAndValidatePath(path)
+      if (!Object.hasOwn(project.files, pathKey)) throw new Error('Source file not found: ' + path)
+      const source = sourceKey(project)
+      const previousAssets = state.assets
+      const previousPreviewStatus = state.previewStatus
+      const saved = state.savedProjects.some(p => p.id === project.id)
+      cancelProject()
+      invalidatePlan()
+      previewGeneration++
+      previewRequest?.abort()
+      const generation = projectGeneration
+      const request = new AbortController()
+      projectRequest = request
+      setState({ projectStatus: 'saving', projectError: '', previewStatus: previousAssets ? 'ready' : 'loading' })
+      const assertCurrent = () => {
+        if (generation !== projectGeneration || request.signal.aborted || sourceKey(state.activeProject) !== source) throw new Error('The project changed or the operation was cancelled')
+      }
+      try {
+        const candidate = validateAppProject({
+          ...project,
+          revision: project.revision + 1,
+          files: { ...project.files, [pathKey]: { path: pathKey, content } },
+          updatedAt: new Date().toISOString(),
+        })
+        const compiled = await (options.compiler ? options.compiler(candidate) : repository.compile(candidate, request.signal))
+        assertCurrent()
+        if (!compiled.success || !compiled.assets || compiled.diagnostics.some(d => d.severity === 'error')) {
+          setState({
+            diagnostics: [...compiled.diagnostics],
+            projectStatus: 'idle',
+            projectError: compiled.diagnostics.length ? compiled.diagnostics.map(d => d.message).join('; ') : 'Source edit build validation failed',
+            previewStatus: previousPreviewStatus,
+          })
+          throw new Error('Source edit build validation failed. ' + compiled.diagnostics.map(d => `[${d.file}:${d.line}:${d.column}] ${d.message}`).join(' '))
+        }
+        let committed = candidate
+        if (saved) {
+          if (!repository.update) throw new Error('Source file saving is unavailable for this repository')
+          committed = validateAppProject(await repository.update(candidate, project.revision, request.signal))
+          assertCurrent()
+          if (committed.id !== project.id || committed.revision !== candidate.revision ||
+            JSON.stringify(committed.files) !== JSON.stringify(candidate.files) ||
+            JSON.stringify(committed.preview) !== JSON.stringify(candidate.preview)) {
+            throw new Error('Saved source edit does not match the validated project revision')
+          }
+        }
+        const diff = computeBoundedDiff(project.files, committed.files, { baseRevision: project.revision, targetRevision: committed.revision })
+        setState({
+          projects: [committed, ...state.projects.filter(p => p.id !== committed.id)],
+          activeProject: committed, assets: compiled.assets, previewStatus: 'ready', projectStatus: 'idle', projectError: '', errorMessage: '',
+          diagnostics: [...compiled.diagnostics],
+          selectedDiagnosticIndex: null,
+          currentDiff: diff,
+          rollbackPoint: { revision: project.revision, project: structuredClone(project), assets: previousAssets },
+          selectedElement: null, inspectMode: false,
+          savedProjects: saved ? [committed, ...state.savedProjects.filter(p => p.id !== committed.id)] : state.savedProjects,
+        })
+        return { success: true, assets: compiled.assets, diagnostics: [...compiled.diagnostics], diff, rollbackPoint: { revision: project.revision, project: structuredClone(project) } }
+      } catch (error) {
+        if (generation === projectGeneration) setState({ projectStatus: 'idle', projectError: message(error), previewStatus: state.assets === previousAssets ? previousPreviewStatus : state.previewStatus })
+        throw error
+      }
+    },
     selectElement(target: PreviewElementTarget | null) {
       if (target) createPreviewMessage('paper-preview', 'preview:element-selected', target)
       setState({ selectedElement: target ? structuredClone(target) : null })

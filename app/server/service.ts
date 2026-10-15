@@ -15,6 +15,7 @@ import { formatPlanPrompt, parseModelPlanResponse, validateAppPlan, approvePlan,
 import { extractFrameDesignContext, DesignContextError } from '../src/make/design-context.ts'
 import type { AppSceneReference } from '../src/make/types.ts'
 import { computeBoundedDiff } from '../src/make/diff.ts'
+import { formatSourceFile } from './source-format.ts'
 
 export interface ServiceConfig {
   root: string
@@ -512,6 +513,13 @@ export async function createService(config: ServiceConfig) {
           return
         }
         throw httpError(405, 'Method not allowed')
+      }
+
+      if (/^\/api\/(apps|app-projects)\/format$/.test(path) && req.method === 'POST') {
+        const input = await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES)
+        if (Object.keys(input).some(key => !['path', 'content'].includes(key))) throw httpError(400, 'Expected source path and content')
+        json(res, 200, { content: formatSourceFile(input.path, input.content) })
+        return
       }
 
       // Transform bounded sources without executing generated code on the server.
