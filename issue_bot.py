@@ -225,7 +225,7 @@ def process_issues():
         num = issue["number"]
         title = issue["title"]
         # Skip system tracker and roadmap dashboard issues
-        if num == 1 or "live tracker" in title.lower() or "roadmap" in title.lower():
+        if num == 1 or "live tracker" in title.lower() or "roadmap dashboard" in title.lower() or "autonomous roadmap" in title.lower():
             continue
         author = issue.get("author", {}).get("login", "").lower()
         labels = label_names(issue)
