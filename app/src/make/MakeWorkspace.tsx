@@ -11,6 +11,7 @@ export default function MakeWorkspace({ accountId, onDesign }: { accountId?: str
   const [openingId, setOpeningId] = useState<string | null>(null)
   useEffect(() => {
     void store.loadProjects()
+    void store.loadBudget()
     return () => store.suspend()
   }, [store])
   const busy = state.projectStatus !== 'idle'
@@ -37,6 +38,16 @@ export default function MakeWorkspace({ accountId, onDesign }: { accountId?: str
         </select>
       </label>
       <div className="make-header-actions">
+        {state.budget ? (
+          <div
+            className="make-budget-badge"
+            data-testid="make-budget-badge"
+            title={`Turns: ${state.budget.remainingTurns}/${state.budget.limitTurns} remaining`}
+          >
+            <Sparkles size={11} className="make-budget-icon" />
+            <span>{state.budget.remainingTurns} turns</span>
+          </div>
+        ) : null}
         <button className="make-button" disabled={busy} onClick={() => store.createNewProject()}><Plus size={14} /><span>New app</span></button>
         <button className="make-button" disabled={busy} onClick={() => { setOpeningId(null); void store.saveCopy() }}><Save size={14} /><span>{state.projectStatus === 'saving' ? 'Saving…' : 'Save a copy'}</span></button>
       </div>

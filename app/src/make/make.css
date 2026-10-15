@@ -7,7 +7,10 @@
 .make-chooser { max-width: 320px; flex: 1; min-width: 0; }
 .make-chooser select { width: 100%; background: #151515; border: 1px solid #333; border-radius: 5px; padding: 8px 10px; font: inherit; color: #edebe1; text-overflow: ellipsis; }
 .make-chooser option, .make-chooser optgroup { background: #151515; color: #edebe1; }
-.make-header-actions { margin-left: auto; display: flex; gap: 8px; }
+.make-header-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.make-budget-badge { display: inline-flex; align-items: center; gap: 5px; background: #151515; border: 1px solid #222222; border-radius: 4px; padding: 4px 8px; font: 10px var(--font-mono); color: #aaa99f; }
+.make-budget-badge:hover { border-color: #81adec; color: #edebe1; }
+.make-budget-icon { color: #81adec; }
 .make-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid #333; border-radius: 5px; background: #151515; color: #edebe1; min-height: 32px; padding: 7px 11px; cursor: pointer; font: inherit; transition: background 120ms, border-color 120ms; }
 .make-button:hover { border-color: #81adec; background: #222222; }
 .make-button:disabled { opacity: .45; cursor: default; }

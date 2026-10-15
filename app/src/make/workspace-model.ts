@@ -1,7 +1,8 @@
-import type { AppProject, AppProjectSummary } from './types.ts'
+import type { AppProject, AppProjectSummary, ModelBudget } from './types.ts'
 import { api } from '../cloud/api.ts'
 import { createAppProject } from './manifest.ts'
 import type { CompileDiagnostic, CompilePreviewAssets, CompileResult } from './compiler.ts'
+import { fetchModelBudget } from './model-gateway.ts'
 
 export interface ActionableDiagnostic {
   readonly title: string
@@ -405,6 +406,7 @@ export interface MakeWorkspaceState {
   deviceViewport: PreviewDeviceViewport
   previewTheme: PreviewTheme
   selectedDiagnosticIndex: number | null
+  budget: ModelBudget | null
 }
 
 export interface MakeRepository {
@@ -447,12 +449,14 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     deviceViewport: 'responsive',
     previewTheme: { mode: 'dark', background: '#080808', foreground: '#edebe1', accent: '#81adec', grid: '#222222' },
     selectedDiagnosticIndex: null,
+    budget: null,
   }
   const listeners = new Set<() => void>()
   let previewGeneration = 0, projectGeneration = 0, listGeneration = 0
   let previewRequest: AbortController | undefined
   let projectRequest: AbortController | undefined
   let listRequest: AbortController | undefined
+  let budgetRequest: AbortController | undefined
   const message = (error: unknown) => error instanceof Error ? error.message : 'Request failed. Please try again.'
   function setState(patch: Partial<MakeWorkspaceState>) {
     state = { ...state, ...patch }
@@ -568,9 +572,22 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       previewRequest?.abort()
       setState({ previewStatus: 'error', assets: null, errorMessage: `Runtime error: ${error.message}`, diagnostics: [] })
     },
+    async loadBudget() {
+      budgetRequest?.abort()
+      const request = new AbortController()
+      budgetRequest = request
+      try {
+        const budget = await fetchModelBudget(undefined, { signal: request.signal, accountId: options.accountId })
+        if (!request.signal.aborted) setState({ budget })
+      } catch {
+        // Unauthenticated or offline; ignore gracefully
+      }
+    },
+    setBudget: (budget: ModelBudget | null) => setState({ budget }),
     stopPreview,
     retryPreview: () => store.runPreview(),
     suspend() {
+      budgetRequest?.abort()
       cancelProject()
       listGeneration++
       listRequest?.abort()

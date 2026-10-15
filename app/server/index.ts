@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createService } from './service.ts'
 import { APP_PROJECT_LIMITS } from '../src/make/manifest.ts'
+import { MODEL_GATEWAY_LIMITS } from '../src/make/model-protocol.ts'
 
 const provider = (name: string) => {
   const clientId = process.env[`${name}_CLIENT_ID`]
@@ -25,7 +26,11 @@ app.register(async (scope: typeof app) => {
   for (const path of ['/api/apps', '/api/apps/*', '/api/app-projects', '/api/app-projects/*']) {
     scope.all(path, { bodyLimit: APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES }, relay)
   }
+  for (const path of ['/api/apps/:id/generate', '/api/app-projects/:id/generate']) {
+    scope.all(path, { bodyLimit: MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES }, relay)
+  }
 })
+app.all('/api/model/*', { bodyLimit: MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES }, relay)
 app.all('/*', relay)
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => { service.close(); void app.close() })
 await app.listen({ host: '0.0.0.0', port: Number(process.env.PAPER_API_PORT ?? 3001) })

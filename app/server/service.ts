@@ -7,6 +7,9 @@ import { CollaborationServer } from '../collaboration/server.ts'
 import type { CloudProject } from '../src/cloud/model.ts'
 import { APP_PROJECT_LIMITS, AppProjectValidationError, generateAppProjectId, parseJsonStrict, validateAppProject } from '../src/make/manifest.ts'
 import { compileAppProject, compileSourceFiles } from '../src/make/compiler.ts'
+import { ServerModelGateway, type ModelGatewayConfig } from './model-gateway.ts'
+import { MODEL_GATEWAY_LIMITS } from '../src/make/model-protocol.ts'
+import type { ModelRequest } from '../src/make/types.ts'
 
 export interface ServiceConfig {
   root: string
@@ -15,6 +18,7 @@ export interface ServiceConfig {
   google?: { clientId: string; clientSecret: string }
   github?: { clientId: string; clientSecret: string }
   fetch?: typeof fetch
+  modelGateway?: ModelGatewayConfig | ServerModelGateway
 }
 function cookies(req: IncomingMessage) {
   return Object.fromEntries((req.headers.cookie ?? '').split(';').map(v => v.trim().split('=')))
@@ -29,22 +33,27 @@ async function body(req: IncomingMessage, parsed?: unknown, maxBytes = 17 * 1024
       throw httpError(400, 'Invalid JSON')
     }
   }
+  const payloadError = () => {
+    if (maxBytes <= MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES) return 'Model request payload too large'
+    if (maxBytes <= APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES) return 'App project payload too large'
+    return 'Project too large'
+  }
   if (value === undefined) {
     const chunks: Buffer[] = []; let size = 0
     for await (const chunk of req) {
       size += chunk.length
-      if (size > maxBytes) throw httpError(413, maxBytes <= APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES ? 'App project payload too large' : 'Project too large')
+      if (size > maxBytes) throw httpError(413, payloadError())
       chunks.push(chunk)
     }
     value = parse(Buffer.concat(chunks).toString())
-  } else if (appBody && typeof value === 'string') {
+  } else if (typeof value === 'string') {
     // Production passes unparsed app JSON so duplicate keys remain observable.
-    if (Buffer.byteLength(value) > maxBytes) throw httpError(413, 'App project payload too large')
+    if (Buffer.byteLength(value) > maxBytes) throw httpError(413, payloadError())
     value = parse(value)
   } else {
     const raw = JSON.stringify(value)
     if (Buffer.byteLength(raw) > maxBytes) {
-      throw httpError(413, maxBytes <= APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES ? 'App project payload too large' : 'Project too large')
+      throw httpError(413, payloadError())
     }
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw httpError(400, 'Expected an object')
@@ -81,6 +90,25 @@ export async function createService(config: ServiceConfig) {
     for (const stream of streams.get(user) ?? []) stream.write(`event: app\ndata: ${JSON.stringify({ id: record.id, revision: record.revision, action })}\n\n`)
   }
   const mcp = new RemoteMcpGateway(auth, storage, emit)
+  const modelGateway = config.modelGateway instanceof ServerModelGateway
+    ? config.modelGateway
+    : new ServerModelGateway({ fetch: requestFetch, ...config.modelGateway })
+  await modelGateway.initialize(config.root)
+  async function generate(req: IncomingMessage, res: ServerResponse, userId: string, request: ModelRequest) {
+    const controller = new AbortController()
+    const onDisconnect = () => { if (!res.writableEnded) controller.abort() }
+    // IncomingMessage 'close' also fires after a normally consumed body. The
+    // response socket closing early is the cancellation signal for slow turns.
+    req.once('aborted', onDisconnect)
+    res.once('close', onDisconnect)
+    if (req.aborted || res.destroyed) controller.abort()
+    try {
+      return await modelGateway.executeTurn({ userId, request, signal: controller.signal, appStorage: storage.apps })
+    } finally {
+      req.removeListener('aborted', onDisconnect)
+      res.removeListener('close', onDisconnect)
+    }
+  }
   function cookie(name: string, value: string, maxAge: number) { return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith('https:') ? '; Secure' : ''}` }
   async function providerJSON(url: string, init?: RequestInit) {
     const response = await requestFetch(url, { ...init, signal: AbortSignal.timeout(10_000) })
@@ -309,6 +337,71 @@ export async function createService(config: ServiceConfig) {
         throw httpError(405, 'Method not allowed')
       }
 
+      // Model Gateway endpoints: general
+      if (path === '/api/model/generate' && req.method === 'POST') {
+        const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as ModelRequest
+        const result = await generate(req, res, user.id, input)
+        json(res, 200, result)
+        return
+      }
+
+      if (path === '/api/model/budget' && req.method === 'GET') {
+        json(res, 200, { budget: modelGateway.getBudget(user.id) })
+        return
+      }
+
+      if (path === '/api/model/turns' && req.method === 'GET') {
+        json(res, 200, { turns: modelGateway.listTurns(user.id) })
+        return
+      }
+
+      if (path === '/api/model/cancel' && req.method === 'POST') {
+        const input = await body(req, parsed, 4096)
+        const turnId = typeof input.turnId === 'string' ? input.turnId : ''
+        const cancelled = modelGateway.cancelTurn(user.id, turnId)
+        json(res, 200, { ok: true, cancelled })
+        return
+      }
+
+      // App Project sub-resources: model generation and turns
+      const appGenerateRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/generate$/)
+      if (appGenerateRoute) {
+        if (req.method === 'POST') {
+          const id = safeId(decodeAppPath(appGenerateRoute[2]), 'app ID')
+          const record = await storage.apps.read(user.id, id)
+          if (!record) throw httpError(404, 'App project not found')
+          const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as ModelRequest
+          const result = await generate(req, res, user.id, { ...input, appId: id })
+          json(res, 200, result)
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      const appBudgetRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/budget$/)
+      if (appBudgetRoute) {
+        if (req.method === 'GET') {
+          const id = safeId(decodeAppPath(appBudgetRoute[2]), 'app ID')
+          const record = await storage.apps.read(user.id, id)
+          if (!record) throw httpError(404, 'App project not found')
+          json(res, 200, { budget: modelGateway.getBudget(user.id) })
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      const appTurnsRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/turns$/)
+      if (appTurnsRoute) {
+        if (req.method === 'GET') {
+          const id = safeId(decodeAppPath(appTurnsRoute[2]), 'app ID')
+          const record = await storage.apps.read(user.id, id)
+          if (!record) throw httpError(404, 'App project not found')
+          json(res, 200, { turns: modelGateway.listTurns(user.id, id) })
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
       // PUT replaces the supplied manifest; POST is collection-only.
       const appItemRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)$/)
       if (appItemRoute) {
@@ -350,5 +443,5 @@ export async function createService(config: ServiceConfig) {
       json(res, failure.status ?? 500, { error: failure.status ? failure.message : 'Server could not complete the request', ...(failure.status === 409 ? { current: failure.current ?? null } : {}) })
     }
   }
-  return { handler, auth, storage, collaboration, close: () => { collaboration.close(); mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
+  return { handler, auth, storage, collaboration, modelGateway, close: () => { modelGateway.close(); collaboration.close(); mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
 }

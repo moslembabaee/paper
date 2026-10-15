@@ -8,6 +8,13 @@ const saved = createAppProject({ id: 'saved-counter', name: 'Saved Counter', fil
 
 async function services(page: Page) {
   await mockStudioSession(page)
+  await page.route('**/api/model/budget', route => {
+    expect(route.request().headers()['x-paper-account']).toBe('studio-test')
+    return route.fulfill({ json: { budget: {
+      usedTurns: 5, remainingTurns: 45, limitTurns: 50,
+      usedTokens: 1200, remainingTokens: 198800, limitTokens: 200000,
+    } } })
+  })
   const projects = new Map([[saved.id, saved]])
   await page.route('**/api/apps', async route => {
     if (route.request().method() === 'POST') {
@@ -58,6 +65,24 @@ test('saved app runs interactively, stops, and preserves scene state and undo ac
   await expect(page.getByTestId('viewport-world')).toHaveAttribute('style', camera!)
   await page.getByTestId('history-undo').click()
   await expect(page.locator(`.scene-node[data-element-id="${id}"]`)).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('account budget loads for an unsaved draft and remains readable on mobile', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await services(page)
+  await page.getByRole('button', { name: 'Make workspace', exact: true }).click()
+  const badge = page.getByTestId('make-budget-badge')
+  await expect(badge).toHaveText('45 turns')
+  await expect(badge).toHaveAttribute('title', 'Turns: 45/50 remaining')
+  await page.getByRole('button', { name: 'New app', exact: true }).click()
+  await expect(badge).toHaveText('45 turns')
+  await page.screenshot({ path: '/tmp/paper-make-budget-desktop.png' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(badge).toBeInViewport()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: '/tmp/paper-make-budget-mobile.png' })
   expect(errors).toEqual([])
 })
 

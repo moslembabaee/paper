@@ -7,7 +7,7 @@ import { collaborationPlugin } from './collaboration/plugin.ts'
 
 export default defineConfig({
   server: process.env.PAPER_API_URL ? {
-    proxy: Object.fromEntries(['/api/auth', '/api/projects', '/api/apps', '/api/app-projects', '/api/events', '/mcp'].map(path => [path, { target: process.env.PAPER_API_URL, changeOrigin: false }])),
+    proxy: Object.fromEntries(['/api/auth', '/api/projects', '/api/apps', '/api/app-projects', '/api/model', '/api/events', '/mcp'].map(path => [path, { target: process.env.PAPER_API_URL, changeOrigin: false }])),
   } : undefined,
   base: process.env.BASE_URL || './',
   plugins: [
