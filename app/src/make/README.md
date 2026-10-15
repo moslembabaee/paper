@@ -247,3 +247,44 @@ saved and unsaved generation, desktop/mobile interactions, invalid replacement
 recovery and reload. Screenshots go to `/tmp/paper-generation-*.png`. Browser
 acceptance requires localhost listeners and a working Chromium; a sandbox that
 blocks either cannot satisfy the browser release gate.
+
+## Selected design frame
+
+Select exactly one frame in a cloud-synced Design workspace, then open Make.
+The prompt shows a checked **Use selected frame** attachment; detach it to plan
+without design context. Changing the attachment invalidates the current plan.
+Unsynced designs must finish syncing before attachment is available.
+
+The browser sends only `sceneReference` (`projectId`, `frameId`, content-hash
+`revision`). The authenticated server resolves it from that account's storage;
+missing/foreign projects return 404, non-frame IDs return 400, and stale scene
+revisions return 409 before provider dispatch. Client-authored `designContext`
+payloads are rejected. `GET /api/projects/:projectId/frames/:frameId/context`
+returns the same account-scoped snapshot for inspection.
+
+MCP element summaries are reused on an isolated frame subtree. Snapshots contain
+frame-relative geometry, nested layout/typography, referenced tokens (including
+aliases, themes and shared-style dependencies), asset references and stable layer
+IDs. Ancestors, siblings, component links, comments and unrelated tokens never
+enter this context. Extraction is capped at 100 layers, 50 tokens and 48 KiB;
+count truncation is explicit and excessive byte size rejects the request. Assets
+remain reference data; no server-side URL fetching or preview CSP relaxation is
+introduced.
+
+Both planning and generation receive the snapshot, with `data-layer-id` mapping
+instructions for corresponding JSX. The exact snapshot is covered by existing
+server-issued plan approval checks and retained in generation provenance. Later
+scene edits do not silently change an approved snapshot. The app records its
+source scene reference only after generated source passes compilation.
+
+```sh
+node --experimental-strip-types tests/make-frame-design-context.test.mjs
+npm run build:server && node server/tests/frame-design-context.test.mjs
+npx playwright test e2e/make-frame-design-context.spec.ts e2e/make-app-generation.spec.ts e2e/make-prompt-plan.spec.ts e2e/app-preview-iframe.spec.ts
+npm test && npm run build
+```
+
+The selected-frame browser test uses the real service/compiler with a deterministic
+model adapter and checks frame-derived styling, functional interaction, layer IDs,
+desktop/mobile layout, detachment and design preservation. Localhost/Chromium
+restrictions block browser acceptance; they do not waive that release gate.

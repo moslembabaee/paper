@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowLeft, Code2, FileCode2, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
+import type { AppSceneReference } from './types'
 import { PreviewFrame, type PreviewFrameStatus } from './PreviewFrame'
 import { createMakeWorkspaceStore, formatDiagnostic } from './workspace-model'
 import { PlanInspection } from './PlanInspection'
 import { DiffInspection } from './DiffInspection'
 import './make.css'
 
-export default function MakeWorkspace({ accountId, onDesign }: { accountId?: string; onDesign: () => void }) {
+export default function MakeWorkspace({ accountId, onDesign, designSelection }: { accountId?: string; onDesign: () => void; designSelection?: { reference: AppSceneReference; name: string } | null }) {
   const [store] = useState(() => createMakeWorkspaceStore({ accountId }))
+  useEffect(() => { store.setDesignReference(designSelection?.reference ?? null) }, [store, designSelection])
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const [frameStatus, setFrameStatus] = useState<PreviewFrameStatus>('idle')
   const [openingId, setOpeningId] = useState<string | null>(null)
@@ -122,6 +124,12 @@ export default function MakeWorkspace({ accountId, onDesign }: { accountId?: str
             {state.planStatus === 'generating_app' ? <button type="button" className="make-button" onClick={store.cancelAppGeneration}>Cancel generation</button> : null}
             {state.planStatus === 'generating' ? <button type="button" className="make-button" onClick={() => { store.cancelPlanning(); requestAnimationFrame(() => promptInput.current?.focus()) }}>Cancel planning</button> : null}
           </form>
+          <div className="make-design-context">
+            {designSelection ? <label><input type="checkbox" aria-label="Use selected frame" checked={state.designReference !== null} disabled={planBusy || busy}
+              onChange={event => store.setDesignReference(event.target.checked ? designSelection.reference : null)} /><span>Use selected frame · <strong>{designSelection.name}</strong></span></label>
+              : <span>Select one frame in a synced Design workspace to attach its layout, tokens and assets.</span>}
+            {state.currentPlan?.designContext ? <span className="make-context-detail">Snapshot · {state.currentPlan.designContext.elements.length} layers · {state.currentPlan.designContext.tokens.length} tokens · {state.currentPlan.designContext.assets.length} assets{state.currentPlan.designContext.truncated ? ' · Partial snapshot' : ''}</span> : null}
+          </div>
           <p id="make-planning-status" className="make-planning-status" role="status">{state.planStatus === 'generating' ? 'Planning your app…' : state.planStatus === 'approving' ? 'Approving plan…' : state.planStatus === 'generating_app' ? 'Generating your app…' : 'Plan only · Review before making changes.'}</p>
           {state.planError && !state.currentPlan ? <p className="make-plan-alert" role="alert">{state.planError}</p> : null}
         </div>

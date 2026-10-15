@@ -6,7 +6,7 @@ export interface AppSourceFile {
 export interface AppSceneReference {
   readonly projectId?: string
   readonly sceneId?: string
-  readonly revision?: number
+  readonly revision?: number | string
   readonly frameId?: string
   readonly snapshotAt?: string
 }
@@ -174,6 +174,8 @@ export interface AppPlanFileTarget {
 
 export type AppPlanStatus = 'draft' | 'approved' | 'rejected' | 'revised'
 
+export type { BoundedDesignContext, BoundedDesignAsset, LinkedDesignToken } from './design-context.ts'
+
 export interface AppPlan {
   readonly planId: string
   readonly appId?: string
@@ -187,6 +189,8 @@ export interface AppPlan {
   readonly createdAt: string
   readonly approvedAt?: string
   readonly revisedPrompt?: string
+  readonly sceneReference?: AppSceneReference | null
+  readonly designContext?: import('./design-context.ts').BoundedDesignContext | null
 }
 
 export interface AppPlanRequest {
@@ -195,6 +199,7 @@ export interface AppPlanRequest {
   readonly expectedRevision?: number
   readonly context?: Record<string, unknown>
   readonly project?: AppProject
+  readonly sceneReference?: AppSceneReference | null
 }
 
 export interface AppPlanResponse {

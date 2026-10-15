@@ -442,3 +442,9 @@
 .make-diff-delete { background: #f0b7a90d; color: #f0b7a9; }
 .make-diff-number { display: inline-block; min-width: 4.5em; margin-right: 8px; padding-left: 8px; color: #aaa99f; user-select: none; }
 .make-rollback { border-top: 1px solid #222222; padding-top: 10px; margin-top: 8px; }
+
+.make-design-context { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 8px 0 2px; font-size: 11px; color: #aaa99f; }
+.make-design-context label { display: flex; align-items: center; gap: 7px; min-width: 0; cursor: pointer; }
+.make-design-context input { accent-color: #81adec; flex: 0 0 auto; }
+.make-design-context strong { color: #edebe1; font-weight: 500; overflow-wrap: anywhere; }
+.make-context-detail { color: #81adec; font-variant-numeric: tabular-nums; }

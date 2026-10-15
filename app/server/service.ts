@@ -11,6 +11,8 @@ import { ServerModelGateway, type ModelGatewayConfig } from './model-gateway.ts'
 import { MODEL_GATEWAY_LIMITS } from '../src/make/model-protocol.ts'
 import type { AppPlan, AppPlanApprovalRequest, AppPlanRequest, AppProject, AppGenerateResult, AppGenerationRecord, ModelRequest } from '../src/make/types.ts'
 import { formatPlanPrompt, parseModelPlanResponse, validateAppPlan, approvePlan, isPlanStale, PlanValidationError, formatGeneratePrompt, parseModelGenerateResponse } from '../src/make/plan.ts'
+import { extractFrameDesignContext, DesignContextError } from '../src/make/design-context.ts'
+import type { AppSceneReference } from '../src/make/types.ts'
 import { computeBoundedDiff } from '../src/make/diff.ts'
 
 export interface ServiceConfig {
@@ -96,6 +98,36 @@ export async function createService(config: ServiceConfig) {
     ? config.modelGateway
     : new ServerModelGateway({ fetch: requestFetch, ...config.modelGateway })
   await modelGateway.initialize(config.root)
+  async function frameContext(userId: string, reference: unknown) {
+    if (!reference || typeof reference !== 'object' || Array.isArray(reference)) throw httpError(400, 'Expected scene reference')
+    const raw = reference as Record<string, unknown>
+    if (Object.keys(raw).some(key => !['projectId', 'frameId', 'revision', 'snapshotAt', 'sceneId'].includes(key))) throw httpError(400, 'Unknown scene reference field')
+    const projectId = safeId(raw.projectId)
+    const frameId = safeId(raw.frameId, 'frame ID')
+    const record = await storage.read(userId, projectId)
+    if (!record) throw httpError(404, 'Project not found')
+    if (raw.revision !== undefined && raw.revision !== record.revision) throw httpError(409, 'Scene revision changed. Reattach the selected frame.')
+    const node = Object.hasOwn(record.document.scene.elements, frameId) ? record.document.scene.elements[frameId] : undefined
+    if (!node) throw httpError(404, 'Frame not found')
+    if (node.type !== 'frame') throw httpError(400, 'Selected layer must be a frame')
+    try { return extractFrameDesignContext(record.document.scene, frameId, { projectId, revision: record.revision }) }
+    catch (error) {
+      if (error instanceof DesignContextError) throw httpError(413, error.message)
+      throw error
+    }
+  }
+  async function planAttachment(userId: string, input: AppPlanRequest, project?: AppProject) {
+    const raw = input as unknown as Record<string, unknown>
+    if (Object.hasOwn(raw, 'designContext') || (input.context && Object.hasOwn(input.context, 'designContext'))) {
+      throw httpError(400, 'Design snapshots must be resolved from a scene reference')
+    }
+    const reference = Object.hasOwn(input, 'sceneReference') ? input.sceneReference : input.context?.sceneReference ?? project?.sceneReference
+    if (reference === undefined || reference === null) return {}
+    const designContext = await frameContext(userId, reference)
+    const sceneReference: AppSceneReference = { projectId: designContext.projectId, frameId: designContext.frameId,
+      revision: designContext.revision, snapshotAt: designContext.snapshotAt }
+    return { sceneReference, designContext }
+  }
   // Approval is bound to the exact server-issued plan. Expiry/restart requires replanning.
   const pendingPlans = new Map<string, { userId: string; plan: AppPlan; expiresAt: number; source?: string }>()
   function rememberPlan(userId: string, plan: AppPlan, project?: AppProject) {
@@ -154,6 +186,7 @@ export async function createService(config: ServiceConfig) {
           (!saved && issued.source !== JSON.stringify(project))) {
         throw httpError(409, 'Plan approval is expired, superseded or changed. Generate and approve a new plan.')
       }
+      if (plan.sceneReference?.projectId && !await storage.read(userId, plan.sceneReference.projectId)) throw httpError(404, 'Design project not found')
       const { systemPrompt, userPrompt } = formatGeneratePrompt(plan, project)
       const turn = await generate(req, res, userId, {
         prompt: userPrompt, systemPrompt,
@@ -183,7 +216,7 @@ export async function createService(config: ServiceConfig) {
           if (target.action === 'delete') delete files[target.path]
           else if (!Object.hasOwn(generated.files, target.path)) throw new Error(`Generated output is missing planned file ${target.path}`)
         }
-        candidate = validateAppProject({ ...project, files, preview: { ...project.preview, status: 'ready' } })
+        candidate = validateAppProject({ ...project, ...(plan.sceneReference ? { sceneReference: plan.sceneReference } : {}), files, preview: { ...project.preview, status: 'ready' } })
         diff = computeBoundedDiff(project.files, candidate.files, { baseRevision: project.revision, targetRevision: project.revision + 1 })
         provenance = { ...provenance, changedFiles: diff.files.map(file => file.path), diff }
       } catch {
@@ -349,6 +382,12 @@ export async function createService(config: ServiceConfig) {
         const heartbeat = setInterval(() => { if (!auth.session(sessionCookie)) res.end(); else res.write(': heartbeat\n\n') }, 20_000)
         res.on('close', () => { clearInterval(heartbeat); set.delete(res); if (!set.size) streams.delete(user.id) }); return
       }
+      const frameRoute = path.match(/^\/api\/projects\/([^/]+)\/frames\/([^/]+)\/context$/)
+      if (frameRoute) {
+        if (req.method !== 'GET') throw httpError(405, 'Method not allowed')
+        json(res, 200, await frameContext(user.id, { projectId: decodeAppPath(frameRoute[1]), frameId: decodeAppPath(frameRoute[2]) }))
+        return
+      }
       const projectRoute = path.match(/^\/api\/projects\/([^/]+)$/)
       if (projectRoute) {
         const id = safeId(decodeURIComponent(projectRoute[1]))
@@ -467,16 +506,17 @@ export async function createService(config: ServiceConfig) {
         if (!input || typeof input !== 'object' || Array.isArray(input)) throw httpError(400, 'Expected request object')
         if (typeof input.prompt !== 'string' || !input.prompt.trim()) throw httpError(400, 'Prompt is required')
         const project = input.project === undefined ? undefined : validateAppProject(input.project)
-        const { systemPrompt, userPrompt } = formatPlanPrompt(input.prompt, project)
+        const attachment = await planAttachment(user.id, input, project)
+        const { systemPrompt, userPrompt } = formatPlanPrompt(input.prompt, project, attachment)
         const turn = await generate(req, res, user.id, {
           prompt: userPrompt,
           systemPrompt,
           context: { mode: 'plan' },
         })
-        const plan = parsePlan(turn.content, {
+        const plan = validateAppPlan({ ...parsePlan(turn.content, {
           prompt: input.prompt,
           baseRevision: 0,
-        })
+        }), ...attachment })
         rememberPlan(user.id, plan, project)
         json(res, 200, { plan, turnId: turn.turnId, usage: turn.usage, budget: turn.budget })
         return
@@ -534,7 +574,8 @@ export async function createService(config: ServiceConfig) {
           if (input.expectedRevision !== record.revision) {
             throw Object.assign(httpError(409, 'Revision mismatch'), { current: record.revision })
           }
-          const { systemPrompt, userPrompt } = formatPlanPrompt(input.prompt, record)
+          const attachment = await planAttachment(user.id, input, record)
+          const { systemPrompt, userPrompt } = formatPlanPrompt(input.prompt, record, attachment)
           const turn = await generate(req, res, user.id, {
             prompt: userPrompt,
             systemPrompt,
@@ -542,11 +583,11 @@ export async function createService(config: ServiceConfig) {
             expectedRevision: record.revision,
             context: { mode: 'plan' },
           })
-          const plan = parsePlan(turn.content, {
+          const plan = validateAppPlan({ ...parsePlan(turn.content, {
             prompt: input.prompt,
             appId: id,
             baseRevision: record.revision,
-          })
+          }), ...attachment })
           rememberPlan(user.id, plan)
           json(res, 200, { plan, turnId: turn.turnId, usage: turn.usage, budget: turn.budget })
           return

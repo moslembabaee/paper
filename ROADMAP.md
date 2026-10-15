@@ -1,8 +1,8 @@
 # 🗺️ Live Development Roadmap & Task Tracker
 
-> **Last Updated:** `2026-10-15 05:46:30 UTC`  
+> **Last Updated:** `2026-10-15 06:13:48 UTC`  
 > **Supervisor:** Autonomous Tri-Agent Orchestra (`Claude Code` ↔ `OpenAI Codex` ↔ `Google Antigravity`)  
-> **Progress:** `[███████████████░░░░░]` **63 / 80** tasks completed (**78%**)
+> **Progress:** `[████████████████░░░░]` **64 / 80** tasks completed (**80%**)
 
 ---
 
@@ -22,6 +22,7 @@ _All queued tasks in this cycle are completed. New evolution tasks are continuou
 
 | Status | Task ID | Title | Agent | Phase | Completed At |
 |:---:|:---|:---|:---:|:---|:---|
+| 🟢 Done | `T-ISSUE-28` | Issue #28: feat(make 11): Selected Paper frame as bounded design context | `CLAUDE` | Paper Make | `2026-10-15 06:13:48` |
 | 🟢 Done | `T-ISSUE-27` | Issue #27: feat(make 10): Iterative prompt edits with bounded file diff | `CLAUDE` | Paper Make | `2026-10-15 05:46:30` |
 | 🟢 Done | `T-ISSUE-26` | Issue #26: feat(make 09): Generate first functional app from an approved plan | `CLAUDE` | Paper Make | `2026-10-15 05:17:37` |
 | 🟢 Done | `T-ISSUE-25` | Issue #25: feat(make 08): Prompt planning mode and approval UI | `CLAUDE` | Paper Make | `2026-10-15 04:51:37` |

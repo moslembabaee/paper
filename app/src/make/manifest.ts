@@ -396,7 +396,7 @@ export function validateAppProject(data: unknown): AppProject {
       ...(sr.projectId !== undefined ? { projectId: string(sr.projectId, 'sceneReference.projectId') } : {}),
       ...(sr.sceneId !== undefined ? { sceneId: string(sr.sceneId, 'sceneReference.sceneId') } : {}),
       ...(sr.frameId !== undefined ? { frameId: string(sr.frameId, 'sceneReference.frameId') } : {}),
-      ...(sr.revision !== undefined ? { revision: revision(sr.revision, 'sceneReference.revision') } : {}),
+      ...(sr.revision !== undefined ? { revision: typeof sr.revision === 'string' ? string(sr.revision, 'sceneReference.revision') : revision(sr.revision, 'sceneReference.revision') } : {}),
       ...(sr.snapshotAt !== undefined ? { snapshotAt: timestamp(sr.snapshotAt, 'sceneReference.snapshotAt') } : {}),
     }
   }

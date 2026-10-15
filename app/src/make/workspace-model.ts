@@ -1,4 +1,4 @@
-import type { AppGenerateResult, AppPlan, AppProject, AppProjectSummary, AppProjectRollbackResult, ModelBudget } from './types.ts'
+import type { AppSceneReference, AppGenerateResult, AppPlan, AppProject, AppProjectSummary, AppProjectRollbackResult, ModelBudget } from './types.ts'
 import { api, ApiError } from '../cloud/api.ts'
 import { createAppProject, validateAppProject } from './manifest.ts'
 import type { CompileDiagnostic, CompilePreviewAssets, CompileResult } from './compiler.ts'
@@ -412,6 +412,7 @@ export interface MakeWorkspaceState {
   planMode: 'idle' | 'planning' | 'inspecting' | 'revising'
   currentPlan: AppPlan | null
   planPrompt: string
+  designReference: AppSceneReference | null
   planError: string
   planStatus: 'idle' | 'generating' | 'approving' | 'approved' | 'generating_app' | 'stale'
   currentDiff: BoundedDiff | null
@@ -470,6 +471,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     planMode: 'idle',
     currentPlan: null,
     planPrompt: '',
+    designReference: null,
     planError: '',
     planStatus: 'idle',
     currentDiff: null,
@@ -633,6 +635,12 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       }
     },
     setBudget: (budget: ModelBudget | null) => setState({ budget }),
+    setDesignReference(reference: AppSceneReference | null) {
+      if (JSON.stringify(state.designReference) === JSON.stringify(reference)) return
+      cancelPlan()
+      planSource = null
+      setState({ designReference: reference ? structuredClone(reference) : null, currentPlan: null, planStatus: 'idle', planError: '' })
+    },
     setPlanPrompt: (prompt: string) => setState({ planPrompt: prompt }),
     setPlanMode: (planMode: 'idle' | 'planning' | 'inspecting' | 'revising') => setState({ planMode }),
     async generatePlan(promptText?: string) {
@@ -659,6 +667,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           const res = await requestModelPlan(
             {
               prompt,
+              sceneReference: state.designReference,
               ...(saved ? { appId: project.id, expectedRevision: project.revision } : { project }),
             },
             {

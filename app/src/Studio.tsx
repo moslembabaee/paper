@@ -1,5 +1,6 @@
 import { Activity, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, ListChecks, MessageSquare, MousePointer2, PenTool, Play, Sparkles, Square, Type, X } from 'lucide-react'
+import type { AppSceneReference } from './make/types'
 import type { ElementType } from './scene/types'
 import { componentRoot } from './scene/components'
 import { SceneCanvas } from './scene/SceneCanvas'
@@ -58,10 +59,11 @@ export default function Studio({ account }: { account: CloudAccountState }) {
   const [profile, setProfile] = useState(readProfile)
   const [mode, setMode] = useState<'design' | 'make'>('design')
   const [makeOpened, setMakeOpened] = useState(false)
+  const [designSelection, setDesignSelection] = useState<{ reference: AppSceneReference; name: string } | null>(null)
   if (!manager.active) return <div className="workspace-loading" role="status"><PaperMark /><span>Opening your workspace…</span></div>
   return <>
-    <Activity mode={mode === 'design' ? 'visible' : 'hidden'}><Editor key={manager.active.record.id} workspace={manager.active} manager={manager} account={account} profile={profile} onProfileSave={setProfile} onMake={() => { setMakeOpened(true); setMode('make') }} /></Activity>
-    {makeOpened ? <Activity mode={mode === 'make' ? 'visible' : 'hidden'}><Suspense fallback={<div className="workspace-loading" role="status">Opening Make…</div>}><MakeWorkspace accountId={account.user?.id} onDesign={() => setMode('design')} /></Suspense></Activity> : null}
+    <Activity mode={mode === 'design' ? 'visible' : 'hidden'}><Editor key={manager.active.record.id} workspace={manager.active} manager={manager} account={account} profile={profile} onProfileSave={setProfile} onMake={selection => { setDesignSelection(selection); setMakeOpened(true); setMode('make') }} /></Activity>
+    {makeOpened ? <Activity mode={mode === 'make' ? 'visible' : 'hidden'}><Suspense fallback={<div className="workspace-loading" role="status">Opening Make…</div>}><MakeWorkspace accountId={account.user?.id} designSelection={designSelection} onDesign={() => setMode('design')} /></Suspense></Activity> : null}
   </>
 }
 
@@ -71,7 +73,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
   account: CloudAccountState
   profile: UserProfile
   onProfileSave: (profile: UserProfile) => void
-  onMake: () => void
+  onMake: (selection: { reference: AppSceneReference; name: string } | null) => void
 }) {
   const { controller, store } = workspace
   const [name, setName] = useState(workspace.project?.name ?? 'Space to think')
@@ -190,7 +192,13 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
 
   return <div className="paper-app">
     <header className="app-header">
-      <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span><button className="workspace-make-toggle" aria-label="Make workspace" onClick={onMake}><Sparkles size={12} />Make</button></div>
+      <div className="app-brand"><PaperMark /><span>paper</span><span className="app-alpha">alpha</span><button className="workspace-make-toggle" aria-label="Make workspace" onClick={() => {
+        const snapshot = store.getSnapshot()
+        const node = snapshot.selection.length === 1 ? snapshot.elements[snapshot.selection[0]] : undefined
+        const linked = workspace.record.cloud
+        onMake(node?.type === 'frame' && linked && linked.owner === account.user?.id && linked.revision && !linked.dirty && !io.hasPendingEdits() && cloud.state === 'synced'
+          ? { reference: { projectId: linked.projectId, frameId: node.id, revision: linked.revision }, name: node.name } : null)
+      }}><Sparkles size={12} />Make</button></div>
       <ProjectSwitcher name={name} activeId={workspace.record.id} projects={manager.projects.map(project => project.id === workspace.record.id ? { ...project, name: name.trim() || 'Untitled' } : project)} workspaceName={profile.workspaceName} persistent={manager.persistent} disabled={changing || io.importing} open={projectsOpen} onToggle={setProjectsOpen} onNameChange={setName} onSwitch={id => changeProject(() => manager.open(id))} onCreate={next => changeProject(() => manager.create(next, profile.defaultGrid, account.user?.id))} onRename={renameProject} sync={<SyncStatus state={cloud.state} status={cloud.status} localStatus={io.status} persistent={manager.persistent} error={cloud.error} onRetry={cloud.retry} />} />
       <div className="header-end"><PresenceBar session={collaboration} onActivate={activateCollaboration} room={roomId} /><span className="bridge-status" role="status" data-testid="bridge-status" data-connected={bridge.connected} data-active={!!(bridge.activity || cloud.activity)} title={bridge.connected ? 'MCP connected · agents edit the focused canvas' : 'Start the local Paper bridge to connect an agent'}><i />{bridge.activity || cloud.activity ? 'Agent editing' : bridge.connected ? 'MCP live' : account.user?.hasMcpToken && cloud.state === 'synced' ? 'MCP ready' : 'MCP offline'}</span><ThemeSwitcher /><DocumentActions store={store} name={name.trim() || 'Untitled'} importing={io.importing || changing} onSave={io.saveProject} onImport={io.importFile} onMessage={io.setMessage} /><button className={`dev-mode-toggle ${devMode ? 'active' : ''}`} data-testid="dev-mode-toggle" aria-label="Toggle dev mode" aria-pressed={devMode} title="Dev mode — inspect CSS and generate React + Tailwind code" onClick={() => { setDevMode(!devMode); setPrototypeMode(false); setTool('select') }}><Code2 size={14} /><span>Dev</span></button><button className={`prototype-mode-toggle ${prototypeMode ? 'active' : ''}`} data-testid="prototype-mode-toggle" aria-label="Toggle prototype mode" aria-pressed={prototypeMode} onClick={() => { setPrototypeMode(!prototypeMode); comments.setOpen(false); setTool('select'); setDevMode(false); setInteractionId(null) }}><GitBranch size={14} /><span>Prototype</span></button><button className="prototype-present-button" aria-label="Present prototype" title="Present prototype" onClick={() => setPresenting(true)}><Play size={14} fill="currentColor" /></button><ProfileMenu account={{ ...account, logout: async () => { await io.persistProject(); await account.logout() } }} profile={profile} onSave={onProfileSave} onOpenProjects={() => setProjectsOpen(true)} /></div>
     </header>
