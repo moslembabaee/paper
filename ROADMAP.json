@@ -2,8 +2,31 @@
   "project": "Paper",
   "version": "1.0.0",
   "description": "Open-source, self-hosted, code-bridged infinite canvas design platform inspired by Paper.design",
-  "current_task_id": "T-ISSUE-29",
+  "current_task_id": "T-ISSUE-42",
   "tasks": [
+    {
+      "id": "T-ISSUE-42",
+      "phase": "Community & Issues",
+      "title": "Issue #42: chore(ui): Remove in-app Roadmap trigger button and modal from Studio footer",
+      "description": "### \ud83d\udccc Overview & Objective\nCurrently, Paper includes a 'Roadmap' trigger button in the bottom canvas footer (`Studio.tsx`) that opens a modal dialog displaying development tasks and status (`RoadmapDialog`).\nThis feature was an early internal tracking convenience and is not appropriate for the user-facing design tool canvas.\n\n### \ud83c\udfaf Scope of Work\n1. **Footer UI Cleanup**:\n   - In `app/src/Studio.tsx`, remove the `<button className=\"roadmap-trigger\">` button from `<footer className=\"app-footer\">`.\n   - Maintain clean visual balance of the footer: `Paper / Infinite canvas` on the left and `120 px grid / Made to be yours` on the right.\n2. **Dialog State Removal**:\n   - Remove `roadmapOpen` state and dialog rendering `{roadmapOpen && <RoadmapDialog onClose={() => setRoadmapOpen(false)} />}` from `app/src/Studio.tsx`.\n   - Remove unused imports (`RoadmapDialog`, `ListChecks`) in `app/src/Studio.tsx`.\n3. **Verification**:\n   - Run `npm run build` in `app/` to ensure clean compilation without broken JSX or missing props.\n\n### \u2705 Acceptance Criteria\n- [ ] No 'Roadmap' button appears in the bottom footer of Paper Studio.\n- [ ] Footer layout remains visually balanced and responsive.\n- [ ] `npm run build` succeeds cleanly.\n\nReference: Closes #42",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 42,
+      "completed_at": "2026-10-15T07:23:33.104919"
+    },
+    {
+      "id": "T-ISSUE-43",
+      "phase": "Community & Issues",
+      "title": "Issue #43: chore(cleanup): Decommission in-app roadmap module, Vite plugin, and test suites",
+      "description": "### \ud83d\udccc Overview & Objective\nFollowing the removal of the Roadmap trigger button from the Studio UI (#42), the underlying client roadmap module, Vite dev plugin, and associated tests should be decommissioned and removed from the codebase to eliminate dead code and bundle bloat.\n\n### \ud83c\udfaf Scope of Work\n1. **Remove Roadmap Module**:\n   - Delete `app/src/roadmap/` directory (`RoadmapDialog.tsx`, `model.ts`, `useRoadmap.ts`, `roadmap.css`, `snapshot.json`, `plugin.ts`).\n2. **Vite Configuration**:\n   - Remove `roadmapPlugin()` and its import from `app/vite.config.ts`.\n3. **Test & Docs Cleanup**:\n   - Remove obsolete roadmap test files: `app/tests/roadmap.test.mjs` and `app/e2e/roadmap.spec.ts`.\n   - Remove `app/docs/roadmap.md` if present.\n4. **Verification**:\n   - Run `npm run build` and tests to ensure no remaining dangling imports or bundle errors.\n\n### \u2705 Acceptance Criteria\n- [ ] `app/src/roadmap/` directory is completely removed.\n- [ ] `app/vite.config.ts` has no reference to `roadmapPlugin`.\n- [ ] Obsolete roadmap test files are cleaned up and `npm run build` passes with zero errors.\n\nReference: Closes #43",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 43
+    },
     {
       "id": "T-ISSUE-17",
       "phase": "Community & Issues",
@@ -811,7 +834,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 29,
-      "completed_at": "2026-10-15T07:09:25.744154"
+      "completed_at": "2026-10-15T07:09:25.744154",
+      "closed_at": "2026-10-15T07:09:29Z"
     },
     {
       "id": "T-ISSUE-30",

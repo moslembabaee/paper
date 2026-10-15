@@ -1,5 +1,5 @@
 import { Activity, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, ListChecks, MessageSquare, MousePointer2, PenTool, Play, Sparkles, Square, Type, X } from 'lucide-react'
+import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, MessageSquare, MousePointer2, PenTool, Play, Sparkles, Square, Type, X } from 'lucide-react'
 import type { AppSceneReference } from './make/types'
 import type { ElementType } from './scene/types'
 import { componentRoot } from './scene/components'
@@ -21,7 +21,6 @@ import { useCloudSync } from './cloud/useCloudSync'
 import { SyncStatus } from './cloud/SyncStatus'
 import type { CloudAccountState } from './cloud/CloudAccount'
 import { useWorkspace } from './workspace/useWorkspace'
-import { RoadmapDialog } from './roadmap/RoadmapDialog'
 import { useLiveBridge } from './mcp/useLiveBridge'
 import { ConnectionWires } from './prototype/ConnectionWires'
 import { PrototypeInspector } from './prototype/PrototypeInspector'
@@ -86,7 +85,6 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
   const [presenting, setPresenting] = useState(false)
   const [interactionId, setInteractionId] = useState<string | null>(null)
   const [projectsOpen, setProjectsOpen] = useState(false)
-  const [roadmapOpen, setRoadmapOpen] = useState(false)
   const [changing, setChanging] = useState(false)
   const transition = useRef(false)
   const saveLocalProject = manager.save
@@ -224,9 +222,8 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
       </main>
       {prototypeMode ? <PrototypeInspector store={store} selectedId={interactionId} onSelect={setInteractionId} onPresent={() => setPresenting(true)} /> : devMode ? <DevModeInspector store={store} name={name.trim() || 'Untitled'} onSave={io.saveProject} onMessage={io.setMessage} onExit={() => setDevMode(false)} /> : <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} onOpenShaders={() => { setTool('select'); setShadersOpen(true) }} />}
     </div>
-    <footer className="app-footer"><span><span className="footer-dot" />Paper / Infinite canvas<button className="roadmap-trigger" aria-label="Open development roadmap" aria-haspopup="dialog" onClick={() => setRoadmapOpen(true)}><ListChecks size={11} />Roadmap</button></span><span>120 px grid<span className="footer-separator">/</span>Made to be yours.</span></footer>
+    <footer className="app-footer"><span><span className="footer-dot" />Paper / Infinite canvas</span><span>120 px grid<span className="footer-separator">/</span>Made to be yours.</span></footer>
     {presenting && <PresentationPlayer store={store} onClose={() => setPresenting(false)} />}
-    {roadmapOpen && <RoadmapDialog onClose={() => setRoadmapOpen(false)} />}
     {shadersOpen && <ShaderBrowser store={store} onClose={() => setShadersOpen(false)} />}
     {io.message && <div className="io-notice" role="status"><span>{io.message}</span><button className="quiet-button" aria-label="Dismiss notification" onClick={() => io.setMessage('')}><X size={14} /></button></div>}
   </div>
