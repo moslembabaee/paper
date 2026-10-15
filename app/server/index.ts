@@ -4,6 +4,7 @@ import { createService } from './service.ts'
 import { APP_PROJECT_LIMITS } from '../src/make/manifest.ts'
 import { MODEL_GATEWAY_LIMITS } from '../src/make/model-protocol.ts'
 import { APP_SECRET_LIMITS } from '../src/make/secrets.ts'
+import { APP_DATA_LIMITS } from '../src/make/data.ts'
 
 const provider = (name: string) => {
   const clientId = process.env[`${name}_CLIENT_ID`]
@@ -41,6 +42,9 @@ app.register(async (scope: typeof app) => {
   for (const prefix of ['/api/apps', '/api/app-projects']) {
     for (const suffix of ['/secrets', '/secrets/:handle', '/capabilities/:handle']) {
       scope.all(`${prefix}/:id${suffix}`, { bodyLimit: APP_SECRET_LIMITS.MAX_REQUEST_BYTES }, relay)
+    }
+    for (const suffix of ['/data', '/data/:handle']) {
+      scope.all(`${prefix}/:id${suffix}`, { bodyLimit: APP_DATA_LIMITS.MAX_REQUEST_BYTES }, relay)
     }
   }
 })

@@ -1,4 +1,5 @@
 import type { PreviewElementTarget } from './types.ts'
+import { createAppDataValidators, isAppDataRequest, isAppDataResult } from './data.ts'
 
 // Bounded message protocol and isolation policy for Paper Make previews.
 // Preview iframes run in an opaque origin with restrictive CSP and no credential or navigation privileges.
@@ -37,6 +38,7 @@ export type PreviewHostMessageType =
   | 'preview:set-inspect'
   | 'preview:highlight-element'
   | 'preview:capability-result'
+  | 'preview:data-result'
 
 export type PreviewGuestMessageType =
   | 'preview:ready'
@@ -46,6 +48,7 @@ export type PreviewGuestMessageType =
   | 'preview:console'
   | 'preview:element-selected'
   | 'preview:capability'
+  | 'preview:data'
 
 export type PreviewMessageType = PreviewHostMessageType | PreviewGuestMessageType
 
@@ -106,111 +109,124 @@ export interface PreviewMessageEnvelope<TType extends string = string, TPayload 
   readonly payload: TPayload
 }
 
-// Keep the validator self-contained: the exact same code runs in the trusted
-// relay and in the guest. Do not reference module bindings from this function.
-function validateEnvelope(raw: unknown, expectedSource: string | undefined, maxBytes: number): string | null {
-  try {
-    let budget = maxBytes
-    let nodes = 0
-    const seen = new Set<object>()
-    function visit(value: unknown, depth: number): boolean {
-      if (++nodes > 4096 || depth > 16 || budget < 0) return false
-      if (value === null || typeof value === 'boolean') { budget -= 5; return true }
-      if (typeof value === 'number') { budget -= 24; return Number.isFinite(value) }
-      if (typeof value === 'string') { budget -= value.length; return budget >= 0 }
-      if (!value || typeof value !== 'object' || seen.has(value)) return false
-      const proto = Object.getPrototypeOf(value)
-      if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) return false
-      seen.add(value)
-      const keys = Object.keys(value)
-      if (keys.length > 4096 || Object.getOwnPropertySymbols(value).length) return false
-      for (const key of keys) {
-        budget -= key.length + 4
-        if (key === '__proto__' || key === 'constructor' || key === 'prototype') return false
-        const descriptor = Object.getOwnPropertyDescriptor(value, key)
-        if (!descriptor || !('value' in descriptor) || !visit(descriptor.value, depth + 1)) return false
-      }
-      seen.delete(value)
-      return budget >= 0
-    }
-    if (!visit(raw, 0)) return 'Payload is not bounded JSON data or exceeds byte limit'
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return 'Message must be an object'
-    const m = raw as Record<string, unknown>
-    if (Object.keys(m).sort().join(',') !== 'channel,id,payload,source,timestamp,type,version') return 'Invalid envelope fields'
-    if (m.channel !== 'paper-make-preview' || m.version !== 1) return 'Invalid channel or version'
-    if (m.source !== 'paper-host' && m.source !== 'paper-preview') return 'Invalid message source'
-    if (expectedSource && m.source !== expectedSource) return 'Unexpected source'
-    if (typeof m.id !== 'string' || !m.id || m.id.length > 64) return 'Invalid message ID'
-    if (typeof m.timestamp !== 'number' || !Number.isFinite(m.timestamp) || m.timestamp <= 0) return 'Invalid timestamp'
-    const payload = m.payload
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return 'Payload must be an object'
-    const p = payload as Record<string, unknown>
-    const text = (v: unknown, max: number) => typeof v === 'string' && v.length <= max
-    const time = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
-    let valid = false
-    if (m.source === 'paper-host') {
-      if (m.type === 'preview:ping') valid = time(p.timestamp) && (p.pingId === undefined || text(p.pingId, 64))
-      if (m.type === 'preview:reset') valid = Object.keys(p).length === 0
-      if (m.type === 'preview:set-theme') valid = Object.entries(p).every(([key, value]) =>
-        key === 'mode' ? value === 'dark' || value === 'light' :
-        ['background', 'foreground', 'accent', 'grid'].includes(key) && text(value, 128))
-      if (m.type === 'preview:set-inspect') valid = Object.keys(p).every(key => ['enabled', 'activeElementId'].includes(key)) && typeof p.enabled === 'boolean' && (p.activeElementId === undefined || text(p.activeElementId, 128))
-      if (m.type === 'preview:highlight-element') valid = Object.keys(p).length === 1 && text(p.elementId, 128)
-      if (m.type === 'preview:capability-result') valid = text(p.requestId, 64) && (
-        Object.keys(p).sort().join(',') === 'requestId,signature' && typeof p.signature === 'string' && /^[a-f0-9]{64}$/.test(p.signature) ||
-        Object.keys(p).sort().join(',') === 'error,requestId' && p.error === 'Capability unavailable')
-    } else {
-      if (m.type === 'preview:capability') valid = Object.keys(p).sort().join(',') === 'handle,message,operation' &&
-        typeof p.handle === 'string' && /^sec_[A-Za-z0-9_-]{32}$/.test(p.handle) && p.operation === 'hmac-sha256' &&
-        typeof p.message === 'string' && new TextEncoder().encode(p.message).length <= 4096
-      if (m.type === 'preview:ready') valid = text(p.entryPoint, 256) && time(p.timestamp)
-      if (m.type === 'preview:pong') valid = time(p.timestamp) && (p.pingId === undefined || text(p.pingId, 64))
-      if (m.type === 'preview:error') valid = text(p.message, 8192) &&
-        (p.stack === undefined || text(p.stack, 16384)) && (p.source === undefined || text(p.source, 1024)) &&
-        [p.line, p.column].every(v => v === undefined || (Number.isSafeInteger(v) && (v as number) >= 0))
-      if (m.type === 'preview:event') valid = text(p.name, 128) && (p.name as string).length > 0
-      if (m.type === 'preview:console') valid = ['log', 'warn', 'error', 'info'].includes(p.level as string) &&
-        Array.isArray(p.args) && p.args.length <= 16 && p.args.every(arg => text(arg, 4096))
-      if (m.type === 'preview:element-selected') {
-        const allowed = ['bounds', 'elementId', 'layerId', 'previewText', 'selector', 'styles', 'tagName']
-        const keys = Object.keys(p)
-        const safeId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_~.:-]+$/.test(v) && v.length <= 128
-        const safeTag = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9-]+$/.test(v) && v.length <= 32
-        const safeText = (v: unknown) => typeof v === 'string' && !/[<>]/.test(v) && v.length <= 256
-        const validBounds = (b: unknown) => {
-          if (!b || typeof b !== 'object' || Array.isArray(b)) return false
-          const bo = b as Record<string, unknown>
-          return Object.keys(bo).sort().join(',') === 'height,width,x,y' &&
-            ['height', 'width', 'x', 'y'].every(k => typeof bo[k] === 'number' && Number.isFinite(bo[k]) && Math.abs(bo[k] as number) <= 10000000) &&
-            (bo.width as number) >= 0 && (bo.height as number) >= 0
+// Serialize the complete closure, including validator dependencies. Passing
+// these functions explicitly keeps renamed bundle symbols out of iframe code.
+function createEnvelopeValidator(isAppDataRequest: ReturnType<typeof createAppDataValidators>['isAppDataRequest'],
+  isAppDataResult: ReturnType<typeof createAppDataValidators>['isAppDataResult']) {
+  function validateEnvelope(raw: unknown, expectedSource: string | undefined, maxBytes: number): string | null {
+    try {
+      let budget = maxBytes
+      let nodes = 0
+      const seen = new Set<object>()
+      function visit(value: unknown, depth: number): boolean {
+        if (++nodes > 4096 || depth > 16 || budget < 0) return false
+        if (value === null || typeof value === 'boolean') { budget -= 5; return true }
+        if (typeof value === 'number') { budget -= 24; return Number.isFinite(value) }
+        if (typeof value === 'string') { budget -= value.length; return budget >= 0 }
+        if (!value || typeof value !== 'object' || seen.has(value)) return false
+        const proto = Object.getPrototypeOf(value)
+        if (proto !== Object.prototype && proto !== Array.prototype && proto !== null) return false
+        seen.add(value)
+        const keys = Object.keys(value)
+        if (keys.length > 4096 || Object.getOwnPropertySymbols(value).length) return false
+        for (const key of keys) {
+          budget -= key.length + 4
+          if (key === '__proto__' || key === 'constructor' || key === 'prototype') return false
+          const descriptor = Object.getOwnPropertyDescriptor(value, key)
+          if (!descriptor || !('value' in descriptor) || !visit(descriptor.value, depth + 1)) return false
         }
-        const validStyles = (s: unknown) => {
-          if (!s || typeof s !== 'object' || Array.isArray(s)) return false
-          const so = s as Record<string, unknown>
-          const allowedProps = [
-            'fontSize', 'fontWeight', 'lineHeight', 'textAlign', 'letterSpacing', 'textTransform',
-            'padding', 'margin', 'gap',
-            'color', 'backgroundColor', 'borderColor', 'borderRadius', 'borderWidth',
-          ]
-          return Object.keys(so).every(k => allowedProps.includes(k) && typeof so[k] === 'string' && (so[k] as string).length <= 128 && !/[<>{}\\]/.test(so[k] as string))
-        }
-        valid = keys.every(k => allowed.includes(k)) &&
-          safeId(p.elementId) &&
-          safeTag(p.tagName) &&
-          (p.selector === undefined || (text(p.selector, 256) && !/[<]/.test(p.selector as string))) &&
-          (p.layerId === undefined || (safeId(p.layerId) && text(p.layerId, 64))) &&
-          (p.previewText === undefined || (safeText(p.previewText) && text(p.previewText, 128))) &&
-          (p.bounds === undefined || validBounds(p.bounds)) &&
-          (p.styles === undefined || validStyles(p.styles))
+        seen.delete(value)
+        return budget >= 0
       }
+      if (!visit(raw, 0)) return 'Payload is not bounded JSON data or exceeds byte limit'
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return 'Message must be an object'
+      const m = raw as Record<string, unknown>
+      if (Object.keys(m).sort().join(',') !== 'channel,id,payload,source,timestamp,type,version') return 'Invalid envelope fields'
+      if (m.channel !== 'paper-make-preview' || m.version !== 1) return 'Invalid channel or version'
+      if (m.source !== 'paper-host' && m.source !== 'paper-preview') return 'Invalid message source'
+      if (expectedSource && m.source !== expectedSource) return 'Unexpected source'
+      if (typeof m.id !== 'string' || !m.id || m.id.length > 64) return 'Invalid message ID'
+      if (typeof m.timestamp !== 'number' || !Number.isFinite(m.timestamp) || m.timestamp <= 0) return 'Invalid timestamp'
+      const payload = m.payload
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return 'Payload must be an object'
+      const p = payload as Record<string, unknown>
+      const text = (v: unknown, max: number) => typeof v === 'string' && v.length <= max
+      const time = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0
+      let valid = false
+      if (m.source === 'paper-host') {
+        if (m.type === 'preview:ping') valid = time(p.timestamp) && (p.pingId === undefined || text(p.pingId, 64))
+        if (m.type === 'preview:reset') valid = Object.keys(p).length === 0
+        if (m.type === 'preview:set-theme') valid = Object.entries(p).every(([key, value]) =>
+          key === 'mode' ? value === 'dark' || value === 'light' :
+          ['background', 'foreground', 'accent', 'grid'].includes(key) && text(value, 128))
+        if (m.type === 'preview:set-inspect') valid = Object.keys(p).every(key => ['enabled', 'activeElementId'].includes(key)) && typeof p.enabled === 'boolean' && (p.activeElementId === undefined || text(p.activeElementId, 128))
+        if (m.type === 'preview:highlight-element') valid = Object.keys(p).length === 1 && text(p.elementId, 128)
+        if (m.type === 'preview:capability-result') valid = text(p.requestId, 64) && (
+          Object.keys(p).sort().join(',') === 'requestId,signature' && typeof p.signature === 'string' && /^[a-f0-9]{64}$/.test(p.signature) ||
+          Object.keys(p).sort().join(',') === 'error,requestId' && p.error === 'Capability unavailable')
+        if (m.type === 'preview:data-result') valid = text(p.requestId, 64) && (
+          Object.keys(p).sort().join(',') === 'requestId,result' && isAppDataResult(p.result) ||
+          Object.keys(p).sort().join(',') === 'error,requestId' && p.error === 'Data operation unavailable')
+      } else {
+        if (m.type === 'preview:data') {
+          const { handle, ...input } = p
+          valid = typeof handle === 'string' && /^dat_[A-Za-z0-9_-]{32}$/.test(handle) && isAppDataRequest(input)
+        }
+        if (m.type === 'preview:capability') valid = Object.keys(p).sort().join(',') === 'handle,message,operation' &&
+          typeof p.handle === 'string' && /^sec_[A-Za-z0-9_-]{32}$/.test(p.handle) && p.operation === 'hmac-sha256' &&
+          typeof p.message === 'string' && new TextEncoder().encode(p.message).length <= 4096
+        if (m.type === 'preview:ready') valid = text(p.entryPoint, 256) && time(p.timestamp)
+        if (m.type === 'preview:pong') valid = time(p.timestamp) && (p.pingId === undefined || text(p.pingId, 64))
+        if (m.type === 'preview:error') valid = text(p.message, 8192) &&
+          (p.stack === undefined || text(p.stack, 16384)) && (p.source === undefined || text(p.source, 1024)) &&
+          [p.line, p.column].every(v => v === undefined || (Number.isSafeInteger(v) && (v as number) >= 0))
+        if (m.type === 'preview:event') valid = text(p.name, 128) && (p.name as string).length > 0
+        if (m.type === 'preview:console') valid = ['log', 'warn', 'error', 'info'].includes(p.level as string) &&
+          Array.isArray(p.args) && p.args.length <= 16 && p.args.every(arg => text(arg, 4096))
+        if (m.type === 'preview:element-selected') {
+          const allowed = ['bounds', 'elementId', 'layerId', 'previewText', 'selector', 'styles', 'tagName']
+          const keys = Object.keys(p)
+          const safeId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_~.:-]+$/.test(v) && v.length <= 128
+          const safeTag = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9-]+$/.test(v) && v.length <= 32
+          const safeText = (v: unknown) => typeof v === 'string' && !/[<>]/.test(v) && v.length <= 256
+          const validBounds = (b: unknown) => {
+            if (!b || typeof b !== 'object' || Array.isArray(b)) return false
+            const bo = b as Record<string, unknown>
+            return Object.keys(bo).sort().join(',') === 'height,width,x,y' &&
+              ['height', 'width', 'x', 'y'].every(k => typeof bo[k] === 'number' && Number.isFinite(bo[k]) && Math.abs(bo[k] as number) <= 10000000) &&
+              (bo.width as number) >= 0 && (bo.height as number) >= 0
+          }
+          const validStyles = (s: unknown) => {
+            if (!s || typeof s !== 'object' || Array.isArray(s)) return false
+            const so = s as Record<string, unknown>
+            const allowedProps = [
+              'fontSize', 'fontWeight', 'lineHeight', 'textAlign', 'letterSpacing', 'textTransform',
+              'padding', 'margin', 'gap',
+              'color', 'backgroundColor', 'borderColor', 'borderRadius', 'borderWidth',
+            ]
+            return Object.keys(so).every(k => allowedProps.includes(k) && typeof so[k] === 'string' && (so[k] as string).length <= 128 && !/[<>{}\\]/.test(so[k] as string))
+          }
+          valid = keys.every(k => allowed.includes(k)) &&
+            safeId(p.elementId) &&
+            safeTag(p.tagName) &&
+            (p.selector === undefined || (text(p.selector, 256) && !/[<]/.test(p.selector as string))) &&
+            (p.layerId === undefined || (safeId(p.layerId) && text(p.layerId, 64))) &&
+            (p.previewText === undefined || (safeText(p.previewText) && text(p.previewText, 128))) &&
+            (p.bounds === undefined || validBounds(p.bounds)) &&
+            (p.styles === undefined || validStyles(p.styles))
+        }
+      }
+      if (!valid) return 'Invalid message type or payload'
+      if (new TextEncoder().encode(JSON.stringify(raw)).length > maxBytes) return 'Message exceeds byte limit'
+      return null
+    } catch {
+      return 'Payload could not be serialized safely'
     }
-    if (!valid) return 'Invalid message type or payload'
-    if (new TextEncoder().encode(JSON.stringify(raw)).length > maxBytes) return 'Message exceeds byte limit'
-    return null
-  } catch {
-    return 'Payload could not be serialized safely'
   }
+
+  return validateEnvelope
 }
+const validateEnvelope = createEnvelopeValidator(isAppDataRequest, isAppDataResult)
 
 export function isAllowedPreviewSandbox(sandbox: unknown): boolean {
   return typeof sandbox === 'string' && sandbox.trim() === PREVIEW_SANDBOX_POLICY
@@ -242,7 +258,8 @@ export const PREVIEW_PERMISSIONS_POLICY = "camera 'none'; microphone 'none'; geo
 export const MAX_PREVIEW_MESSAGES_PER_SECOND = 120
 
 function protocolRuntime(): string {
-  return `const validate = ${validateEnvelope.toString()};
+  return `const { isAppDataRequest, isAppDataResult } = (${createAppDataValidators.toString()})();
+    const validate = (${createEnvelopeValidator.toString()})(isAppDataRequest, isAppDataResult);
     const MAX_BYTES = ${MAX_PREVIEW_MESSAGE_BYTES};
     let windowStart = 0, count = 0;
     function accept(data, source) {
@@ -271,6 +288,16 @@ export function getPreviewGuestScript(): string {
         if (!id) { reject(new Error('Capability unavailable')); return; }
         const timer = setTimeout(() => { pendingCapabilities.delete(id); reject(new Error('Capability unavailable')); }, 10000);
         pendingCapabilities.set(id, { resolve, reject, timer });
+      });
+    } });
+    const pendingData = new Map();
+    window.paperData = Object.freeze({ invoke(handle, input) {
+      return new Promise((resolve, reject) => {
+        if (pendingData.size + pendingCapabilities.size >= 4 || !isAppDataRequest(input)) { reject(new Error('Data operation unavailable')); return; }
+        const id = send('preview:data', { handle, ...input });
+        if (!id) { reject(new Error('Data operation unavailable')); return; }
+        const timer = setTimeout(() => { pendingData.delete(id); reject(new Error('Data operation unavailable')); }, 10000);
+        pendingData.set(id, { resolve, reject, timer });
       });
     } });
     window.__paperNotifyReady = function(entryPoint) {
@@ -395,6 +422,13 @@ export function getPreviewGuestScript(): string {
     addEventListener('message', event => {
       if (event.source !== parent || !accept(event.data, 'paper-host')) return;
       const { type, id, payload } = event.data;
+      if (type === 'preview:data-result') {
+        const pending = pendingData.get(payload.requestId);
+        if (!pending) return;
+        pendingData.delete(payload.requestId); clearTimeout(pending.timer);
+        if (payload.result) pending.resolve(payload.result);
+        else pending.reject(new Error('Data operation unavailable'));
+      }
       if (type === 'preview:capability-result') {
         const pending = pendingCapabilities.get(payload.requestId);
         if (!pending) return;

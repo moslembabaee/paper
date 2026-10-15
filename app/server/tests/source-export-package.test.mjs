@@ -49,6 +49,29 @@ function payloads(html) {
     .map(match => Buffer.from(match[1], 'base64').toString('utf8')).join('\n')
 }
 
+test('persisted-form source exports build offline with the scoped data preview protocol', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'paper-data-export-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const project = createAppProject({ files: {
+    'src/App.tsx': `import {useState} from 'react'; export default function App(){
+      const [result,setResult]=useState('Ready');
+      async function load(){try {const data=await window.paperData.invoke('dat_${'A'.repeat(32)}',{operation:'list'});setResult(String(data.records.length))}catch{setResult('Owner preview required')}}
+      return <main><h1>Persisted form</h1><button onClick={load}>Load responses</button><output>{result}</output></main>
+    }`,
+  } })
+  await writeFile(join(dir, 'app.zip'), await exportRunnableSource(project, []))
+  command('unzip', ['-q', 'app.zip'], dir)
+  command('npm', ['run', 'build', '--logs-dir', dir], dir)
+  const html = await readFile(join(dir, 'dist/index.html'), 'utf8')
+  assert.ok(payloads(html).includes('Persisted form'))
+  // Exercise the exported sandbox module too: its serialized validators must
+  // keep working without Paper's source tree or server dependencies.
+  const sandbox = await import(pathToFileURL(join(dir, '.paper/compiler/preview-sandbox.js')))
+  assert.equal(sandbox.parsePreviewMessage(sandbox.createPreviewMessage('paper-preview', 'preview:data', {
+    handle: 'dat_' + 'A'.repeat(32), operation: 'list',
+  }), 'paper-preview').valid, true)
+})
+
 test('unzip/install/build fixture is reproducible, editable and serves only its static app', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'paper-runnable-source-'))
   t.after(() => rm(dir, { recursive: true, force: true }))

@@ -23,6 +23,8 @@ import { exportRunnableSource, sourceExportFingerprint } from './source-export.t
 import { createPublicHandler, publicationDocument, publicationOrigin } from './publication.ts'
 import { AppSecrets } from './app-secrets.ts'
 import { APP_SECRET_LIMITS, isSecretHandle } from '../src/make/secrets.ts'
+import { AppData } from './app-data.ts'
+import { APP_DATA_LIMITS, isDataHandle } from '../src/make/data.ts'
 
 export interface ServiceConfig {
   root: string
@@ -98,6 +100,7 @@ export async function createService(config: ServiceConfig) {
   await auth.initialize(config.root)
   const storage = new Storage(config.root)
   const appSecrets = new AppSecrets(storage.apps, config.secret)
+  const appData = new AppData(storage.apps)
   const collaboration = new CollaborationServer(origin)
   const requestFetch = config.fetch ?? fetch
   const streams = new Map<string, Set<ServerResponse>>()
@@ -479,6 +482,22 @@ export async function createService(config: ServiceConfig) {
         const id = safeId(decodeURIComponent(projectRoute[1]))
         if (req.method === 'GET') { const record = await storage.read(user.id, id); if (!record) throw httpError(404, 'Project not found'); json(res, 200, record); return }
         if (req.method === 'PUT') { const input = await body(req, parsed); const record = await storage.put(user.id, id, input.document, input.expectedRevision, input.updatedAt); emit(user.id, record); json(res, 200, record); return }
+      }
+      const dataRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/data(?:\/([^/]+))?$/)
+      if (dataRoute) {
+        const id = safeId(decodeAppPath(dataRoute[2]), 'app ID')
+        if (!await storage.apps.read(user.id, id)) throw httpError(404, 'App project not found')
+        const handle = dataRoute[3] === undefined ? undefined : decodeAppPath(dataRoute[3])
+        if (handle !== undefined && !isDataHandle(handle)) throw httpError(400, 'Invalid data capability handle')
+        if (!handle && req.method === 'GET') { json(res, 200, { collections: await appData.list(user.id, id) }); return }
+        if (req.method === 'POST') {
+          const input = await body(req, parsed, APP_DATA_LIMITS.MAX_REQUEST_BYTES, true)
+          json(res, handle ? 200 : 201, handle ? await appData.invoke(user.id, id, handle, input) : await appData.create(user.id, id, input)); return
+        }
+        if (handle && req.method === 'DELETE') {
+          json(res, 200, await appData.revoke(user.id, id, handle, await body(req, parsed, APP_DATA_LIMITS.MAX_REQUEST_BYTES, true))); return
+        }
+        throw httpError(405, 'Method not allowed')
       }
       // App Projects CRUD collection
       const secretRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/(secrets|capabilities)(?:\/([^/]+))?$/)

@@ -965,7 +965,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 39,
-      "completed_at": "2026-10-15T21:59:28.374725+00:00"
+      "completed_at": "2026-10-15T21:59:28.374725+00:00",
+      "closed_at": "2026-10-15T21:59:32Z"
     },
     {
       "id": "T-ISSUE-40",
@@ -973,10 +974,11 @@
       "title": "Issue #40: feat(make 23): Scoped app data operations",
       "description": "Scope: Provide an optional per-app data API with schema-constrained CRUD and quotas behind user-defined capabilities; no arbitrary SQL or outbound network.\nAcceptance: Interactive persisted form fixture works; cross-app/account isolation, quota, injection and rollback tests pass.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 40
+      "github_issue_number": 40,
+      "completed_at": "2026-10-15T22:36:33.037017+00:00"
     },
     {
       "id": "T-ISSUE-41",

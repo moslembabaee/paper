@@ -13,6 +13,7 @@ import { SourceExport } from './SourceExport'
 import { Publication } from './Publication'
 import { Sharing, SharedProjectReview } from './Sharing'
 import { SecretHandles } from './SecretHandles'
+import { DataCapabilities } from './DataCapabilities'
 import type { SharedAppSummary } from './sharing'
 import { api } from '../cloud/api'
 import { PREVIEW_VIEWPORTS, formatViewportDimensions, getViewportConfig, isValidDeviceViewport } from './breakpoints'
@@ -112,6 +113,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         <Publication key={`publication:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
         <Sharing key={`sharing:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
         <SecretHandles key={`secrets:${accountId}:${active.id}:${savedIds.has(active.id)}`} appId={active.id} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
+        <DataCapabilities key={`data:${accountId}:${active.id}:${savedIds.has(active.id)}`} appId={active.id} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         <VersionHistory store={store} state={state} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         <section className="make-diagnostics" data-testid="make-diagnostics" aria-label="Compiler diagnostics">
           <h2>Diagnostics<span>{state.diagnostics.length.toString().padStart(2, '0')}</span></h2>

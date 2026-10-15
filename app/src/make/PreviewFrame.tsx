@@ -10,6 +10,7 @@ import {
 import type { CompilePreviewAssets } from './compiler.ts'
 import { api } from '../cloud/api.ts'
 import type { AppCapabilityRequest, AppCapabilityResult } from './secrets.ts'
+import { isAppDataResult, type AppDataRequest, type AppDataResult } from './data.ts'
 
 export type PreviewFrameStatus = 'idle' | 'loading' | 'ready' | 'error'
 export interface PreviewFrameProps {
@@ -105,6 +106,26 @@ const PreviewSession = forwardRef<PreviewFrameHandle, PreviewFrameProps & { docu
       if (!result.valid) return
       const { message } = result
       switch (message.type) {
+        case 'preview:data': {
+          if (requestIds.has(message.id)) return
+          if (now - capabilityWindow >= 60_000) { capabilityWindow = now; capabilityCount = 0; requestIds.clear() }
+          const scope = callbacksRef.current.capabilityScope
+          if (!scope || statusRef.current !== 'ready' || capabilities.size >= 4 || ++capabilityCount > 20) {
+            postToGuest('preview:data-result', { requestId: message.id, error: 'Data operation unavailable' }); return
+          }
+          requestIds.add(message.id)
+          const controller = new AbortController(); capabilities.add(controller)
+          const { handle, ...input } = message.payload as AppDataRequest & { handle: string }
+          void api<AppDataResult>(`/apps/${encodeURIComponent(scope.appId)}/data/${encodeURIComponent(handle)}`, {
+            method: 'POST', signal: controller.signal, headers: { 'X-Paper-Account': scope.accountId }, body: JSON.stringify(input),
+          }).then(result => {
+            if (mounted && !controller.signal.aborted) postToGuest('preview:data-result', isAppDataResult(result)
+              ? { requestId: message.id, result } : { requestId: message.id, error: 'Data operation unavailable' })
+          }).catch(() => {
+            if (mounted && !controller.signal.aborted) postToGuest('preview:data-result', { requestId: message.id, error: 'Data operation unavailable' })
+          }).finally(() => capabilities.delete(controller))
+          break
+        }
         case 'preview:capability': {
           if (requestIds.has(message.id)) return
           if (now - capabilityWindow >= 60_000) { capabilityWindow = now; capabilityCount = 0; requestIds.clear() }

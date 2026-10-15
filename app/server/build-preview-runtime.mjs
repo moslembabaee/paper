@@ -61,7 +61,7 @@ for (const id of Object.keys(chunks[0].modules)) {
   if (id.includes('/node_modules/') && !toolNames.includes(name)) throw new Error(`Unapproved bundled export dependency: ${name}`)
 }
 files['.paper/compiler/compiler.js'] = chunks[0].code
-for (const name of ['manifest.js', 'assets.js', 'preview-sandbox.js', 'preview-runtime.js']) {
+for (const name of ['manifest.js', 'assets.js', 'data.js', 'preview-sandbox.js', 'preview-runtime.js']) {
   files[`.paper/compiler/${name}`] = await readFile(new URL(`./dist/src/make/${name}`, import.meta.url), 'utf8')
 }
 const runtimeNames = ['react', 'react-dom', 'scheduler', 'lucide-react', '@paper-design/shaders-react', '@paper-design/shaders']

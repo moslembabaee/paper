@@ -1,8 +1,8 @@
 # 🗺️ Live Development Roadmap & Task Tracker
 
-> **Last Updated:** `2026-10-15 21:59:28 UTC`  
+> **Last Updated:** `2026-10-15 22:36:33 UTC`  
 > **Supervisor:** Autonomous Tri-Agent Orchestra (`Claude Code` ↔ `OpenAI Codex` ↔ `Google Antigravity`)  
-> **Progress:** `[██████████████████░░]` **76 / 82** tasks completed (**92%**)
+> **Progress:** `[██████████████████░░]` **77 / 82** tasks completed (**93%**)
 
 ---
 
@@ -44,8 +44,7 @@ Read docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior tes
 
 | Priority | Task ID | Title | Assigned Agent | Phase |
 |:---:|:---|:---|:---:|:---|
-| **#1** | `T-ISSUE-40` | Issue #40: feat(make 23): Scoped app data operations | `CLAUDE` | Paper Make |
-| **#2** | `T-ISSUE-41` | Issue #41: feat(make 24): GitHub handoff for reviewed app source | `CLAUDE` | Paper Make |
+| **#1** | `T-ISSUE-41` | Issue #41: feat(make 24): GitHub handoff for reviewed app source | `CLAUDE` | Paper Make |
 
 ---
 
@@ -53,6 +52,7 @@ Read docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior tes
 
 | Status | Task ID | Title | Agent | Phase | Completed At |
 |:---:|:---|:---|:---:|:---|:---|
+| 🟢 Done | `T-ISSUE-40` | Issue #40: feat(make 23): Scoped app data operations | `CLAUDE` | Paper Make | `2026-10-15 22:36:33` |
 | 🟢 Done | `T-ISSUE-39` | Issue #39: feat(make 22): Server-held scoped secret handles for apps | `CLAUDE` | Paper Make | `2026-10-15 21:59:28` |
 | 🟢 Done | `T-ISSUE-38` | Issue #38: feat(make 21): Share Make projects with explicit permissions | `CLAUDE` | Paper Make | `2026-10-15 21:30:05` |
 | 🟢 Done | `T-ISSUE-34` | Issue #34: feat(make 17): Immutable app version history and restore | `CLAUDE` | Paper Make | `2026-10-15 11:54:10` |

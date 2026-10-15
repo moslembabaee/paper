@@ -660,3 +660,29 @@
 .make-review .make-preview-canvas { min-height: 100%; }
 .make-review .make-preview-canvas > iframe { width: 100%; height: 100%; min-height: 600px; }
 @media (max-width: 720px) { .make-sharing { padding: 16px 12px; } .make-review-role { font-size: 9px; } }
+
+.make-data { padding: 20px; border-bottom: 1px solid #222222; min-width: 0; }
+.make-data h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 12px; }
+.make-data h2 svg, .make-data h2 span { color: #81adec; }
+.make-data h2 span { margin-left: auto; font: 10px var(--font-mono); letter-spacing: .08em; }
+.make-data p { color: #99998f; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.make-data summary { cursor: pointer; font-size: 11px; color: #edebe1; padding: 8px 0; }
+.make-data fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.make-data fieldset:disabled { opacity: .5; }
+.make-data label { display: grid; gap: 8px; color: #99998f; font-size: 10px; margin: 12px 0; }
+.make-data input, .make-data textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px; background: #080808; color: #edebe1; border: 1px solid #222222; border-radius: 3px; font: 11px/1.6 var(--font-mono); }
+.make-data textarea { resize: vertical; tab-size: 2; }
+.make-data input:focus-visible, .make-data textarea:focus-visible, .make-data summary:focus-visible { outline: 2px solid #81adec; outline-offset: 2px; }
+.make-data-operations { display: flex; flex-wrap: wrap; gap: 8px 12px; }
+.make-data-operations label { display: flex; align-items: center; gap: 6px; margin: 6px 0; }
+.make-data-operations input { width: 12px; accent-color: #81adec; }
+.make-data-quotas { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
+.make-data ul { padding: 0; margin: 12px 0; list-style: none; }
+.make-data li { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid #222222; }
+.make-data li > div { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; }
+.make-data li span { color: #81adec; font: 10px var(--font-mono); }
+.make-data code { color: #edebe1; font-size: 10px; overflow-wrap: anywhere; user-select: all; }
+.make-data small { color: #99998f; font: 10px/1.6 var(--font-mono); }
+.make-data .make-button { font-size: 10px; justify-content: center; }
+.make-data p.make-asset-error { color: #f4a5a0; }
+@media (max-width: 720px) { .make-data { padding: 16px 12px; } }
