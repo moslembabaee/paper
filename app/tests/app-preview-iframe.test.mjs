@@ -214,7 +214,7 @@ test('untrusted document metadata and CSS cannot break out into the trusted HTML
 
 // These checks execute only the trusted protocol runtime with synthetic windows.
 // Actual SOP, CSP and sandbox enforcement are covered by the Playwright suite.
-function protocolRealm(script) {
+function protocolRealm(script, documentOverrides = {}) {
   const events = []
   const listeners = {}
   const parent = { postMessage(message) { events.push(JSON.parse(JSON.stringify(message))) } }
@@ -224,6 +224,9 @@ function protocolRealm(script) {
     TextEncoder, parent, window: {}, document: {
       documentElement: { style: { setProperty(key, value) { styles.set(key, value) } }, dataset: {} },
       querySelector() { return frame },
+      querySelectorAll() { return [] },
+      addEventListener(type, listener) { listeners['document:' + type] = listener },
+      ...documentOverrides,
     },
     addEventListener(type, listener) { listeners[type] = listener },
     listeners, frame, events,
@@ -274,4 +277,56 @@ test('trusted boundary contains generated HTML as data and only relays the exact
   assert.deepEqual(events, [message])
   for (let i = 0; i < MAX_PREVIEW_MESSAGES_PER_SECOND * 2; i++) dispatch(realm, message, 'frame.contentWindow', 'null')
   assert.ok(events.length <= MAX_PREVIEW_MESSAGES_PER_SECOND)
+})
+
+
+test('guest inspection is opt-in, emits one bounded target, and retains instance IDs after rerender and reorder', () => {
+  class Element {
+    constructor(text) { this.textContent = text; this.tagName = 'BUTTON'; this.isConnected = true; this.id = '' }
+    getAttribute(name) { return name === 'data-paper-id' ? 'App-button-1' : null }
+    closest() { return this }
+    getBoundingClientRect() { return { left: 10, top: 20, width: 120, height: 32 } }
+  }
+  const a = new Element('Alpha <b>label</b>'), b = new Element('Beta')
+  const nodes = [a, b]
+  const root = { contains: node => nodes.includes(node) }
+  const overlays = []
+  const { realm, events } = protocolRealm(getPreviewGuestScript(), {
+    querySelectorAll: () => nodes,
+    getElementById: id => id === 'root' ? root : null,
+    createElement: () => ({ style: {} }),
+    documentElement: { appendChild: node => overlays.push(node) },
+  })
+  realm.Element = Element
+  function click(target) {
+    let prevented = 0, stopped = 0
+    realm.listeners['document:click']({ target, preventDefault() { prevented++ }, stopImmediatePropagation() { stopped++ } })
+    return [prevented, stopped]
+  }
+  assert.deepEqual(click(a), [0, 0], 'Normal preview interaction stays enabled by default')
+  const inspect = createPreviewMessage('paper-host', 'preview:set-inspect', { enabled: true })
+  dispatch(realm, inspect, '{}')
+  assert.deepEqual(click(a), [0, 0], 'Sibling configuration is ignored')
+  dispatch(realm, inspect)
+  assert.deepEqual(click(a), [1, 1])
+  const first = events.at(-1)
+  assert.equal(first.type, 'preview:element-selected')
+  assert.equal(first.payload.previewText, 'Alpha blabel/b')
+  assert.equal(parsePreviewMessage(first, 'paper-preview').valid, true)
+  assert.deepEqual(Object.keys(first.payload).sort(), ['bounds', 'elementId', 'previewText', 'tagName'])
+  assert.equal(events.length, 1, 'Each click sends exactly one selection')
+  click(b)
+  assert.notEqual(events.at(-1).payload.elementId, first.payload.elementId)
+  a.textContent = 'Alpha updated'
+  nodes.reverse()
+  click(a)
+  assert.equal(events.at(-1).payload.elementId, first.payload.elementId, 'Rerender and keyed reorder preserve the target')
+  assert.equal(overlays.length, 1)
+  assert.equal(overlays[0].style.display, 'block')
+  a.isConnected = false
+  nodes.splice(nodes.indexOf(a), 1)
+  dispatch(realm, createPreviewMessage('paper-host', 'preview:highlight-element', { elementId: first.payload.elementId }))
+  assert.equal(overlays[0].style.display, 'none', 'Removed targets never select a different instance')
+  dispatch(realm, createPreviewMessage('paper-host', 'preview:set-inspect', { enabled: false }))
+  assert.deepEqual(click(b), [0, 0])
 })

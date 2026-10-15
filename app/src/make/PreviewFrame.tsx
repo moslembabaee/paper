@@ -5,6 +5,7 @@ import {
   createIsolatedPreviewDocument, createPreviewMessage, parsePreviewMessage,
   type PreviewThemeConfig, type PreviewReadyPayload, type PreviewErrorPayload,
   type PreviewPongPayload, type PreviewEventPayload, type PreviewHostMessageType,
+  type PreviewElementSelectedPayload,
 } from './preview-sandbox.ts'
 import type { CompilePreviewAssets } from './compiler.ts'
 
@@ -15,9 +16,12 @@ export interface PreviewFrameProps {
   readonly title?: string
   readonly theme?: PreviewThemeConfig
   readonly sessionKey?: number
+  readonly inspectMode?: boolean
+  readonly selectedElementId?: string | null
   readonly onReady?: (payload: PreviewReadyPayload) => void
   readonly onError?: (payload: PreviewErrorPayload) => void
   readonly onEvent?: (payload: PreviewEventPayload) => void
+  readonly onElementSelect?: (payload: PreviewElementSelectedPayload) => void
   readonly onStatusChange?: (status: PreviewFrameStatus) => void
   readonly className?: string
   readonly style?: CSSProperties
@@ -27,6 +31,8 @@ export interface PreviewFrameHandle {
   readonly status: PreviewFrameStatus
   ping(timeoutMs?: number): Promise<number>
   setTheme(theme: PreviewThemeConfig): void
+  setInspectMode(enabled: boolean): void
+  highlightElement(elementId: string): void
   postMessage(type: PreviewHostMessageType, payload?: unknown): void
   reload(): void
 }
@@ -53,6 +59,7 @@ const PreviewSession = forwardRef<PreviewFrameHandle, PreviewFrameProps & { docu
 ) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const callbacksRef = useRef(callbacks)
+  const inspectEnabled = useRef(callbacks.inspectMode ?? false)
   useLayoutEffect(() => { callbacksRef.current = callbacks })
   const initialStatus: PreviewFrameStatus = previewDocument ? 'loading' : 'idle'
   const statusRef = useRef<PreviewFrameStatus>(initialStatus)
@@ -106,6 +113,9 @@ const PreviewSession = forwardRef<PreviewFrameHandle, PreviewFrameProps & { docu
           }
           break
         }
+        case 'preview:element-selected':
+          if (statusRef.current === 'ready' && inspectEnabled.current) callbacksRef.current.onElementSelect?.(message.payload as PreviewElementSelectedPayload)
+          break
         case 'preview:event': callbacksRef.current.onEvent?.(message.payload as PreviewEventPayload); break
       }
     }
@@ -124,6 +134,11 @@ const PreviewSession = forwardRef<PreviewFrameHandle, PreviewFrameProps & { docu
   useEffect(() => {
     if (theme && status === 'ready') postToGuest('preview:set-theme', theme)
   }, [theme, status, postToGuest])
+
+  useEffect(() => {
+    inspectEnabled.current = callbacks.inspectMode ?? false
+    if (status === 'ready') postToGuest('preview:set-inspect', { enabled: callbacks.inspectMode ?? false, ...(callbacks.selectedElementId ? { activeElementId: callbacks.selectedElementId } : {}) })
+  }, [callbacks.inspectMode, callbacks.selectedElementId, status, postToGuest])
 
   useEffect(() => {
     if (status !== 'loading') return
@@ -148,6 +163,8 @@ const PreviewSession = forwardRef<PreviewFrameHandle, PreviewFrameProps & { docu
         pings.current.set(message.id, { sentAt: Date.now(), resolve, reject, timer })
       })
     },
+    setInspectMode: enabled => { inspectEnabled.current = enabled; postToGuest('preview:set-inspect', { enabled }) },
+    highlightElement: elementId => { postToGuest('preview:highlight-element', { elementId }) },
     setTheme: newTheme => { postToGuest('preview:set-theme', newTheme) },
     postMessage(type, payload) {
       if (type === 'preview:reset') reload()

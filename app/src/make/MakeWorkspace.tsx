@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { ArrowLeft, Code2, FileCode2, Monitor, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
+import { ArrowLeft, Code2, Crosshair, FileCode2, Monitor, Play, Plus, RotateCcw, Save, Square, Sparkles } from 'lucide-react'
 import type { AppSceneReference } from './types'
 import { PreviewFrame, type PreviewFrameStatus } from './PreviewFrame'
 import { createMakeWorkspaceStore, formatDiagnostic } from './workspace-model'
 import { PlanInspection } from './PlanInspection'
 import { DiffInspection } from './DiffInspection'
 import { AssetPanel } from './AssetPanel'
+import { AnnotationPanel } from './AnnotationPanel'
 import { PREVIEW_VIEWPORTS, formatViewportDimensions, getViewportConfig, isValidDeviceViewport } from './breakpoints'
 import './make.css'
 
@@ -15,7 +16,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const [frameStatus, setFrameStatus] = useState<PreviewFrameStatus>('idle')
   const [openingId, setOpeningId] = useState<string | null>(null)
-  const promptInput = useRef<HTMLInputElement>(null)
+  const promptInput = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     void store.loadProjects()
     void store.loadBudget()
@@ -68,7 +69,8 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         </div>
         {state.listStatus === 'loading' ? <p className="make-notice" role="status">Loading saved apps…</p> : null}
         {state.listError ? <div className="make-notice" role="alert"><p>Could not load saved apps: {state.listError}</p><button className="make-button" onClick={() => { void store.loadProjects() }}>Retry project list</button></div> : null}
-        {state.projectError ? <div className="make-notice" role="alert"><p>{state.projectError}</p><button className="make-button" onClick={() => state.projectError && openingId ? choose(openingId) : void store.saveCopy()}>Retry project request</button></div> : null}
+        {state.projectError ? <div className="make-notice" role="alert"><p>{state.projectError}</p><button className="make-button" onClick={() => state.annotationDirty && savedIds.has(active.id) ? void store.saveAnnotations() : state.projectError && openingId ? choose(openingId) : void store.saveCopy()}>Retry project request</button></div> : null}
+        <AnnotationPanel store={store} state={state} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         {state.currentDiff ? <DiffInspection diff={state.currentDiff} rollbackRevision={state.rollbackPoint?.revision} busy={busy || planBusy} onRollback={() => { void store.rollback().catch(() => {}) }} /> : null}
         <AssetPanel project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} onChange={store.acceptAssetProject} />
         <section className="make-files" aria-label="Source files"><h2><FileCode2 size={14} />Source files<span>{Object.keys(active.files).length}</span></h2>
@@ -90,6 +92,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
       <main className="make-stage" aria-label="Make preview">
         <div className="make-preview-toolbar"><div className="make-preview-label"><span className="make-status-dot" data-status={status} /><span>Preview</span><span className="make-preview-status" data-testid="make-preview-status" role="status">{status}</span></div>
           <div className="make-preview-actions">
+          <button className={`make-button ${state.inspectMode ? 'make-inspecting' : ''}`} aria-pressed={state.inspectMode} disabled={!running || busy || planBusy} onClick={() => store.setInspectMode(!state.inspectMode)}><Crosshair size={13} />Select element</button>
           <button className="make-button" disabled={!running || busy || planBusy} onClick={store.rerunInteraction} title="Resets the preview app state at the selected size. Source and saved layout stay unchanged."><RotateCcw size={13} />Rerun interactions</button>
           {state.assets || state.previewStatus === 'loading' ? <button className="make-button" onClick={store.stopPreview}><Square size={12} fill="currentColor" />Stop preview</button> : state.previewStatus !== 'error' ? <button className="make-button make-primary" disabled={busy} onClick={() => { void store.runPreview() }}><Play size={13} fill="currentColor" />Run preview</button> : null}
           </div>
@@ -114,8 +117,8 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
             aria-busy={planBusy}
           >
             <Sparkles size={14} className="make-prompt-icon" />
-            <input
-              type="text"
+            <textarea
+              rows={2}
               ref={promptInput}
               className="make-prompt-input"
               data-testid="make-prompt-input"
@@ -170,7 +173,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
           ) : null}
           {state.assets ? <div className="make-preview-viewport" role="region" aria-label="Preview viewport" tabIndex={0}>
             <div className="make-preview-device" data-viewport={state.deviceViewport} style={{ width: viewport.width, height: viewport.height }}>
-              <PreviewFrame assets={state.assets} sessionKey={state.previewSessionKey} onStatusChange={setFrameStatus} onError={store.reportRuntimeError} />
+              <PreviewFrame assets={state.assets} sessionKey={state.previewSessionKey} inspectMode={state.inspectMode && !busy && !planBusy} selectedElementId={state.selectedElement?.elementId} onElementSelect={store.selectElement} onStatusChange={setFrameStatus} onError={store.reportRuntimeError} />
             </div>
           </div> : null}
           {state.projectStatus === 'loading' || loading ? <div className="make-empty make-loading" role="status"><span className="make-loader" /><h2>{state.projectStatus === 'loading' ? 'Opening app…' : state.assets ? 'Starting preview…' : 'Compiling your app…'}</h2><p>{state.projectStatus === 'loading' ? 'Reading the saved revision.' : 'Preparing an interactive preview.'}</p></div> : null}

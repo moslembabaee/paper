@@ -473,3 +473,20 @@
 .make-asset-reference { display: block; max-width: 100%; overflow: auto; border: 0; padding: 2px 0; background: none; color: #81adec; text-align: left; font: 9px var(--font-mono); cursor: copy; user-select: all; }
 .make-asset-remove { padding: 6px; }
 .make-asset-error { font-size: 11px; line-height: 1.6; color: #f0b7a9; overflow-wrap: anywhere; }
+
+.make-inspecting { border-color: #81adec; color: #81adec; background: #81adec12; }
+.make-annotations { padding: 20px; border-bottom: 1px solid #222222; }
+.make-annotation-help, .make-annotation-excerpt { margin: 0 0 12px; font-size: 11px; line-height: 1.7; color: #aaa99f; overflow-wrap: anywhere; }
+.make-annotation-target { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; color: #81adec; margin-bottom: 10px; }
+.make-annotation-target > span { flex-basis: 100%; color: #aaa99f; font: 9px/1.6 var(--font-mono); overflow-wrap: anywhere; }
+.make-annotation-clear { margin-left: auto; display: flex; border: 0; padding: 4px; background: none; color: #aaa99f; cursor: pointer; }
+.make-annotations textarea { display: block; resize: vertical; width: 100%; min-height: 72px; max-height: 200px; margin: 0 0 10px; padding: 10px; border: 1px solid #333; border-radius: 5px; background: #151515; color: #edebe1; font: 11px/1.6 var(--font-sans); }
+.make-annotation { padding: 14px 0; border-top: 1px solid #222222; margin-top: 14px; }
+.make-annotation-link { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; border: 0; padding: 0; background: none; color: #81adec; cursor: pointer; text-align: left; }
+.make-annotation-link > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: 9px var(--font-mono); color: #aaa99f; }
+.make-annotation-link > :is(svg, code) { flex-shrink: 0; }
+.make-annotation p { font-size: 11px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.make-annotation-actions { display: flex; justify-content: space-between; gap: 8px; }
+.make-annotation-actions .make-button { font-size: 10px; }
+.make-annotation-save { display: grid; gap: 8px; margin-top: 12px; color: #aaa99f; font-size: 10px; line-height: 1.6; }
+.make-prompt-input { resize: vertical; min-height: 36px; max-height: 160px; line-height: 1.5; }

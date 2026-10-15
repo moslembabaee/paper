@@ -1,3 +1,5 @@
+import type { PreviewElementTarget } from './types.ts'
+
 // Bounded message protocol and isolation policy for Paper Make previews.
 // Preview iframes run in an opaque origin with restrictive CSP and no credential or navigation privileges.
 
@@ -32,6 +34,8 @@ export type PreviewHostMessageType =
   | 'preview:ping'
   | 'preview:set-theme'
   | 'preview:reset'
+  | 'preview:set-inspect'
+  | 'preview:highlight-element'
 
 export type PreviewGuestMessageType =
   | 'preview:ready'
@@ -39,6 +43,7 @@ export type PreviewGuestMessageType =
   | 'preview:error'
   | 'preview:event'
   | 'preview:console'
+  | 'preview:element-selected'
 
 export type PreviewMessageType = PreviewHostMessageType | PreviewGuestMessageType
 
@@ -76,6 +81,17 @@ export interface PreviewPingPayload {
 export interface PreviewEventPayload {
   readonly name: string
   readonly data?: unknown
+}
+
+export type PreviewElementSelectedPayload = PreviewElementTarget
+
+export interface PreviewSetInspectPayload {
+  readonly enabled: boolean
+  readonly activeElementId?: string
+}
+
+export interface PreviewHighlightElementPayload {
+  readonly elementId: string
 }
 
 export interface PreviewMessageEnvelope<TType extends string = string, TPayload = unknown> {
@@ -136,6 +152,8 @@ function validateEnvelope(raw: unknown, expectedSource: string | undefined, maxB
       if (m.type === 'preview:set-theme') valid = Object.entries(p).every(([key, value]) =>
         key === 'mode' ? value === 'dark' || value === 'light' :
         ['background', 'foreground', 'accent', 'grid'].includes(key) && text(value, 128))
+      if (m.type === 'preview:set-inspect') valid = Object.keys(p).every(key => ['enabled', 'activeElementId'].includes(key)) && typeof p.enabled === 'boolean' && (p.activeElementId === undefined || text(p.activeElementId, 128))
+      if (m.type === 'preview:highlight-element') valid = Object.keys(p).length === 1 && text(p.elementId, 128)
     } else {
       if (m.type === 'preview:ready') valid = text(p.entryPoint, 256) && time(p.timestamp)
       if (m.type === 'preview:pong') valid = time(p.timestamp) && (p.pingId === undefined || text(p.pingId, 64))
@@ -145,6 +163,27 @@ function validateEnvelope(raw: unknown, expectedSource: string | undefined, maxB
       if (m.type === 'preview:event') valid = text(p.name, 128) && (p.name as string).length > 0
       if (m.type === 'preview:console') valid = ['log', 'warn', 'error', 'info'].includes(p.level as string) &&
         Array.isArray(p.args) && p.args.length <= 16 && p.args.every(arg => text(arg, 4096))
+      if (m.type === 'preview:element-selected') {
+        const allowed = ['bounds', 'elementId', 'layerId', 'previewText', 'selector', 'tagName']
+        const keys = Object.keys(p)
+        const safeId = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9_~.:-]+$/.test(v) && v.length <= 128
+        const safeTag = (v: unknown) => typeof v === 'string' && /^[a-zA-Z0-9-]+$/.test(v) && v.length <= 32
+        const safeText = (v: unknown) => typeof v === 'string' && !/[<>]/.test(v) && v.length <= 256
+        const validBounds = (b: unknown) => {
+          if (!b || typeof b !== 'object' || Array.isArray(b)) return false
+          const bo = b as Record<string, unknown>
+          return Object.keys(bo).sort().join(',') === 'height,width,x,y' &&
+            ['height', 'width', 'x', 'y'].every(k => typeof bo[k] === 'number' && Number.isFinite(bo[k]) && Math.abs(bo[k] as number) <= 10000000) &&
+            (bo.width as number) >= 0 && (bo.height as number) >= 0
+        }
+        valid = keys.every(k => allowed.includes(k)) &&
+          safeId(p.elementId) &&
+          safeTag(p.tagName) &&
+          (p.selector === undefined || (text(p.selector, 256) && !/[<]/.test(p.selector as string))) &&
+          (p.layerId === undefined || (safeId(p.layerId) && text(p.layerId, 64))) &&
+          (p.previewText === undefined || (safeText(p.previewText) && text(p.previewText, 128))) &&
+          (p.bounds === undefined || validBounds(p.bounds))
+      }
     }
     if (!valid) return 'Invalid message type or payload'
     if (new TextEncoder().encode(JSON.stringify(raw)).length > maxBytes) return 'Message exceeds byte limit'
@@ -214,6 +253,92 @@ export function getPreviewGuestScript(): string {
     };
     addEventListener('error', event => window.__paperNotifyError(event.error || event.message));
     addEventListener('unhandledrejection', event => window.__paperNotifyError(event.reason));
+
+    let inspectMode = false;
+    let selectedElementId = null;
+    let highlightBox = null;
+    const targets = new Map();
+    const identities = new WeakMap();
+    const counts = new Map();
+
+    function identify(node) {
+      let id = identities.get(node);
+      if (!id) {
+        // Source sites may repeat (lists/components). Each mounted instance has
+        // its own identity, retained across React rerenders and keyed reorders.
+        const site = (node.getAttribute('data-paper-id') || node.getAttribute('data-layer-id') || node.id || ('dom-' + node.tagName.toLowerCase()))
+          .replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 100);
+        const occurrence = (counts.get(site) || 0) + 1;
+        counts.set(site, occurrence);
+        id = site + '~' + occurrence;
+        identities.set(node, id);
+      }
+      targets.set(id, node);
+      return id;
+    }
+    function refreshTargets() {
+      for (const [id, node] of targets) if (!node.isConnected) targets.delete(id);
+      document.querySelectorAll('#root [data-paper-id],#root [data-layer-id],#root [id]').forEach(identify);
+    }
+    function findNodeById(id) {
+      refreshTargets();
+      const node = targets.get(id);
+      return node && node.isConnected ? node : null;
+    }
+    function highlightNode(el) {
+      if (!inspectMode || !el || !el.isConnected) {
+        if (highlightBox) highlightBox.style.display = 'none';
+        return;
+      }
+      if (!highlightBox) {
+        highlightBox = document.createElement('div');
+        highlightBox.id = '__paper_inspect_highlight';
+        highlightBox.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483647;border:2px solid #81adec;box-sizing:border-box;box-shadow:0 0 0 1px #080808;border-radius:2px;';
+        document.documentElement.appendChild(highlightBox);
+      }
+      const rect = el.getBoundingClientRect();
+      Object.assign(highlightBox.style, {
+        left: rect.left + 'px', top: rect.top + 'px', width: rect.width + 'px', height: rect.height + 'px', display: 'block'
+      });
+    }
+    let pendingHighlight = false;
+    function scheduleHighlight() {
+      if (!inspectMode || pendingHighlight) return;
+      pendingHighlight = true;
+      requestAnimationFrame(() => {
+        pendingHighlight = false;
+        highlightNode(findNodeById(selectedElementId));
+      });
+    }
+    addEventListener('resize', scheduleHighlight);
+    addEventListener('scroll', scheduleHighlight, true);
+    addEventListener('DOMContentLoaded', () => {
+      refreshTargets();
+      new MutationObserver(scheduleHighlight).observe(document.getElementById('root'), { childList: true, subtree: true, characterData: true, attributes: true });
+    });
+    document.addEventListener('click', function(event) {
+      if (!inspectMode || !(event.target instanceof Element)) return;
+      const root = document.getElementById('root');
+      if (!root || !root.contains(event.target)) return;
+      const target = event.target.closest('[data-paper-id],[data-layer-id],[id]') || event.target;
+      if (target === root) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      refreshTargets();
+      const elementId = identify(target);
+      selectedElementId = elementId;
+      highlightNode(target);
+      const rect = target.getBoundingClientRect();
+      const previewText = (target.textContent || '').replace(/[<>]/g, '').replace(/\\s+/g, ' ').trim().slice(0, 128);
+      const payload = {
+        elementId, tagName: target.tagName.toLowerCase(), previewText,
+        bounds: { x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) }
+      };
+      const layerId = target.getAttribute('data-layer-id');
+      if (layerId && /^[a-zA-Z0-9_~.:-]{1,64}$/.test(layerId)) payload.layerId = layerId;
+      send('preview:element-selected', payload);
+    }, true);
+
     addEventListener('message', event => {
       if (event.source !== parent || !accept(event.data, 'paper-host')) return;
       const { type, id, payload } = event.data;
@@ -224,6 +349,21 @@ export function getPreviewGuestScript(): string {
           if (payload[key]) root.style.setProperty(name, payload[key]);
         }
         if (payload.mode) root.dataset.theme = payload.mode;
+      }
+      if (type === 'preview:set-inspect') {
+        inspectMode = !!payload.enabled;
+        if (payload.activeElementId) {
+          selectedElementId = payload.activeElementId;
+          highlightNode(findNodeById(selectedElementId));
+        } else {
+          selectedElementId = null;
+          highlightNode(null);
+        }
+        if (!inspectMode) highlightNode(null);
+      }
+      if (type === 'preview:highlight-element') {
+        selectedElementId = payload.elementId;
+        highlightNode(findNodeById(selectedElementId));
       }
     });
   })();`

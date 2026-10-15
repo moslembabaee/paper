@@ -29,6 +29,32 @@ export interface AppPreviewConfig {
   readonly error?: string
 }
 
+export interface AppAnnotation {
+  readonly id: string
+  readonly elementId: string
+  readonly tagName: string
+  readonly text: string
+  readonly selector?: string
+  readonly layerId?: string
+  readonly previewText?: string
+  readonly createdAt: string
+  readonly updatedAt?: string
+}
+
+export interface PreviewElementTarget {
+  readonly elementId: string
+  readonly tagName: string
+  readonly selector?: string
+  readonly layerId?: string
+  readonly previewText?: string
+  readonly bounds?: {
+    readonly x: number
+    readonly y: number
+    readonly width: number
+    readonly height: number
+  }
+}
+
 export interface AppProject {
   readonly format: 'paper-app'
   readonly version: 1
@@ -41,6 +67,7 @@ export interface AppProject {
   readonly assetIds: readonly string[]
   readonly release: AppReleaseMetadata
   readonly preview: AppPreviewConfig
+  readonly annotations?: readonly AppAnnotation[]
   readonly createdAt: string
   readonly updatedAt: string
 }
@@ -55,6 +82,7 @@ export interface AppProjectInput {
   readonly assetIds?: readonly string[]
   readonly release?: Partial<AppReleaseMetadata>
   readonly preview?: Partial<AppPreviewConfig>
+  readonly annotations?: readonly AppAnnotation[]
   readonly createdAt?: string
   readonly updatedAt?: string
 }

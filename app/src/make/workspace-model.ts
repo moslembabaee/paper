@@ -1,10 +1,15 @@
-import type { AppSceneReference, AppGenerateResult, AppPlan, AppProject, AppProjectSummary, AppProjectRollbackResult, ModelBudget } from './types.ts'
+import type { AppAnnotation, PreviewElementTarget, AppSceneReference, AppGenerateResult, AppPlan, AppProject, AppProjectSummary, AppProjectRollbackResult, ModelBudget } from './types.ts'
 import { api, ApiError } from '../cloud/api.ts'
 import { createAppProject, validateAppProject } from './manifest.ts'
 import type { CompileDiagnostic, CompilePreviewAssets, CompileResult } from './compiler.ts'
 import { fetchModelBudget, requestModelPlan, approveModelPlan, requestAppGeneration } from './model-gateway.ts'
 import { approvePlan, isPlanStale, StalePlanApprovalError, validateAppPlan, PlanValidationError } from './plan.ts'
 import { computeBoundedDiff, type BoundedDiff } from './diff.ts'
+import { createPreviewMessage } from './preview-sandbox.ts'
+
+export function formatAnnotationPrompt(annotation: AppAnnotation): string {
+  return `[Target: <${annotation.tagName}> #${annotation.elementId}]\n${annotation.text}`
+}
 
 export interface ActionableDiagnostic {
   readonly title: string
@@ -410,6 +415,9 @@ export interface MakeWorkspaceState {
   previewSessionKey: number
   previewTheme: PreviewTheme
   selectedDiagnosticIndex: number | null
+  inspectMode: boolean
+  selectedElement: PreviewElementTarget | null
+  annotationDirty: boolean
   budget: ModelBudget | null
   planMode: 'idle' | 'planning' | 'inspecting' | 'revising'
   currentPlan: AppPlan | null
@@ -429,6 +437,7 @@ export interface MakeRepository {
   list(signal?: AbortSignal): Promise<AppProjectSummary[]>
   read(id: string, signal?: AbortSignal): Promise<AppProject>
   create(project: AppProject, signal?: AbortSignal): Promise<AppProject>
+  update?(project: AppProject, expectedRevision: number, signal?: AbortSignal): Promise<AppProject>
   copy?(sourceId: string, project: AppProject, signal?: AbortSignal): Promise<AppProject>
   compile(project: AppProject, signal?: AbortSignal): Promise<CompileResult>
   rollback?(id: string, expectedRevision: number, targetRevision?: number, signal?: AbortSignal): Promise<AppProjectRollbackResult>
@@ -439,6 +448,7 @@ export function createMakeRepository(accountId?: string): MakeRepository {
   return {
     list: async signal => (await api<{ apps: AppProjectSummary[] }>('/apps', { headers, signal })).apps,
     read: (id, signal) => api(`/apps/${encodeURIComponent(id)}`, { headers, signal }),
+    update: (project, expectedRevision, signal) => api(`/apps/${encodeURIComponent(project.id)}`, { method: 'PUT', headers, signal, body: JSON.stringify({ project, expectedRevision }) }),
     create: (project, signal) => api('/apps', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     compile: (project, signal) => api('/apps/compile', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     copy: (sourceId, project, signal) => api(`/apps/${encodeURIComponent(sourceId)}/copy`, { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
@@ -472,6 +482,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     previewSessionKey: 0,
     previewTheme: { mode: 'dark', background: '#080808', foreground: '#edebe1', accent: '#81adec', grid: '#222222' },
     selectedDiagnosticIndex: null,
+    inspectMode: false, selectedElement: null, annotationDirty: false,
     budget: null,
     planMode: 'idle',
     currentPlan: null,
@@ -508,7 +519,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
   function stopPreview() {
     previewGeneration++
     previewRequest?.abort()
-    setState({ previewStatus: 'idle', assets: null, diagnostics: [], errorMessage: '', selectedDiagnosticIndex: null })
+    setState({ previewStatus: 'idle', assets: null, diagnostics: [], errorMessage: '', selectedDiagnosticIndex: null, selectedElement: null, inspectMode: false })
   }
   function cancelProject() {
     projectGeneration++
@@ -523,7 +534,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     setState({
       projects: [project, ...state.projects.filter(item => item.id !== project.id)],
       activeProject: project, activeFilePath: project.preview.entryPoint,
-      projectStatus: 'idle', projectError: '',
+      projectStatus: 'idle', projectError: '', annotationDirty: false, selectedElement: null, inspectMode: false,
       currentPlan: switched ? null : state.currentPlan,
       planStatus: stale ? 'stale' : state.currentPlan && !switched && state.currentPlan.status === 'approved' ? 'approved' : 'idle',
       planError: stale ? 'Stale plan approval: the app has changed. Generate a new plan.' : '',
@@ -579,7 +590,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       projectRequest = new AbortController()
       setState({ projectStatus: 'saving', projectError: '' })
       try {
-        const copy = createAppProject({ name: draft.name, description: draft.description, files: draft.files, assetIds: draft.assetIds, sceneReference: draft.sceneReference, preview: { entryPoint: draft.preview.entryPoint } })
+        const copy = createAppProject({ name: draft.name, description: draft.description, files: draft.files, assetIds: draft.assetIds, sceneReference: draft.sceneReference, preview: { entryPoint: draft.preview.entryPoint }, annotations: draft.annotations })
         const saved = draft.assetIds.length && repository.copy
           ? await repository.copy(draft.id, copy, projectRequest.signal)
           : await repository.create(copy, projectRequest.signal)
@@ -606,6 +617,59 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       stopPreview()
       const updated = { ...state.activeProject, files: { ...state.activeProject.files, [path]: { path, content } }, updatedAt: new Date().toISOString() }
       setState({ projects: state.projects.map(project => project.id === updated.id ? updated : project), activeProject: updated, currentDiff: null })
+    },
+    setInspectMode: (inspectMode: boolean) => setState({ inspectMode }),
+    selectElement(target: PreviewElementTarget | null) {
+      if (target) createPreviewMessage('paper-preview', 'preview:element-selected', target)
+      setState({ selectedElement: target ? structuredClone(target) : null })
+    },
+    addAnnotation(input: Omit<AppAnnotation, 'id' | 'createdAt' | 'updatedAt'>): AppAnnotation {
+      if (state.projectStatus !== 'idle' || state.planStatus === 'generating_app') throw new Error('Wait for the current project operation to finish')
+      const annotation: AppAnnotation = { ...input, text: input.text.trim(), id: `ann_${crypto.randomUUID()}`, createdAt: new Date().toISOString() }
+      const project = validateAppProject({ ...state.activeProject, annotations: [...(state.activeProject.annotations ?? []), annotation], updatedAt: new Date().toISOString() })
+      invalidatePlan()
+      setState({ activeProject: project, projects: state.projects.map(item => item.id === project.id ? project : item), annotationDirty: true })
+      return annotation
+    },
+    deleteAnnotation(id: string) {
+      if (state.projectStatus !== 'idle' || state.planStatus === 'generating_app') return
+      const project = { ...state.activeProject, annotations: (state.activeProject.annotations ?? []).filter(item => item.id !== id), updatedAt: new Date().toISOString() }
+      invalidatePlan()
+      setState({ activeProject: project, projects: state.projects.map(item => item.id === project.id ? project : item), annotationDirty: true })
+    },
+    attachAnnotationToPrompt(id: string) {
+      const annotation = state.activeProject.annotations?.find(item => item.id === id)
+      if (!annotation) return
+      const part = formatAnnotationPrompt(annotation)
+      if (state.planPrompt.includes(part)) return
+      const prompt = [state.planPrompt.trim(), part].filter(Boolean).join('\n\n')
+      if (prompt.length > 64 * 1024) throw new Error('Prompt exceeds maximum length')
+      setState({ planPrompt: prompt })
+    },
+    async saveAnnotations() {
+      if (!state.annotationDirty || state.projectStatus !== 'idle' || state.planStatus === 'generating_app') return
+      const project = state.activeProject
+      if (!state.savedProjects.some(item => item.id === project.id)) return
+      cancelProject()
+      invalidatePlan()
+      const generation = projectGeneration
+      projectRequest = new AbortController()
+      setState({ projectStatus: 'saving', projectError: '' })
+      try {
+        if (!repository.update) throw new Error('Annotation saving is unavailable for this repository')
+        const saved = validateAppProject(await repository.update(project, project.revision, projectRequest.signal))
+        if (generation !== projectGeneration) return
+        if (saved.id !== project.id || saved.revision !== project.revision + 1) throw new Error('Saved annotations do not match the expected project revision')
+        if (sourceKey(state.activeProject) !== sourceKey(project)) {
+          setState({ projectStatus: 'idle', projectError: 'Project changed while saving annotations. Reload the saved revision before retrying.' })
+          return
+        }
+        setState({ activeProject: saved, projects: state.projects.map(item => item.id === saved.id ? saved : item),
+          savedProjects: [saved, ...state.savedProjects.filter(item => item.id !== saved.id)],
+          projectStatus: 'idle', projectError: '', annotationDirty: false })
+      } catch (error) {
+        if (generation === projectGeneration) setState({ projectStatus: 'idle', projectError: message(error) })
+      }
     },
     setActiveFile: (activeFilePath: string) => setState({ activeFilePath }),
     setDeviceViewport: (deviceViewport: PreviewDeviceViewport) => setState({ deviceViewport }),
@@ -638,7 +702,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     reportRuntimeError(error: { message: string }) {
       previewGeneration++
       previewRequest?.abort()
-      setState({ previewStatus: 'error', assets: null, errorMessage: `Runtime error: ${error.message}`, diagnostics: [] })
+      setState({ previewStatus: 'error', assets: null, errorMessage: `Runtime error: ${error.message}`, diagnostics: [], selectedElement: null, inspectMode: false })
     },
     async loadBudget() {
       budgetRequest?.abort()
@@ -843,7 +907,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
 
         setState({
           projects: [updatedProject, ...state.projects.filter(p => p.id !== updatedProject.id)],
-          activeProject: updatedProject,
+          activeProject: updatedProject, selectedElement: null, inspectMode: false,
           activeFilePath: updatedProject.preview.entryPoint,
           previewStatus: 'ready',
           assets: result.assets,
@@ -905,7 +969,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
         planSource = null
         setState({
           projects: [restored, ...state.projects.filter(p => p.id !== restored.id)],
-          activeProject: restored, activeFilePath: restored.preview.entryPoint,
+          activeProject: restored, selectedElement: null, inspectMode: false, activeFilePath: restored.preview.entryPoint,
           projectStatus: 'idle', previewStatus: 'ready', assets: compiled.assets,
           diagnostics: [...compiled.diagnostics], errorMessage: '',
           rollbackPoint: null, currentDiff: null, planStatus: 'idle', currentPlan: null,

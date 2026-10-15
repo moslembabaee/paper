@@ -1,8 +1,8 @@
 # 🗺️ Live Development Roadmap & Task Tracker
 
-> **Last Updated:** `2026-10-15 07:56:08 UTC`  
+> **Last Updated:** `2026-10-15 08:40:41 UTC`  
 > **Supervisor:** Autonomous Tri-Agent Orchestra (`Claude Code` ↔ `OpenAI Codex` ↔ `Google Antigravity`)  
-> **Progress:** `[████████████████░░░░]` **68 / 82** tasks completed (**82%**)
+> **Progress:** `[████████████████░░░░]` **69 / 82** tasks completed (**84%**)
 
 ---
 
@@ -22,6 +22,7 @@ _All queued tasks in this cycle are completed. New evolution tasks are continuou
 
 | Status | Task ID | Title | Agent | Phase | Completed At |
 |:---:|:---|:---|:---:|:---|:---|
+| 🟢 Done | `T-ISSUE-31` | Issue #31: feat(make 14): Select preview element and attach annotations | `CLAUDE` | Paper Make | `2026-10-15 08:40:41` |
 | 🟢 Done | `T-ISSUE-30` | Issue #30: feat(make 13): Responsive preview breakpoints and interaction checks | `CLAUDE` | Paper Make | `2026-10-15 07:56:08` |
 | 🟢 Done | `T-ISSUE-29` | Issue #29: feat(make 12): Validated image and font asset pipeline | `CLAUDE` | Paper Make | `2026-10-15 07:09:25` |
 | 🟢 Done | `T-ISSUE-28` | Issue #28: feat(make 11): Selected Paper frame as bounded design context | `CLAUDE` | Paper Make | `2026-10-15 06:13:48` |

@@ -464,6 +464,12 @@ exports.default = {};
     },
     reportDiagnostics: true,
     transformers: { before: [context => sourceFile => {
+      // A source-site ID includes the whole module path, not just its basename.
+      let fileHash = 2166136261
+      for (const char of analyzed.path) fileHash = Math.imul(fileHash ^ char.charCodeAt(0), 16777619)
+      const fileSlug = `p-${(fileHash >>> 0).toString(36)}`
+      let elementCounter = 0
+
       const visit: ts.Visitor = node => {
         if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
           const resolved = analyzed.resolvedImports[node.moduleSpecifier.text]
@@ -472,6 +478,22 @@ exports.default = {};
         if (ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
           const resolved = analyzed.resolvedImports[node.moduleSpecifier.text]
           if (resolved) return context.factory.updateExportDeclaration(node, node.modifiers, node.isTypeOnly, node.exportClause, context.factory.createStringLiteral(resolved), node.attributes)
+        }
+        if ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+          ts.isIdentifier(node.tagName) && /^[a-z]/.test(node.tagName.text)) {
+          const site = ++elementCounter
+          const hasPaperId = node.attributes.properties.some(prop => ts.isJsxAttribute(prop) && ts.isIdentifier(prop.name) && prop.name.text === 'data-paper-id')
+          if (!hasPaperId) {
+            const idAttr = context.factory.createJsxAttribute(
+              context.factory.createIdentifier('data-paper-id'),
+              context.factory.createStringLiteral(`${fileSlug}-${node.tagName.text}-${site}`),
+            )
+            const attributes = context.factory.updateJsxAttributes(node.attributes, [...node.attributes.properties, idAttr])
+            const updated = ts.isJsxOpeningElement(node)
+              ? context.factory.updateJsxOpeningElement(node, node.tagName, node.typeArguments, attributes)
+              : context.factory.updateJsxSelfClosingElement(node, node.tagName, node.typeArguments, attributes)
+            return ts.visitEachChild(updated, visit, context)
+          }
         }
         return ts.visitEachChild(node, visit, context)
       }

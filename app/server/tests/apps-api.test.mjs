@@ -528,3 +528,28 @@ test('malformed URL encoding and invalid IDs return client errors', async t => {
     assert.equal((await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ id }) })).status, 400)
   }
 })
+
+test('annotations persist across service restart, remain account scoped and reject stale or malformed writes', async t => {
+  const f = await fixture(t)
+  const owner = await f.login('annotation-owner')
+  const other = await f.login('annotation-other')
+  const input = createAppProject({ id: 'annotated-preview', files: { 'src/App.tsx': 'export default () => <button>Action</button>' } })
+  const created = await f.request('/api/apps', { method: 'POST', headers: owner.headers, body: JSON.stringify({ project: input }) })
+  assert.equal(created.status, 201)
+  const annotation = { id: 'ann_saved', elementId: 'p-app-button-1~1', tagName: 'button', text: 'Make this blue', createdAt: new Date().toISOString() }
+  const body = { project: { ...created.data, annotations: [annotation] }, expectedRevision: created.data.revision }
+  const updated = await f.request('/api/apps/annotated-preview', { method: 'PUT', headers: owner.headers, body: JSON.stringify(body) })
+  assert.equal(updated.status, 200)
+  assert.deepEqual(updated.data.annotations, [annotation])
+  assert.deepEqual(updated.data.files, created.data.files)
+  assert.equal((await f.request('/api/apps/annotated-preview', { method: 'PUT', headers: owner.headers, body: JSON.stringify(body) })).status, 409)
+  assert.equal((await f.request('/api/apps/annotated-preview', { headers: other.headers })).status, 404)
+  const malformed = { project: { ...updated.data, annotations: [{ ...annotation, innerHTML: '<script>bad()</script>' }] }, expectedRevision: updated.data.revision }
+  assert.equal((await f.request('/api/apps/annotated-preview', { method: 'PUT', headers: owner.headers, body: JSON.stringify(malformed) })).status, 400)
+  const restarted = await createService({ root: f.root, secret, origin: 'http://localhost:3000' })
+  t.after(() => restarted.close())
+  const reloaded = await restarted.storage.apps.read(owner.user.id, input.id)
+  assert.deepEqual(reloaded.annotations, [annotation])
+  assert.equal(reloaded.revision, updated.data.revision)
+  assert.deepEqual(reloaded.files, created.data.files)
+})

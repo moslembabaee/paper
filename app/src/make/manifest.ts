@@ -1,4 +1,5 @@
 import type {
+  AppAnnotation,
   AppProject,
   AppProjectInput,
   AppProjectLimits,
@@ -369,7 +370,7 @@ export function parseJsonStrict(text: string, maxBytes = APP_PROJECT_LIMITS.MAX_
   return result
 }
 
-const PROJECT_FIELDS = ['format', 'version', 'id', 'name', 'description', 'revision', 'sceneReference', 'files', 'assetIds', 'release', 'preview', 'createdAt', 'updatedAt'] as const
+const PROJECT_FIELDS = ['format', 'version', 'id', 'name', 'description', 'revision', 'sceneReference', 'files', 'assetIds', 'release', 'preview', 'annotations', 'createdAt', 'updatedAt'] as const
 const INPUT_FIELDS = PROJECT_FIELDS.filter(key => key !== 'format' && key !== 'version')
 const SCENE_FIELDS = ['projectId', 'sceneId', 'revision', 'frameId', 'snapshotAt']
 const RELEASE_FIELDS = ['status', 'channel', 'notes', 'publishedAt', 'url']
@@ -380,7 +381,7 @@ export function validateAppProject(data: unknown): AppProject {
   const raw = record(data, 'AppProject')
   if (raw.format !== 'paper-app') fail("Unsupported format: not a paper app")
   if (raw.version !== 1) fail('Unsupported app project version')
-  fields(raw, PROJECT_FIELDS, PROJECT_FIELDS.filter(key => key !== 'description'))
+  fields(raw, PROJECT_FIELDS, PROJECT_FIELDS.filter(key => key !== 'description' && key !== 'annotations'))
   const id = string(raw.id, 'Project ID')
   const name = string(raw.name, 'Project name', APP_PROJECT_LIMITS.MAX_NAME_LENGTH).trim()
   const description = optionalString(raw.description, 'Project description')
@@ -450,9 +451,41 @@ export function validateAppProject(data: unknown): AppProject {
   const error = optionalString(prv.error, 'preview.error')
   const preview: AppPreviewConfig = { status: prv.status as AppPreviewStatus, entryPoint, ...(error !== undefined ? { error } : {}) }
 
+  let annotations: AppAnnotation[] | undefined = undefined
+  if (raw.annotations !== undefined) {
+    if (!Array.isArray(raw.annotations)) fail('annotations must be an array')
+    if (raw.annotations.length > 200) fail('annotations count exceeds limit of 200')
+    const annotationIds = new Set<string>()
+    annotations = raw.annotations.map((item, idx) => {
+      const ann = record(item, `annotation[${idx}]`)
+      fields(ann, ['id', 'elementId', 'tagName', 'text', 'selector', 'layerId', 'previewText', 'createdAt', 'updatedAt'], ['id', 'elementId', 'tagName', 'text', 'createdAt'])
+      const annotationId = string(ann.id, `annotation[${idx}].id`, 64)
+      if (annotationIds.has(annotationId)) fail('Duplicate annotation ID')
+      annotationIds.add(annotationId)
+      if (typeof ann.elementId !== 'string' || !/^[a-zA-Z0-9_~.:-]+$/.test(ann.elementId) ||
+        typeof ann.tagName !== 'string' || !/^[a-zA-Z0-9-]+$/.test(ann.tagName)) fail('Invalid annotation target')
+      if (ann.selector !== undefined && (typeof ann.selector !== 'string' || /[<]/.test(ann.selector))) fail('Invalid annotation selector')
+      if (ann.previewText !== undefined && (typeof ann.previewText !== 'string' || /[<>]/.test(ann.previewText))) fail('Invalid annotation preview text')
+      if (ann.layerId !== undefined && (typeof ann.layerId !== 'string' || !/^[a-zA-Z0-9_~.:-]+$/.test(ann.layerId))) fail('Invalid annotation layer ID')
+      return {
+        id: annotationId,
+        elementId: string(ann.elementId, `annotation[${idx}].elementId`, 128),
+        tagName: string(ann.tagName, `annotation[${idx}].tagName`, 32),
+        text: string(ann.text, `annotation[${idx}].text`, 2048),
+        ...(ann.selector !== undefined ? { selector: string(ann.selector, `annotation[${idx}].selector`, 256) } : {}),
+        ...(ann.layerId !== undefined ? { layerId: string(ann.layerId, `annotation[${idx}].layerId`, 64) } : {}),
+        ...(ann.previewText !== undefined ? { previewText: string(ann.previewText, `annotation[${idx}].previewText`, 128, true) } : {}),
+        createdAt: timestamp(ann.createdAt, `annotation[${idx}].createdAt`),
+        ...(ann.updatedAt !== undefined ? { updatedAt: timestamp(ann.updatedAt, `annotation[${idx}].updatedAt`) } : {}),
+      }
+    })
+  }
+
   const result: AppProject = {
     format: 'paper-app', version: 1, id, name, ...(description !== undefined ? { description } : {}),
-    revision: projectRevision, sceneReference, files, assetIds, release, preview, createdAt, updatedAt,
+    revision: projectRevision, sceneReference, files, assetIds, release, preview,
+    ...(annotations !== undefined ? { annotations } : {}),
+    createdAt, updatedAt,
   }
   // Include JSON escaping and formatting overhead, so every valid project can round-trip.
   payloadLimit(JSON.stringify(result, null, 2))
@@ -496,6 +529,7 @@ export function createAppProject(input: AppProjectInput = {}): AppProject {
     assetIds: raw.assetIds === undefined ? [] : raw.assetIds,
     release: { status: 'draft', ...release },
     preview: { status: 'idle', entryPoint: 'src/App.tsx', ...preview },
+    ...(raw.annotations !== undefined ? { annotations: raw.annotations } : {}),
     createdAt: raw.createdAt === undefined ? now : raw.createdAt,
     updatedAt: raw.updatedAt === undefined ? now : raw.updatedAt,
   })
