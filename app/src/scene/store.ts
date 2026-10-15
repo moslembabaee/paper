@@ -1,3 +1,5 @@
+import { EMPTY_MOTION, pruneMotion, validateMotion } from '../motion/model.ts'
+import type { MotionDocument } from '../motion/types.ts'
 import type { ComponentProperty, ComponentPropertyValue } from './types.ts'
 import { releaseComponentResources, validPropertyValue, validatePropertyTargets } from './componentProperties.ts'
 import { EMPTY_COMMENTS, validateComments } from '../comments/model.ts'
@@ -108,6 +110,10 @@ export class SceneStore {
       elements = reflowAutoLayout(elements, next.rootIds)
       validateMaskGraph(elements)
       if (elements !== next.elements) next = Object.freeze({ ...next, elements: Object.freeze(elements) })
+      if (next.motion) {
+        const motion = pruneMotion(next.motion, elements)
+        if (motion !== next.motion) next = Object.freeze({ ...next, motion })
+      }
       if (next.prototype) {
         const prototype = prunePrototype(next.prototype, elements)
         if (prototype !== next.prototype) next = Object.freeze({ ...next, prototype })
@@ -843,6 +849,11 @@ export class SceneStore {
     if (!equalValue(this.state.comments ?? EMPTY_COMMENTS, comments)) this.publish(Object.freeze({ ...this.state, comments }), label)
   }
 
+  setMotion(value: MotionDocument, label = 'Edit motion'): void {
+    const motion = validateMotion(value, this.state.elements)
+    if (!equalValue(this.state.motion ?? EMPTY_MOTION, motion)) this.publish(Object.freeze({ ...this.state, motion }), label)
+  }
+
   setPrototype(value: PrototypeDocument, label = 'Edit prototype'): void {
     const prototype = validatePrototype(value, this.state.elements)
     if (!equalValue(this.state.prototype ?? EMPTY_PROTOTYPE, prototype)) this.publish(Object.freeze({ ...this.state, prototype }), label)
@@ -865,7 +876,7 @@ export class SceneStore {
     this.setPrototype({ ...value, interactions: value.interactions.filter(item => item.id !== id) }, 'Remove interaction')
   }
 
-  toJSON(): SceneDocument { return { version: 1, ...(this.state.comments ? { comments: this.state.comments } : {}), tokens: this.state.tokens, styleLibrary: this.state.styleLibrary, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.prototype ? { prototype: this.state.prototype } : {}), ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
+  toJSON(): SceneDocument { return { version: 1, ...(this.state.motion ? { motion: this.state.motion } : {}), ...(this.state.comments ? { comments: this.state.comments } : {}), tokens: this.state.tokens, styleLibrary: this.state.styleLibrary, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.prototype ? { prototype: this.state.prototype } : {}), ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
 
   /** Font loading changes text metrics without creating a user edit. */
   refreshLayout(): void {
@@ -929,8 +940,9 @@ export class SceneStore {
     if (visited.size !== Object.keys(elements).length) throw new Error('Unreachable scene elements')
     validateMaskGraph(elements)
     validateComponentGraph(elements, resolvedTokens, styleLibrary)
+    const motion = document.motion === undefined ? undefined : validateMotion(document.motion, elements)
     const comments = document.comments === undefined ? undefined : validateComments(document.comments)
     const prototype = document.prototype === undefined ? undefined : validatePrototype(document.prototype, elements)
-    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(comments ? { comments } : {}), ...(prototype ? { prototype } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
+    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(motion ? { motion } : {}), ...(comments ? { comments } : {}), ...(prototype ? { prototype } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
   }
 }

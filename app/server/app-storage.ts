@@ -21,6 +21,17 @@ import {
   AppAssetValidationError,
 } from '../src/make/assets.ts'
 import { httpError, safeId, hash } from './storage.ts'
+import type { AppPublication } from '../src/make/types.ts'
+import type { AppAccessGrant, SharedApp, SharedAppSummary } from '../src/make/sharing.ts'
+
+interface PublicationState {
+  stamp: string
+  generation: string
+  current: AppPublication | null
+  versions: AppPublication[]
+}
+
+interface StoredAppAccessGrant extends AppAccessGrant { hash: string }
 
 // Like scene storage, one service process owns the volume. Share locks across
 // store instances in that process; reads use immutable snapshots without locks.
@@ -48,6 +59,221 @@ export class AppStorage {
   readonly root: string
 
   constructor(root: string) { this.root = resolve(root) }
+
+  private async permissionState(owner: string, id: string): Promise<StoredAppAccessGrant[]> {
+    if (!await this.read(owner, id)) throw httpError(404, 'App project not found')
+    try {
+      const value: unknown = JSON.parse(await this.readText(join(await this.appDirectory(owner, id), 'permissions.json'), 64 * 1024))
+      if (!Array.isArray(value) || value.length > 100 || value.some(g => !g || typeof g !== 'object' ||
+        typeof g.accountId !== 'string' || !/^[a-f0-9]{64}$/.test(g.accountId) ||
+        !['viewer', 'editor'].includes(g.role) || !Number.isSafeInteger(g.revision) || g.revision < 1 ||
+        typeof g.hash !== 'string' || !/^[a-f0-9]{64}$/.test(g.hash))) throw httpError(500, 'Invalid stored permissions')
+      return value as StoredAppAccessGrant[]
+    } catch (error) { if (missing(error)) return []; throw error }
+  }
+
+  async permissions(owner: string, id: string): Promise<AppAccessGrant[]> {
+    return (await this.permissionState(owner, id)).map(({ hash: _hash, ...grant }) => grant)
+  }
+
+  private async writePermissions(owner: string, id: string, grants: StoredAppAccessGrant[]) {
+    const directory = await this.appDirectory(owner, id)
+    const temporary = join(directory, `.permissions_${randomUUID()}`)
+    try {
+      await this.writeText(temporary, JSON.stringify(grants))
+      await fs.rename(temporary, join(directory, 'permissions.json'))
+      await this.syncDirectory(directory)
+    } finally { await fs.rm(temporary, { force: true }).catch(() => {}) }
+  }
+
+  async setPermission(owner: string, id: string, accountId: string, grant: { role: AppAccessGrant['role']; revision?: number } | null) {
+    return this.locked(owner, id, async () => {
+      const grants = await this.permissionState(owner, id)
+      if (owner === accountId) throw httpError(400, 'The owner role cannot be changed')
+      let updated: StoredAppAccessGrant | undefined
+      if (grant) {
+        if (grant.revision === undefined) {
+          const existing = grants.find(item => item.accountId === accountId)
+          if (!existing) throw httpError(400, 'Choose an existing saved revision')
+          // Role changes retain both the snapshot and its integrity binding.
+          // Resolve under the writer lock so concurrent edits cannot advance it.
+          updated = { ...existing, role: grant.role }
+        } else {
+          const record = await this.readRevision(owner, id, grant.revision)
+          if (!record) throw httpError(400, 'Choose an existing saved revision')
+          updated = { accountId, role: grant.role, revision: grant.revision, hash: record.hash }
+        }
+      }
+      const next = grants.filter(item => item.accountId !== accountId)
+      if (updated) next.push(updated)
+      if (next.length > 100) throw httpError(413, 'A project supports up to 100 reviewers')
+      await this.writePermissions(owner, id, next)
+      return next.map(({ hash: _hash, ...value }) => value)
+    })
+  }
+
+  private async sharedSnapshot(owner: string, id: string, accountId: string): Promise<SharedApp> {
+    const grant = (await this.permissionState(owner, id)).find(item => item.accountId === accountId)
+    if (!grant) throw httpError(404, 'Shared app not found')
+    const record = await this.readRevision(owner, id, grant.revision)
+    if (!record || record.hash !== grant.hash) throw httpError(404, 'Shared revision not found')
+    return { ownerId: owner, role: grant.role, project: record.project }
+  }
+
+  // Serialize authorization, byte resolution and responses with revocation and
+  // source writers. A revoked request cannot finish a later asset/compile read.
+  async withShared<T>(owner: string, id: string, accountId: string, read: (shared: SharedApp) => Promise<T>): Promise<T> {
+    return this.locked(owner, id, async () => read(await this.sharedSnapshot(owner, id, accountId)))
+  }
+
+  async listShared(accountId: string): Promise<SharedAppSummary[]> {
+    await this.userDirectory(accountId)
+    const result: SharedAppSummary[] = []
+    for (const owner of await fs.readdir(join(this.root, 'apps'), { withFileTypes: true })) {
+      if (!owner.isDirectory() || !/^[a-f0-9]{64}$/.test(owner.name) || owner.name === accountId) continue
+      for (const app of await fs.readdir(await this.userDirectory(owner.name), { withFileTypes: true })) {
+        if (!app.isDirectory() || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,159}$/.test(app.name)) continue
+        try {
+          await this.withShared(owner.name, app.name, accountId, async ({ role, project }) => {
+            result.push({ ownerId: owner.name, id: project.id, name: project.name, role, revision: project.revision })
+          })
+        } catch (error) { if ((error as { status?: number }).status !== 404 && !missing(error)) throw error }
+      }
+    }
+    return result.sort((a, b) => a.name.localeCompare(b.name) || a.ownerId.localeCompare(b.ownerId))
+  }
+
+  async editShared(owner: string, id: string, accountId: string, input: unknown, expected: unknown,
+    validate: (project: AppProject) => Promise<void>): Promise<SharedApp> {
+    return this.locked(owner, id, async () => {
+      const shared = await this.sharedSnapshot(owner, id, accountId)
+      if (shared.role !== 'editor') throw httpError(403, 'Viewer access is read-only')
+      const current = await this.read(owner, id)
+      if (expected !== shared.project.revision || current?.revision !== expected) throw httpError(409, 'The owner must share the latest saved revision before you can edit')
+      const project = validateAppProject(input)
+      const candidate = validateAppProject({ ...shared.project, files: project.files, name: project.name,
+        ...(project.description !== undefined ? { description: project.description } : {}) })
+      if (serializeAppProject(project) !== serializeAppProject(candidate)) throw httpError(400, 'Editors may change source, name and description only')
+      // Do not let a guessed asset ID in editor source resolve private bytes.
+      await validate(candidate)
+      const grants = await this.permissionState(owner, id)
+      const timestamp = new Date().toISOString()
+      const next = validateAppProject({ ...candidate, revision: current.revision + 1, updatedAt: timestamp })
+      const checkpoint: AppCheckpointMetadata = { source: 'manual', baseRevision: current.revision }
+      const nextHash = hash(serializeAppProject(next) + JSON.stringify(checkpoint))
+      // Install the next grant before publishing under this same lock. An
+      // interrupted write fails closed; failed source writes restore the grant.
+      await this.writePermissions(owner, id, grants.map(g => g.accountId === accountId ? { ...g, revision: next.revision, hash: nextHash } : g))
+      try {
+        const saved = await this.publish(owner, id, candidate, current.revision, undefined, timestamp)
+        return { ...shared, project: saved }
+      } catch (error) { await this.writePermissions(owner, id, grants); throw error }
+    })
+  }
+
+  private async publicationState(user: string, id: string): Promise<PublicationState | null> {
+    try {
+      const directory = await this.appDirectory(user, id)
+      if (!await this.head(directory, id)) return null
+      return JSON.parse(await this.readText(join(directory, 'publication.json'), 64 * 1024)) as PublicationState
+    } catch (error) { if (missing(error)) return null; throw error }
+  }
+
+  async publication(user: string, id: string): Promise<AppPublication | null> {
+    return (await this.publicationState(user, id))?.current ?? null
+  }
+
+  async publicationStamp(user: string, id: string): Promise<string | null> {
+    return (await this.publicationState(user, id))?.stamp ?? null
+  }
+
+  // Shares the source writer lock: a validation result can only publish its
+  // exact saved revision. Publication never modifies source or revision history.
+  async setPublication(user: string, id: string, expectedRevision: number, origin: string, html: string | null,
+    cancelled: () => boolean = () => false, expectedStamp?: string | null, expectedProject?: AppProject): Promise<AppPublication | null> {
+    const expectedManifest = expectedProject ? serializeAppProject(expectedProject) : undefined
+    return this.locked(user, id, async () => {
+      const project = await this.read(user, id)
+      if (!project) throw httpError(404, 'App project not found')
+      // Revision numbers can repeat after deletion/recreation. Require the full
+      // validated snapshot too, while holding the same lock as source writers.
+      if (project.revision !== expectedRevision || (expectedManifest !== undefined && serializeAppProject(project) !== expectedManifest)) {
+        throw httpError(409, 'App revision changed. Review and retry publication.')
+      }
+      if (cancelled()) throw httpError(422, 'Publication cancelled')
+      const directory = await this.appDirectory(user, id)
+      const path = join(directory, 'publication.json')
+      const previous = await this.publicationState(user, id)
+      if (expectedStamp !== undefined && (previous?.stamp ?? null) !== expectedStamp) {
+        throw httpError(409, 'Publication changed during validation. Review and retry.')
+      }
+      if (html === null) {
+        // Keep a tombstone so an in-flight first publication cannot resurrect
+        // the app after an explicit unpublish (including the null -> null case).
+        const tombstone = join(directory, `.publication_${randomUUID()}`)
+        try {
+          await this.writeText(tombstone, JSON.stringify({ stamp: randomUUID(), generation: '', current: null, versions: [] }))
+          await fs.rename(tombstone, path)
+          await this.syncDirectory(directory)
+        } finally { await fs.rm(tombstone, { force: true }).catch(() => {}) }
+        for (const name of await fs.readdir(directory)) {
+          if (/^release-[a-f0-9-]{36}-[a-f0-9]{64}\.html$/.test(name)) await fs.rm(join(directory, name), { force: true }).catch(() => {})
+        }
+        return null
+      }
+      const version = hash(`${expectedRevision}\n${html}`)
+      const generation = previous?.current ? previous.generation : randomUUID()
+      const current: AppPublication = { revision: expectedRevision, version,
+        url: `${origin}/r/${user}/${id}/${generation}/${version}/`, publishedAt: new Date().toISOString() }
+      if (previous?.current?.version === version) return previous.current
+      if ((previous?.versions.length ?? 0) >= 20) throw httpError(413, 'Release history is full. Unpublish before publishing again.')
+      if (Buffer.byteLength(html) > 16 * 1024 * 1024) throw httpError(413, 'Published app is too large')
+      const artifact = join(directory, `release-${generation}-${version}.html`)
+      const staging = join(directory, `.publication_${randomUUID()}`)
+      let installed = false
+      try {
+        // Immutable bytes are made durable before the single activation point.
+        try { await this.writeText(artifact, html) }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+          if (await this.readText(artifact, 16 * 1024 * 1024) !== html) throw httpError(500, 'Release integrity check failed') }
+        const state: PublicationState = { stamp: randomUUID(), generation, current, versions: [...(previous?.versions ?? []).filter(v => v.version !== version), current] }
+        await this.writeText(staging, JSON.stringify(state))
+        await this.syncDirectory(directory)
+        if (cancelled()) throw httpError(422, 'Publication cancelled')
+        await fs.rename(staging, path)
+        installed = true
+        await this.syncDirectory(directory)
+      } catch (error) {
+        if (installed) {
+          if (previous) {
+            await this.writeText(staging, JSON.stringify(previous))
+            await fs.rename(staging, path)
+          } else await fs.unlink(path)
+          await this.syncDirectory(directory)
+          installed = false
+        }
+        throw error
+      } finally {
+        await fs.rm(staging, { force: true }).catch(() => {})
+        if (!installed && !previous?.versions.some(v => v.version === version)) {
+          await fs.rm(artifact, { force: true }).catch(() => {})
+        }
+      }
+      return current
+    })
+  }
+
+  async publicPublication(user: string, id: string, generation: string, version: string): Promise<string | null> {
+    const state = await this.publicationState(user, id)
+    if (!state || state.generation !== generation || !state.versions.some(v => v.version === version)) return null
+    const directory = await this.appDirectory(user, id)
+    const html = await this.readText(join(directory, `release-${generation}-${version}.html`), 16 * 1024 * 1024)
+    const metadata = state.versions.find(v => v.version === version)!
+    if (hash(`${metadata.revision}\n${html}`) !== version) throw httpError(500, 'Release integrity check failed')
+    // Recheck revocation after reading the immutable bytes.
+    if ((await this.publicationState(user, id))?.generation !== generation) return null
+    return html
+  }
 
   private async locked<T>(user: string, id: string, fn: () => Promise<T>): Promise<T> {
     const key = JSON.stringify([this.root, user, id])
@@ -264,12 +490,12 @@ export class AppStorage {
   }
 
   private async publish(user: string, id: string, inputProject: AppProject, expectedRevision: number | null,
-    metadata?: Omit<AppCheckpointMetadata, 'baseRevision'>): Promise<AppProject> {
+    metadata?: Omit<AppCheckpointMetadata, 'baseRevision'>, timestamp?: string): Promise<AppProject> {
       const current = await this.read(user, id)
       if (expectedRevision !== (current?.revision ?? null)) {
         throw Object.assign(httpError(409, 'Revision conflict'), { current })
       }
-      const now = new Date().toISOString()
+      const now = timestamp ?? new Date().toISOString()
       const candidate = validateAppProject({ ...inputProject, id, revision: (current?.revision ?? 0) + 1,
         createdAt: current?.createdAt ?? now, updatedAt: now })
       // Private IDs may only refer to bytes already stored in this account/app.

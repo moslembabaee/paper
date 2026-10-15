@@ -1,5 +1,7 @@
 # Export, import, and local projects
 
+For functional apps built in Make, see [download runnable source ZIPs](make-source-export.md).
+
 Use **Export** in the header to open the export studio. Choose **SVG**, **PNG**, **WebP**, or **PDF**, then select any combination of **1×, 2×, and 3×** scales, independently of editor zoom. Choose a transparent background or Paper cream. Selected frames export at their artboard size; the whole canvas covers visible artwork. Rulers, grid, selection handles, labels, and editor chrome are excluded.
 
 **Artboards** exports visible top-level frames as separate assets. **Selection** combines the selected layers into one asset. **Selected layers** exports each selected root separately, deduplicating descendants of selected frames. **Whole canvas** exports a single composition. Check the artwork to include and click a row to preview it. The live preview follows artwork, format, background, gamut, and WebP quality changes; it is capped at 480 px and debounced to keep editing responsive. Changing output scale updates dimensions without rerendering the thumbnail.

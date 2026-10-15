@@ -19,11 +19,14 @@ import { validateAppInBrowser, boundedDiagnostics, type AppBrowserValidator, typ
 import { redactSensitiveText } from '../src/make/model-protocol.ts'
 import type { AppValidationAttempt, AppValidationReport } from '../src/make/types.ts'
 import { formatSourceFile } from './source-format.ts'
+import { exportRunnableSource, sourceExportFingerprint } from './source-export.ts'
+import { createPublicHandler, publicationDocument, publicationOrigin } from './publication.ts'
 
 export interface ServiceConfig {
   root: string
   secret: string
   origin: string
+  releaseOrigin?: string
   google?: { clientId: string; clientSecret: string }
   github?: { clientId: string; clientSecret: string }
   fetch?: typeof fetch
@@ -84,6 +87,7 @@ function decodeAppPath(value: string): string {
 function json(res: ServerResponse, status: number, value: unknown) { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(JSON.stringify(value)) }
 export async function createService(config: ServiceConfig) {
   const origin = new URL(config.origin).origin
+  const releaseOrigin = publicationOrigin(config.releaseOrigin, origin)
   const auth = new Auth(config.root, config.secret)
   await auth.initialize(config.root)
   const storage = new Storage(config.root)
@@ -91,6 +95,7 @@ export async function createService(config: ServiceConfig) {
   const requestFetch = config.fetch ?? fetch
   const streams = new Map<string, Set<ServerResponse>>()
   const attempts = new Map<string, { provider: string; verifier: string; expires: number }>()
+  const exportApprovals = new Map<string, { fingerprint: string; expires: number }>()
   const rates = new Map<string, { count: number; until: number }>()
   const emit = (user: string, record: CloudProject) => {
     mcp.notify(user, record)
@@ -469,6 +474,71 @@ export async function createService(config: ServiceConfig) {
         if (req.method === 'PUT') { const input = await body(req, parsed); const record = await storage.put(user.id, id, input.document, input.expectedRevision, input.updatedAt); emit(user.id, record); json(res, 200, record); return }
       }
       // App Projects CRUD collection
+      const permissionsRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/permissions$/)
+      if (permissionsRoute) {
+        const id = safeId(decodeAppPath(permissionsRoute[2]), 'app ID')
+        // Check project ownership before validating target identities.
+        const grants = await storage.apps.permissions(user.id, id)
+        if (req.method === 'GET') { json(res, 200, { role: 'owner', grants }); return }
+        if (req.method !== 'PUT' && req.method !== 'DELETE') throw httpError(405, 'Method not allowed')
+        const input = await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES)
+        const deleting = req.method === 'DELETE'
+        if (Object.keys(input).some(key => !(deleting ? ['accountId'] : ['accountId', 'role', 'revision']).includes(key))) throw httpError(400, 'Unknown permission field')
+        const accountId = safeId(input.accountId, 'Paper account ID')
+        if (accountId === user.id) throw httpError(400, 'The owner role cannot be changed')
+        if (!deleting && (!['viewer', 'editor'].includes(input.role as string) ||
+          (input.revision !== undefined && (!Number.isSafeInteger(input.revision) || Number(input.revision) < 1)))) throw httpError(400, 'Choose Viewer or Editor and a saved revision')
+        if (!deleting && !auth.hasAccount(accountId)) throw httpError(404, 'Paper account not found')
+        const updated = await storage.apps.setPermission(user.id, id, accountId, deleting ? null : {
+          role: input.role as 'viewer' | 'editor',
+          ...(input.revision !== undefined ? { revision: Number(input.revision) } : {}),
+        })
+        json(res, 200, { role: 'owner', grants: updated }); return
+      }
+      if (path === '/api/shared-apps' && req.method === 'GET') {
+        json(res, 200, { apps: await storage.apps.listShared(user.id) }); return
+      }
+      const sharedRoute = path.match(/^\/api\/shared-apps\/([^/]+)\/([^/]+)(\/.*)?$/)
+      if (sharedRoute) {
+        const owner = safeId(decodeAppPath(sharedRoute[1]), 'owner ID')
+        const id = safeId(decodeAppPath(sharedRoute[2]), 'app ID')
+        const suffix = sharedRoute[3] ?? ''
+        if (!suffix && req.method === 'PUT') {
+          // Authorization precedes body handling, with a second check at commit.
+          await storage.apps.withShared(owner, id, user.id, async shared => {
+            if (shared.role !== 'editor') throw httpError(403, 'Viewer access is read-only')
+          })
+          const input = await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES)
+          if (Object.keys(input).some(key => !['project', 'expectedRevision'].includes(key))) throw httpError(400, 'Expected project and expectedRevision')
+          const saved = await storage.apps.editShared(owner, id, user.id, input.project, input.expectedRevision, async project => {
+            const result = await compileWithAssets(owner, project)
+            if (!result.success || !result.assets || result.diagnostics.some(d => d.severity === 'error')) throw httpError(422, 'Shared edit build validation failed. Saved source is unchanged.')
+          })
+          emitApp(owner, saved.project)
+          json(res, 200, saved); return
+        }
+        await storage.apps.withShared(owner, id, user.id, async shared => {
+          if (!suffix && req.method === 'GET') { json(res, 200, shared); return }
+          if (suffix === '/compile' && req.method === 'POST') {
+            json(res, 200, await compileWithAssets(owner, shared.project)); return
+          }
+          if (req.method === 'GET' && suffix === '/assets') {
+            const records = await storage.apps.resolveAssets(owner, shared.project)
+            json(res, 200, { assets: records.map(({ dataBase64: _bytes, ...asset }) => asset) }); return
+          }
+          if (req.method === 'GET' && /^\/assets\/[^/]+$/.test(suffix)) {
+            const assetId = validateAssetId(decodeAppPath(suffix.slice('/assets/'.length)))
+            if (!shared.project.assetIds.includes(assetId)) throw httpError(404, 'App asset not found')
+            const asset = (await storage.apps.resolveAssets(owner, shared.project)).find(asset => asset.id === assetId)
+            if (!asset) throw httpError(404, 'App asset not found')
+            res.writeHead(200, { 'Content-Type': asset.mimeType, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff',
+              'Content-Security-Policy': "default-src 'none'; sandbox", 'Content-Length': asset.byteSize })
+            res.end(Buffer.from(asset.dataBase64, 'base64')); return
+          }
+          throw httpError(403, 'This action requires the project owner')
+        })
+        return
+      }
       const appsCollection = path.match(/^\/api\/(apps|app-projects)$/)
       if (appsCollection) {
         if (req.method === 'GET') {
@@ -560,6 +630,93 @@ export async function createService(config: ServiceConfig) {
         }
         throw httpError(405, 'Method not allowed')
       }
+      const releaseRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/release$/)
+      if (releaseRoute) {
+        const id = safeId(decodeAppPath(releaseRoute[2]), 'app ID')
+        const project = await storage.apps.read(user.id, id)
+        if (!project) throw httpError(404, 'App project not found')
+        if (req.method === 'GET') { json(res, 200, await storage.apps.publication(user.id, id)); return }
+        if (req.method !== 'POST' && req.method !== 'DELETE') throw httpError(405, 'Method not allowed')
+        const input = await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES)
+        if (Object.keys(input).some(key => key !== 'expectedRevision') || !Number.isSafeInteger(input.expectedRevision) || Number(input.expectedRevision) < 1) {
+          throw httpError(400, 'Only a positive expectedRevision is accepted')
+        }
+        const revision = Number(input.expectedRevision)
+        if (revision !== project.revision) throw httpError(409, 'App revision changed. Review and retry publication.')
+        if (req.method === 'DELETE') {
+          await storage.apps.setPublication(user.id, id, revision, releaseOrigin ?? '', null)
+          json(res, 200, { ok: true }); return
+        }
+        if (!releaseOrigin) throw httpError(503, 'Publication requires a configured isolated release origin.')
+        const stamp = await storage.apps.publicationStamp(user.id, id)
+        const compiled = await compileWithAssets(user.id, project)
+        if (!compiled.success || !compiled.assets || compiled.diagnostics.some(d => d.severity === 'error')) throw httpError(422, 'Publication build validation failed. The live release is unchanged.')
+        const controller = new AbortController()
+        const stop = () => { if (!res.writableEnded) controller.abort() }
+        req.once('aborted', stop); res.once('close', stop)
+        try {
+          if (req.aborted || res.destroyed) controller.abort()
+          const checked = await (config.appValidator ?? validateAppInBrowser)(compiled.assets, controller.signal)
+          if (controller.signal.aborted || checked.status !== 'passed' || checked.diagnostics.some(d => d.severity === 'error')) {
+            throw httpError(422, 'Publication browser validation failed or is unavailable. The live release is unchanged.')
+          }
+          const release = await storage.apps.setPublication(user.id, id, revision, releaseOrigin,
+            publicationDocument(compiled.assets.html), () => controller.signal.aborted, stamp, project)
+          json(res, 201, release); return
+        } finally { req.removeListener('aborted', stop); res.removeListener('close', stop) }
+      }
+      const sourceExportRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/(export\.zip|export\/approve)$/)
+      if (sourceExportRoute) {
+        const id = safeId(decodeAppPath(sourceExportRoute[2]), 'app ID')
+        const approving = sourceExportRoute[3] === 'export/approve'
+        if (req.method !== (approving ? 'POST' : 'GET')) throw httpError(405, 'Method not allowed')
+        const project = await storage.apps.read(user.id, id)
+        if (!project) throw httpError(404, 'App project not found')
+        const input = approving ? await body(req, parsed, APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES) : null
+        if (input && Object.keys(input).some(key => key !== 'expectedRevision')) throw httpError(400, 'Only expectedRevision is accepted')
+        const revision = approving ? input!.expectedRevision : Number(url.searchParams.get('revision'))
+        if (!Number.isSafeInteger(revision) || Number(revision) < 1) throw httpError(400, 'A saved revision is required')
+        if (revision !== project.revision) throw httpError(409, 'App revision changed. Review the current saved app before exporting.')
+        const fingerprint = sourceExportFingerprint(project)
+        const key = `${user.id}:${id}`
+        const current = async () => {
+          const head = await storage.apps.read(user.id, id)
+          if (!head || sourceExportFingerprint(head) !== fingerprint) throw httpError(409, 'App revision changed during export. Review and retry.')
+        }
+        if (approving) {
+          exportApprovals.delete(key)
+          const compiled = await compileWithAssets(user.id, project)
+          if (!compiled.success || !compiled.assets) throw httpError(422, 'Source export build validation failed. Fix the app before exporting.')
+          const controller = new AbortController()
+          const stop = () => { if (!res.writableEnded) controller.abort() }
+          req.once('aborted', stop); res.once('close', stop)
+          try {
+            if (req.aborted || res.destroyed) controller.abort()
+            const checked = await (config.appValidator ?? validateAppInBrowser)(compiled.assets, controller.signal)
+            if (controller.signal.aborted || checked.status !== 'passed' || checked.diagnostics.some(d => d.severity === 'error')) {
+              throw httpError(422, 'Source export browser validation failed or is unavailable. Fix the app and retry.')
+            }
+            await current()
+            for (const [key, value] of exportApprovals) if (value.expires < Date.now()) exportApprovals.delete(key)
+            while (exportApprovals.size >= 1000) exportApprovals.delete(exportApprovals.keys().next().value!)
+            exportApprovals.set(key, { fingerprint, expires: Date.now() + 10 * 60_000 })
+            json(res, 200, { ok: true, revision: project.revision }); return
+          } finally { req.removeListener('aborted', stop); res.removeListener('close', stop) }
+        }
+        const approval = exportApprovals.get(key)
+        if (!approval || approval.expires < Date.now() || approval.fingerprint !== fingerprint) {
+          throw httpError(409, 'This revision is not approved for source export. Validate and approve it first.')
+        }
+        const records = await storage.apps.resolveAssets(user.id, project)
+        const compiled = await compileAppProject(project, {}, records)
+        if (!compiled.success || !compiled.assets) throw httpError(422, 'Source export validation failed')
+        const archive = await exportRunnableSource(project, records)
+        await current()
+        res.writeHead(200, { 'Content-Type': 'application/zip', 'Content-Disposition': `attachment; filename="${id}-r${project.revision}.zip"`,
+          'Content-Length': archive.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' })
+        res.end(archive); return
+      }
+
       const exportRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/export$/)
       if (exportRoute) {
         if (req.method !== 'GET') throw httpError(405, 'Method not allowed')
@@ -854,5 +1011,5 @@ export async function createService(config: ServiceConfig) {
       json(res, failure.status ?? 500, { error: failure.status ? failure.message : 'Server could not complete the request', ...(failure.status === 409 ? { current: failure.current ?? null } : {}) })
     }
   }
-  return { handler, auth, storage, collaboration, modelGateway, close: () => { modelGateway.close(); collaboration.close(); mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
+  return { handler, publicHandler: createPublicHandler(storage.apps, releaseOrigin), auth, storage, collaboration, modelGateway, close: () => { modelGateway.close(); collaboration.close(); mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
 }

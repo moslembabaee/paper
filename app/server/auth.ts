@@ -47,6 +47,7 @@ export class Auth {
     })
   }
   profile(user: User): CloudUser { const { id, email, name, avatar, provider, createdAt, hasMcpToken, tokenRotatedAt } = user; return { id, email, name, avatar, provider, createdAt, hasMcpToken, tokenRotatedAt } }
+  hasAccount(id: string): boolean { return this.data.users.some(user => user.id === id) }
   session(raw: string | undefined) {
     const session = raw && this.data.sessions[hash(raw)]
     return session && session.expiresAt > Date.now() ? this.data.users.find(user => user.id === session.userId) : undefined

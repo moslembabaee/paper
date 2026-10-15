@@ -15,7 +15,7 @@ function flatten(document: SceneDocument, changedIds?: ReadonlySet<string>, incl
     } else if (value !== undefined) fields.set(key(path), { path, value })
   }
   // Complex collections are atomic registers; element properties and paints merge independently.
-  for (const name of ['tokens', 'styleLibrary', 'prototype', 'backgroundShader'] as const) {
+  for (const name of ['tokens', 'styleLibrary', 'motion', 'prototype', 'backgroundShader'] as const) {
     if (document[name] !== undefined) fields.set(key([name]), { path: [name], value: document[name] })
   }
   // Independent message registers preserve concurrent replies to the same thread.
@@ -80,7 +80,7 @@ export class SceneReplica {
   private fields = new Map<string, Register>()
   private clock = 0
   readonly actor: string
-  constructor(actor: string, registers: readonly Register[] = []) { this.actor = actor; this.merge(registers) }
+  constructor(actor = 'local', registers: readonly Register[] = []) { this.actor = actor; this.merge(registers) }
   export(): Register[] { return [...this.fields.values()] }
   merge(registers: readonly Register[]): void {
     for (const entry of registers) {
@@ -91,7 +91,7 @@ export class SceneReplica {
     }
   }
   change(before: SceneDocument, after: SceneDocument): Register[] {
-    if (before.elements === after.elements && ['comments', 'tokens', 'styleLibrary', 'prototype', 'backgroundShader'].every(name => before[name as keyof SceneDocument] === after[name as keyof SceneDocument])) return []
+    if (before.elements === after.elements && ['comments', 'tokens', 'styleLibrary', 'motion', 'prototype', 'backgroundShader'].every(name => before[name as keyof SceneDocument] === after[name as keyof SceneDocument])) return []
     const changedIds = new Set([...Object.keys(before.elements), ...Object.keys(after.elements)].filter(id => before.elements[id] !== after.elements[id]))
     const commentsChanged = before.comments !== after.comments
     const old = flatten(before, changedIds, commentsChanged), next = flatten(after, changedIds, commentsChanged), changes: Register[] = []

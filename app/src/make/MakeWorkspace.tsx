@@ -9,6 +9,11 @@ import { AssetPanel } from './AssetPanel'
 import { AnnotationPanel } from './AnnotationPanel'
 import { SourceEditor } from './SourceEditor'
 import { VersionHistory } from './VersionHistory'
+import { SourceExport } from './SourceExport'
+import { Publication } from './Publication'
+import { Sharing, SharedProjectReview } from './Sharing'
+import type { SharedAppSummary } from './sharing'
+import { api } from '../cloud/api'
 import { PREVIEW_VIEWPORTS, formatViewportDimensions, getViewportConfig, isValidDeviceViewport } from './breakpoints'
 import './make.css'
 
@@ -20,6 +25,21 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
   const state = useSyncExternalStore(store.subscribe, store.getState)
   const [frameStatus, setFrameStatus] = useState<PreviewFrameStatus>('idle')
   const [openingId, setOpeningId] = useState<string | null>(null)
+  const [sharedProjects, setSharedProjects] = useState<SharedAppSummary[]>([])
+  const [review, setReview] = useState<SharedAppSummary | null>(null)
+  const [sharingError, setSharingError] = useState('')
+  useEffect(() => {
+    const controller = new AbortController()
+    setSharedProjects([]); setReview(null); setSharingError('')
+    const load = () => {
+      if (!accountId) return
+      void api<{ apps: SharedAppSummary[] }>('/shared-apps', { signal: controller.signal, headers: { 'X-Paper-Account': accountId } })
+        .then(value => { if (!controller.signal.aborted) { setSharedProjects(value.apps); setSharingError('') } })
+        .catch(cause => { if (!controller.signal.aborted) setSharingError(cause instanceof Error ? cause.message : 'Could not load shared projects') })
+    }
+    load(); window.addEventListener('focus', load)
+    return () => { controller.abort(); window.removeEventListener('focus', load) }
+  }, [accountId])
   const promptInput = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
     void store.loadProjects()
@@ -36,10 +56,14 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
   const savedIds = new Set(state.savedProjects.map(project => project.id))
 
   function choose(id: string) {
+    const shared = sharedProjects.find(project => `shared:${project.ownerId}:${project.id}` === id)
+    if (shared) { setReview(shared); return }
     setOpeningId(id)
     if (savedIds.has(id)) void store.openSavedProject(id)
     else store.selectProjectById(id)
   }
+
+  if (review) return <SharedProjectReview key={`${accountId}:${review.ownerId}:${review.id}`} item={review} accountId={accountId} onClose={() => setReview(null)} />
 
   return <div className="make-workspace" data-testid="make-workspace">
     <header className="make-header">
@@ -48,6 +72,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
       <label className="make-chooser"><span className="make-sr-only">Make project</span>
         <select value={active.id} onChange={event => choose(event.target.value)} disabled={state.projectStatus === 'saving'}>
           <optgroup label="Saved apps">{state.savedProjects.map(project => <option value={project.id} key={project.id}>{project.name}</option>)}</optgroup>
+          {sharedProjects.length ? <optgroup label="Shared with you">{sharedProjects.map(project => <option value={`shared:${project.ownerId}:${project.id}`} key={`${project.ownerId}:${project.id}`}>{project.name} · {project.role} · r{project.revision}</option>)}</optgroup> : null}
           <optgroup label="Examples & drafts">{state.projects.filter(project => !savedIds.has(project.id)).map(project => <option value={project.id} key={project.id}>{project.name}</option>)}</optgroup>
         </select>
       </label>
@@ -73,6 +98,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         </div>
         {state.listStatus === 'loading' ? <p className="make-notice" role="status">Loading saved apps…</p> : null}
         {state.listError ? <div className="make-notice" role="alert"><p>Could not load saved apps: {state.listError}</p><button className="make-button" onClick={() => { void store.loadProjects() }}>Retry project list</button></div> : null}
+        {sharingError ? <p className="make-notice" role="alert">Could not load shared apps: {sharingError}</p> : null}
         {state.projectError ? <div className="make-notice" role="alert"><p>{state.projectError}</p><button className="make-button" onClick={() => state.annotationDirty && savedIds.has(active.id) ? void store.saveAnnotations() : state.projectError && openingId ? choose(openingId) : void store.saveCopy()}>Retry project request</button></div> : null}
         {state.selectedElement ? <Suspense fallback={<p className="make-notice" role="status">Loading visual properties…</p>}>
           <VisualInspector key={`${active.id}:${active.revision}:${active.updatedAt}:${state.selectedElement.elementId}`} store={store} state={state} disabled={busy || planBusy} />
@@ -81,6 +107,9 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         {state.currentDiff ? <DiffInspection diff={state.currentDiff} rollbackRevision={state.rollbackPoint?.revision} busy={busy || planBusy} onRollback={() => { void store.rollback().catch(() => {}) }} /> : null}
         <AssetPanel project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} onChange={store.acceptAssetProject} />
         <SourceEditor store={store} state={state} disabled={busy} planBusy={planBusy} />
+        <SourceExport key={`${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
+        <Publication key={`publication:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
+        <Sharing key={`sharing:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
         <VersionHistory store={store} state={state} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         <section className="make-diagnostics" data-testid="make-diagnostics" aria-label="Compiler diagnostics">
           <h2>Diagnostics<span>{state.diagnostics.length.toString().padStart(2, '0')}</span></h2>

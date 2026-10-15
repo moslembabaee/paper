@@ -25,12 +25,19 @@ if ! tmux has-session -t paper-orchestrator 2>/dev/null; then
     echo "[$NOW] [WATCHDOG] ✅ Orchestrator revived." >> "$LOG_FILE"
 fi
 
-# 2b. Check if webhook server is alive; if not, restart it
-if ! pgrep -f "python3 webhook_server.py" > /dev/null; then
-    echo "[$NOW] [WATCHDOG] ⚠️ Webhook server NOT FOUND! Reviving in tmux..." >> "$LOG_FILE"
+# 2b. Check if webhook server port is alive; if not, restart it
+if ! ss -tlnp | grep -q ':9095 '; then
+    echo "[$NOW] [WATCHDOG] ⚠️ Webhook server (port 9095) NOT FOUND! Reviving in tmux..." >> "$LOG_FILE"
     tmux kill-session -t paper-webhook 2>/dev/null || true
     tmux new-session -d -s paper-webhook "cd $PROJECT_DIR && python3 webhook_server.py"
     echo "[$NOW] [WATCHDOG] ✅ Webhook server revived." >> "$LOG_FILE"
+fi
+
+# 2c. Check if paper app port (3000) is alive — docker-proxy may drop
+if ! ss -tlnp | grep -q ':3000 .*docker-proxy'; then
+    echo "[$NOW] [WATCHDOG] ⚠️ Paper port 3000 (docker-proxy) is missing! Restarting container..." >> "$LOG_FILE"
+    docker restart paper paper-paper-api-1 2>&1 | head -5 >> "$LOG_FILE"
+    echo "[$NOW] [WATCHDOG] ✅ Paper container restarted to recreate proxy." >> "$LOG_FILE"
 fi
 
 # 3. SELF-REFLECTION & PROGRESS STALENESS CHECK

@@ -1,3 +1,4 @@
+import type { MotionDocument } from '../motion/types.ts'
 import type { DesignToken, LayerEffect, SharedStyleBindings, StyleLibrary, TokenBindings, TokenProperty } from '../tokens/types.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { PathNodes } from './pathGeometry.ts'
@@ -286,6 +287,7 @@ export type ComponentLink = { readonly kind: 'master'; readonly properties?: rea
 export interface SceneDocument {
   readonly version: 1
   readonly comments?: CommentDocument
+  readonly motion?: MotionDocument
   readonly prototype?: PrototypeDocument
   /** Absent in legacy documents. */
   readonly tokens?: readonly DesignToken[]

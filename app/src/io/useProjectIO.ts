@@ -13,7 +13,7 @@ import type { SceneDocument } from '../scene/types'
 export function sameSceneDocument(a: SceneDocument, b: SceneDocument): boolean {
   return a.elements === b.elements && a.rootIds === b.rootIds && a.tokens === b.tokens &&
     a.styleLibrary === b.styleLibrary && a.backgroundShader === b.backgroundShader &&
-    a.comments === b.comments && a.prototype === b.prototype
+    a.comments === b.comments && a.prototype === b.prototype && a.motion === b.motion
 }
 
 export function createWorkspace() {

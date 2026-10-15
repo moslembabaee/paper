@@ -1,5 +1,5 @@
 import { Activity, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, MessageSquare, MousePointer2, PenTool, Play, Sparkles, Square, Type, X } from 'lucide-react'
+import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, MessageSquare, MousePointer2, PenTool, Play, SlidersHorizontal, Sparkles, Square, Type, X } from 'lucide-react'
 import type { AppSceneReference } from './make/types'
 import type { ElementType } from './scene/types'
 import { componentRoot } from './scene/components'
@@ -8,6 +8,7 @@ import { DocumentSidebar } from './tokens/DocumentSidebar'
 import { ElementInspector } from './scene/ElementInspector'
 import { DevModeInspector } from './scene/DevModeInspector'
 import { ShaderBrowser } from './shaders/ShaderBrowser'
+import { MotionDrawer } from './motion/MotionDrawer'
 import { togglePixelSnap } from './scene/pixelSnap'
 import { HistoryControls } from './scene/HistoryControls'
 import { useProjectIO } from './io/useProjectIO'
@@ -78,6 +79,8 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
   const [name, setName] = useState(workspace.project?.name ?? 'Space to think')
   const [tool, setTool] = useState<'select' | 'hand' | 'pen' | 'comment'>('select')
   const [shadersOpen, setShadersOpen] = useState(false)
+  const [motionOpen, setMotionOpen] = useState(false)
+  const stageRef = useRef<HTMLElement>(null)
   const [grid, setGrid] = useState(workspace.project?.grid ?? true)
   const [layersVisible, setLayersVisible] = useState(true)
   const [devMode, setDevMode] = useState(false)
@@ -179,6 +182,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
       if (key === 'm' || key === 'v') { event.preventDefault(); setTool('select') }
       if (key === 'h') { event.preventDefault(); setTool('hand') }
       if (key === 's') { event.preventDefault(); setTool('select'); setShadersOpen(true) }
+      if (key === 'k') { event.preventDefault(); setMotionOpen(open => !open); return }
       if (key === 'f') { event.preventDefault(); addElement('frame') }
       if (key === 'r') { event.preventDefault(); addElement('rectangle') }
       if (key === 'o') { event.preventDefault(); addElement('ellipse') }
@@ -202,7 +206,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
     </header>
     <div className="editor-layout" inert={changing}>
       {layersVisible && <DocumentSidebar store={store} controller={controller} onHide={() => setLayersVisible(false)} />}
-      <main className="canvas-stage">
+      <main ref={stageRef} className="canvas-stage">
         <div className="canvas-toolbar viewport-ui" role="toolbar" aria-label="Canvas tools">
           {!layersVisible && <button className="tool-button" title="Show layers" aria-label="Show layers" onClick={() => setLayersVisible(true)}><Layers size={17} /></button>}
           <button className={`tool-button ${tool === 'select' ? 'active' : ''}`} data-testid="tool-select" aria-label="Selection tool" aria-pressed={tool === 'select'} title="Selection tool" onClick={() => setTool('select')}><MousePointer2 size={17} /></button>
@@ -213,12 +217,14 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
           <button className={`tool-button ${grid ? 'grid-active' : ''}`} data-testid="tool-grid" aria-label="Toggle engineering grid" aria-pressed={grid} title="120px engineering grid" onClick={() => setGrid(!grid)}><Grid2X2 size={16} /></button>
           <span className="toolbar-divider" />
           {!prototypeMode && <button className="tool-button" data-testid="tool-shaders" aria-label="Browse shaders" title="Shaders (S)" onClick={() => { setTool('select'); setShadersOpen(true) }}><Sparkles size={16} /></button>}
+          {!prototypeMode && <button className={`tool-button ${motionOpen ? 'active' : ''}`} data-testid="tool-motion" aria-label="Motion timeline" aria-pressed={motionOpen} title="Motion timeline (K)" onClick={() => setMotionOpen(!motionOpen)}><SlidersHorizontal size={16} /></button>}
           <button className={`tool-button comment-tool ${comments.open ? 'active' : ''}`} data-testid="tool-comments" aria-label="Toggle comments" aria-pressed={comments.open} aria-expanded={comments.open} aria-controls={comments.open ? "paper-comments" : undefined} title="Comments · Place a pin with C" onClick={() => comments.open ? closeComments() : comments.setOpen(true)}><MessageSquare size={16} />{!!comments.unread.size && <span className="comment-tool-unread">{comments.unread.size}</span>}</button>
           <HistoryControls store={store} />
         </div>
         <SceneCanvas commentMode={tool === 'comment'} annotationOverlay={comments.open ? <CommentOverlay store={store} controller={controller} threads={comments.threads} unread={comments.unread} activeId={comments.activeId} draft={comments.draft} placing={tool === 'comment'} onSelect={thread => { setTool('select'); comments.select(thread) }} onPlace={anchor => { comments.setDraft(anchor); comments.setActiveId(null); setTool('select') }} /> : undefined} collaboration={collaboration} prototypeOverlay={prototypeMode ? <ConnectionWires store={store} controller={controller} panMode={tool === 'hand'} selectedId={interactionId} onSelect={setInteractionId} /> : undefined} agentActivity={cloud.activity || bridge.activity} store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
         {comments.open && <CommentsSidebar comments={comments} store={store} session={collaboration} placing={tool === 'comment'} onNew={startComment} onCancel={cancelComment} onClose={closeComments} />}
         {prototypeMode && <div className="prototype-canvas-status"><GitBranch size={12} /><span>PROTOTYPE</span><span>Select a layer · Drag a connection</span></div>}
+        {motionOpen && <MotionDrawer store={store} stage={stageRef} onClose={() => setMotionOpen(false)} />}
       </main>
       {prototypeMode ? <PrototypeInspector store={store} selectedId={interactionId} onSelect={setInteractionId} onPresent={() => setPresenting(true)} /> : devMode ? <DevModeInspector store={store} name={name.trim() || 'Untitled'} onSave={io.saveProject} onMessage={io.setMessage} onExit={() => setDevMode(false)} /> : <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} onOpenShaders={() => { setTool('select'); setShadersOpen(true) }} />}
     </div>

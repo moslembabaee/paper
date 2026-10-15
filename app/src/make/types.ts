@@ -13,6 +13,14 @@ export interface AppSceneReference {
 
 export type AppReleaseStatus = 'draft' | 'published' | 'archived'
 
+/** Server-owned publication; source manifest release fields never grant access. */
+export interface AppPublication {
+  readonly revision: number
+  readonly version: string
+  readonly url: string
+  readonly publishedAt: string
+}
+
 export interface AppReleaseMetadata {
   readonly status: AppReleaseStatus
   readonly channel?: string
