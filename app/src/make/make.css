@@ -615,6 +615,26 @@
 .make-release-link:focus-visible { outline: 2px solid #81adec; outline-offset: 3px; }
 @media (max-width: 720px) { .make-publication { padding: 16px 12px; } }
 
+.make-secrets { padding: 20px; border-bottom: 1px solid #222222; min-width: 0; }
+.make-secrets h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 12px; }
+.make-secrets h2 svg, .make-secrets h2 span { color: #81adec; }
+.make-secrets h2 span { margin-left: auto; font: 10px monospace; letter-spacing: .08em; }
+.make-secrets p { color: #99998f; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.make-secrets fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.make-secrets fieldset:disabled { opacity: .5; }
+.make-secrets label { display: grid; gap: 8px; color: #99998f; font-size: 10px; margin: 12px 0; }
+.make-secrets input { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px; border: 1px solid #222222; border-radius: 3px; background: #080808; color: #edebe1; font: 11px/1.5 var(--font-mono); }
+.make-secrets input:focus-visible { outline: 2px solid #81adec; outline-offset: 2px; }
+.make-secret-capability { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid #222222; border-radius: 3px; }
+.make-secret-capability > span { color: #81adec; font: 12px var(--font-mono); }
+.make-secret-capability strong, .make-secret-capability small { display: block; font-size: 10px; }
+.make-secret-capability small { margin-top: 4px; color: #99998f; }
+.make-secret-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.make-secret-actions .make-button { padding: 8px; font-size: 10px; }
+.make-secrets ul { list-style: none; padding: 0; margin: 16px 0 0; }
+.make-secrets li { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid #222222; }
+.make-secrets code { overflow-wrap: anywhere; color: #edebe1; font-size: 10px; }
+.make-secrets li > span { color: #81adec; font: 10px var(--font-mono); }
 .make-sharing { padding: 20px; border-bottom: 1px solid #222222; min-width: 0; }
 .make-sharing h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 12px; }
 .make-sharing h2 svg, .make-review-role { color: #81adec; }

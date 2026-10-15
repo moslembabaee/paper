@@ -12,6 +12,7 @@ import { VersionHistory } from './VersionHistory'
 import { SourceExport } from './SourceExport'
 import { Publication } from './Publication'
 import { Sharing, SharedProjectReview } from './Sharing'
+import { SecretHandles } from './SecretHandles'
 import type { SharedAppSummary } from './sharing'
 import { api } from '../cloud/api'
 import { PREVIEW_VIEWPORTS, formatViewportDimensions, getViewportConfig, isValidDeviceViewport } from './breakpoints'
@@ -110,6 +111,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         <SourceExport key={`${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
         <Publication key={`publication:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
         <Sharing key={`sharing:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
+        <SecretHandles key={`secrets:${accountId}:${active.id}:${savedIds.has(active.id)}`} appId={active.id} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         <VersionHistory store={store} state={state} saved={savedIds.has(active.id)} disabled={busy || planBusy} />
         <section className="make-diagnostics" data-testid="make-diagnostics" aria-label="Compiler diagnostics">
           <h2>Diagnostics<span>{state.diagnostics.length.toString().padStart(2, '0')}</span></h2>
@@ -216,7 +218,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
           ) : null}
           {state.assets ? <div className="make-preview-viewport" role="region" aria-label="Preview viewport" tabIndex={0}>
             <div className="make-preview-device" data-viewport={state.deviceViewport} style={{ width: viewport.width, height: viewport.height }}>
-              <PreviewFrame assets={state.assets} sessionKey={state.previewSessionKey} inspectMode={state.inspectMode && !busy && !planBusy} selectedElementId={state.selectedElement?.elementId} onElementSelect={store.selectElement} onStatusChange={setFrameStatus} onError={store.reportRuntimeError} />
+              <PreviewFrame assets={state.assets} sessionKey={state.previewSessionKey} capabilityScope={accountId && savedIds.has(active.id) ? { appId: active.id, accountId } : undefined} inspectMode={state.inspectMode && !busy && !planBusy} selectedElementId={state.selectedElement?.elementId} onElementSelect={store.selectElement} onStatusChange={setFrameStatus} onError={store.reportRuntimeError} />
             </div>
           </div> : null}
           {state.projectStatus === 'loading' || loading ? <div className="make-empty make-loading" role="status"><span className="make-loader" /><h2>{state.projectStatus === 'loading' ? 'Opening app…' : state.assets ? 'Starting preview…' : 'Compiling your app…'}</h2><p>{state.projectStatus === 'loading' ? 'Reading the saved revision.' : 'Preparing an interactive preview.'}</p></div> : null}

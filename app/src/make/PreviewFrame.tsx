@@ -8,6 +8,8 @@ import {
   type PreviewElementSelectedPayload,
 } from './preview-sandbox.ts'
 import type { CompilePreviewAssets } from './compiler.ts'
+import { api } from '../cloud/api.ts'
+import type { AppCapabilityRequest, AppCapabilityResult } from './secrets.ts'
 
 export type PreviewFrameStatus = 'idle' | 'loading' | 'ready' | 'error'
 export interface PreviewFrameProps {
@@ -25,6 +27,8 @@ export interface PreviewFrameProps {
   readonly onStatusChange?: (status: PreviewFrameStatus) => void
   readonly className?: string
   readonly style?: CSSProperties
+  /** Set only for an owner's saved app; shared/public previews have no capability authority. */
+  readonly capabilityScope?: { readonly appId: string; readonly accountId: string }
 }
 export interface PreviewFrameHandle {
   readonly iframe: HTMLIFrameElement | null
@@ -50,7 +54,11 @@ export const PreviewFrame = forwardRef<PreviewFrameHandle, PreviewFrameProps>(fu
   const reload = useCallback(() => setReloadCount(n => n + 1), [])
   const html = props.html ?? props.assets?.html ?? ''
   const externalSessionKey = props.sessionKey ?? 0
-  const session = useMemo(() => ({ id: `preview-${++sessionSequence}-${reloadCount}-${externalSessionKey}`, document: html ? createIsolatedPreviewDocument(html) : '' }), [html, reloadCount, externalSessionKey])
+  const scopeKey = props.capabilityScope ? `${props.capabilityScope.accountId}:${props.capabilityScope.appId}` : ''
+  const session = useMemo(() => ({
+    id: `preview-${++sessionSequence}-${reloadCount}-${externalSessionKey}-${scopeKey}`,
+    document: html ? createIsolatedPreviewDocument(html) : '',
+  }), [html, reloadCount, externalSessionKey, scopeKey])
   return <PreviewSession key={session.id} {...props} ref={ref} document={session.document} reload={reload} />
 })
 
@@ -77,13 +85,17 @@ const PreviewSession = forwardRef<PreviewFrameHandle, PreviewFrameProps & { docu
     if (!guest) return
     const message = createPreviewMessage('paper-host', type, payload)
     // Opaque origins require '*'; the destination is this frame's exact WindowProxy.
-    // This API accepts only public UI configuration, never credentials or scene data.
+    // This API accepts public UI configuration and fixed capability results.
     guest.postMessage(message, '*')
     return message
   }, [])
 
   useLayoutEffect(() => {
     let windowStart = 0, received = 0
+    let capabilityWindow = 0, capabilityCount = 0
+    const capabilities = new Set<AbortController>()
+    const requestIds = new Set<string>()
+    let mounted = true
     const handleMessage = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow || event.origin !== 'null') return
       const now = Date.now()
@@ -93,6 +105,25 @@ const PreviewSession = forwardRef<PreviewFrameHandle, PreviewFrameProps & { docu
       if (!result.valid) return
       const { message } = result
       switch (message.type) {
+        case 'preview:capability': {
+          if (requestIds.has(message.id)) return
+          if (now - capabilityWindow >= 60_000) { capabilityWindow = now; capabilityCount = 0; requestIds.clear() }
+          const scope = callbacksRef.current.capabilityScope
+          if (!scope || statusRef.current !== 'ready' || capabilities.size >= 4 || ++capabilityCount > 20) {
+            postToGuest('preview:capability-result', { requestId: message.id, error: 'Capability unavailable' }); return
+          }
+          requestIds.add(message.id)
+          const controller = new AbortController(); capabilities.add(controller)
+          const { handle, ...input } = message.payload as AppCapabilityRequest & { handle: string }
+          void api<AppCapabilityResult>(`/apps/${encodeURIComponent(scope.appId)}/capabilities/${encodeURIComponent(handle)}`, {
+            method: 'POST', signal: controller.signal, headers: { 'X-Paper-Account': scope.accountId }, body: JSON.stringify(input),
+          }).then(result => {
+            if (mounted && !controller.signal.aborted && /^[a-f0-9]{64}$/.test(result.signature)) postToGuest('preview:capability-result', { requestId: message.id, signature: result.signature })
+          }).catch(() => {
+            if (mounted && !controller.signal.aborted) postToGuest('preview:capability-result', { requestId: message.id, error: 'Capability unavailable' })
+          }).finally(() => capabilities.delete(controller))
+          break
+        }
         case 'preview:ready':
           if (statusRef.current !== 'loading') return
           updateStatus('ready')
@@ -123,13 +154,15 @@ const PreviewSession = forwardRef<PreviewFrameHandle, PreviewFrameProps & { docu
     callbacksRef.current.onStatusChange?.(statusRef.current)
     const pendingPings = pings.current
     return () => {
+      mounted = false
+      for (const controller of capabilities) controller.abort()
       window.removeEventListener('message', handleMessage)
       for (const pending of pendingPings.values()) {
         clearTimeout(pending.timer); pending.reject(new Error('Preview document replaced or unmounted'))
       }
       pendingPings.clear()
     }
-  }, [updateStatus])
+  }, [updateStatus, postToGuest])
 
   useEffect(() => {
     if (theme && status === 'ready') postToGuest('preview:set-theme', theme)

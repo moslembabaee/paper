@@ -60,6 +60,15 @@ export class AppStorage {
 
   constructor(root: string) { this.root = resolve(root) }
 
+  /** Serialize private server artifacts with source deletion/recreation. Never exposed through exports. */
+  async withOwnerAppDirectory<T>(owner: string, id: string, operation: (directory: string) => Promise<T>): Promise<T> {
+    safeId(owner, 'owner ID'); safeId(id, 'app ID')
+    return this.locked(owner, id, async () => {
+      if (!await this.read(owner, id)) throw httpError(404, 'App project not found')
+      return operation(await this.appDirectory(owner, id))
+    })
+  }
+
   private async permissionState(owner: string, id: string): Promise<StoredAppAccessGrant[]> {
     if (!await this.read(owner, id)) throw httpError(404, 'App project not found')
     try {

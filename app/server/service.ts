@@ -21,6 +21,8 @@ import type { AppValidationAttempt, AppValidationReport } from '../src/make/type
 import { formatSourceFile } from './source-format.ts'
 import { exportRunnableSource, sourceExportFingerprint } from './source-export.ts'
 import { createPublicHandler, publicationDocument, publicationOrigin } from './publication.ts'
+import { AppSecrets } from './app-secrets.ts'
+import { APP_SECRET_LIMITS, isSecretHandle } from '../src/make/secrets.ts'
 
 export interface ServiceConfig {
   root: string
@@ -36,17 +38,21 @@ export interface ServiceConfig {
 function cookies(req: IncomingMessage) {
   return Object.fromEntries((req.headers.cookie ?? '').split(';').map(v => v.trim().split('=')))
 }
-async function body(req: IncomingMessage, parsed?: unknown, maxBytes = 17 * 1024 * 1024): Promise<Record<string, unknown>> {
+async function body(req: IncomingMessage, parsed?: unknown, maxBytes = 17 * 1024 * 1024, strict = false): Promise<Record<string, unknown>> {
   let value = parsed
-  const appBody = maxBytes === APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES
+  const appBody = strict || maxBytes === APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES
   const parse = (text: string) => {
     try { return appBody ? parseJsonStrict(text) : JSON.parse(text || '{}') }
     catch (error) {
+      // Secret payloads may contain sensitive bytes even in malformed field names.
+      // Keep parser diagnostics out of responses and upstream request logs.
+      if (strict) throw httpError(400, 'Invalid JSON')
       if (error instanceof AppProjectValidationError) throw error
       throw httpError(400, 'Invalid JSON')
     }
   }
   const payloadError = () => {
+    if (maxBytes < MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES) return 'Request payload too large'
     if (maxBytes <= MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES) return 'Model request payload too large'
     if (maxBytes <= APP_PROJECT_LIMITS.MAX_MANIFEST_BYTES) return 'App project payload too large'
     return 'Project too large'
@@ -91,6 +97,7 @@ export async function createService(config: ServiceConfig) {
   const auth = new Auth(config.root, config.secret)
   await auth.initialize(config.root)
   const storage = new Storage(config.root)
+  const appSecrets = new AppSecrets(storage.apps, config.secret)
   const collaboration = new CollaborationServer(origin)
   const requestFetch = config.fetch ?? fetch
   const streams = new Map<string, Set<ServerResponse>>()
@@ -474,6 +481,26 @@ export async function createService(config: ServiceConfig) {
         if (req.method === 'PUT') { const input = await body(req, parsed); const record = await storage.put(user.id, id, input.document, input.expectedRevision, input.updatedAt); emit(user.id, record); json(res, 200, record); return }
       }
       // App Projects CRUD collection
+      const secretRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/(secrets|capabilities)(?:\/([^/]+))?$/)
+      if (secretRoute) {
+        const id = safeId(decodeAppPath(secretRoute[2]), 'app ID')
+        if (!await storage.apps.read(user.id, id)) throw httpError(404, 'App project not found')
+        const handle = secretRoute[4] === undefined ? undefined : decodeAppPath(secretRoute[4])
+        if (handle !== undefined && !isSecretHandle(handle)) throw httpError(400, 'Invalid secret handle')
+        if (secretRoute[3] === 'capabilities') {
+          if (!handle || req.method !== 'POST') throw httpError(405, 'Method not allowed')
+          json(res, 200, await appSecrets.invoke(user.id, id, handle, await body(req, parsed, APP_SECRET_LIMITS.MAX_REQUEST_BYTES, true)))
+          return
+        }
+        if (!handle && req.method === 'GET') { json(res, 200, { secrets: await appSecrets.list(user.id, id) }); return }
+        if (!handle && req.method === 'POST') {
+          json(res, 201, await appSecrets.create(user.id, id, await body(req, parsed, APP_SECRET_LIMITS.MAX_REQUEST_BYTES, true))); return
+        }
+        if (handle && (req.method === 'PUT' || req.method === 'DELETE')) {
+          json(res, 200, await appSecrets.change(user.id, id, handle, await body(req, parsed, APP_SECRET_LIMITS.MAX_REQUEST_BYTES, true), req.method === 'DELETE')); return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
       const permissionsRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/permissions$/)
       if (permissionsRoute) {
         const id = safeId(decodeAppPath(permissionsRoute[2]), 'app ID')

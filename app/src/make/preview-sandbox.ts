@@ -36,6 +36,7 @@ export type PreviewHostMessageType =
   | 'preview:reset'
   | 'preview:set-inspect'
   | 'preview:highlight-element'
+  | 'preview:capability-result'
 
 export type PreviewGuestMessageType =
   | 'preview:ready'
@@ -44,6 +45,7 @@ export type PreviewGuestMessageType =
   | 'preview:event'
   | 'preview:console'
   | 'preview:element-selected'
+  | 'preview:capability'
 
 export type PreviewMessageType = PreviewHostMessageType | PreviewGuestMessageType
 
@@ -154,7 +156,13 @@ function validateEnvelope(raw: unknown, expectedSource: string | undefined, maxB
         ['background', 'foreground', 'accent', 'grid'].includes(key) && text(value, 128))
       if (m.type === 'preview:set-inspect') valid = Object.keys(p).every(key => ['enabled', 'activeElementId'].includes(key)) && typeof p.enabled === 'boolean' && (p.activeElementId === undefined || text(p.activeElementId, 128))
       if (m.type === 'preview:highlight-element') valid = Object.keys(p).length === 1 && text(p.elementId, 128)
+      if (m.type === 'preview:capability-result') valid = text(p.requestId, 64) && (
+        Object.keys(p).sort().join(',') === 'requestId,signature' && typeof p.signature === 'string' && /^[a-f0-9]{64}$/.test(p.signature) ||
+        Object.keys(p).sort().join(',') === 'error,requestId' && p.error === 'Capability unavailable')
     } else {
+      if (m.type === 'preview:capability') valid = Object.keys(p).sort().join(',') === 'handle,message,operation' &&
+        typeof p.handle === 'string' && /^sec_[A-Za-z0-9_-]{32}$/.test(p.handle) && p.operation === 'hmac-sha256' &&
+        typeof p.message === 'string' && new TextEncoder().encode(p.message).length <= 4096
       if (m.type === 'preview:ready') valid = text(p.entryPoint, 256) && time(p.timestamp)
       if (m.type === 'preview:pong') valid = time(p.timestamp) && (p.pingId === undefined || text(p.pingId, 64))
       if (m.type === 'preview:error') valid = text(p.message, 8192) &&
@@ -252,8 +260,19 @@ export function getPreviewGuestScript(): string {
     function send(type, payload) {
       const message = { channel: 'paper-make-preview', version: 1, source: 'paper-preview',
         type, id: 'guest-' + (++sequence), timestamp: Date.now(), payload };
-      if (accept(message, 'paper-preview')) parent.postMessage(message, '*');
+      if (accept(message, 'paper-preview')) { parent.postMessage(message, '*'); return message.id; }
     }
+    const pendingCapabilities = new Map();
+    window.paperCapabilities = Object.freeze({ invoke(handle, input) {
+      return new Promise((resolve, reject) => {
+        if (pendingCapabilities.size >= 4 || !input || typeof input !== 'object' ||
+            Object.keys(input).sort().join(',') !== 'message,operation') { reject(new Error('Capability unavailable')); return; }
+        const id = send('preview:capability', { handle, operation: input.operation, message: input.message });
+        if (!id) { reject(new Error('Capability unavailable')); return; }
+        const timer = setTimeout(() => { pendingCapabilities.delete(id); reject(new Error('Capability unavailable')); }, 10000);
+        pendingCapabilities.set(id, { resolve, reject, timer });
+      });
+    } });
     window.__paperNotifyReady = function(entryPoint) {
       send('preview:ready', { entryPoint, timestamp: Date.now() });
     };
@@ -376,6 +395,13 @@ export function getPreviewGuestScript(): string {
     addEventListener('message', event => {
       if (event.source !== parent || !accept(event.data, 'paper-host')) return;
       const { type, id, payload } = event.data;
+      if (type === 'preview:capability-result') {
+        const pending = pendingCapabilities.get(payload.requestId);
+        if (!pending) return;
+        pendingCapabilities.delete(payload.requestId); clearTimeout(pending.timer);
+        if (payload.signature) pending.resolve({ signature: payload.signature });
+        else pending.reject(new Error('Capability unavailable'));
+      }
       if (type === 'preview:ping') send('preview:pong', { pingId: payload.pingId || id, timestamp: Date.now() });
       if (type === 'preview:set-theme') {
         const root = document.documentElement;

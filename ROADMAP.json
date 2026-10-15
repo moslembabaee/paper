@@ -952,7 +952,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 38,
-      "completed_at": "2026-10-15T21:30:05.745494+00:00"
+      "completed_at": "2026-10-15T21:30:05.745494+00:00",
+      "closed_at": "2026-10-15T21:30:10Z"
     },
     {
       "id": "T-ISSUE-39",
@@ -960,10 +961,11 @@
       "title": "Issue #39: feat(make 22): Server-held scoped secret handles for apps",
       "description": "Scope: Add owner-managed encrypted secret handles and revocation for generated apps; expose only a strict capability interface, never raw values in model context, client bundles or logs.\nAcceptance: Leakage, revoke, rotation, unauthorized use and restart tests; reject generic host/network proxying.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 39
+      "github_issue_number": 39,
+      "completed_at": "2026-10-15T21:59:28.374725+00:00"
     },
     {
       "id": "T-ISSUE-40",
