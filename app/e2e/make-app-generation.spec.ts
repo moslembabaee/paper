@@ -12,13 +12,21 @@ import { mockStudioSession } from './studio-session'
 async function setup(page: Page) {
   const root = await mkdtemp(join(tmpdir(), 'paper-generation-e2e-'))
   let invalid = false
+  let styleOnly = false
   const service = await createService({
     root, secret: 'generation-browser-test-secret-at-least-32-characters', origin: 'http://127.0.0.1:4173',
     modelGateway: { provider: 'mock', turnBudget: 30, tokenBudget: 500000, customAdapter: async request => ({ content: JSON.stringify(
-      request.context?.mode === 'plan' ? {
+      request.context?.mode === 'plan' ? styleOnly ? {
+        summary: 'Update canvas accent',
+        files: [{ path: 'src/styles.css', description: 'Change background to blue', action: 'modify' }],
+        interactions: ['Counter retains its behavior'], risks: [],
+      } : {
         summary: 'Interactive counter',
         files: [{ path: 'src/App.tsx', description: 'Interactive counter', action: 'modify' }, { path: 'src/styles.css', description: 'Paper grid', action: 'modify' }],
         interactions: ['Increment increases the counter', 'Reset returns to zero'], risks: [],
+      } : styleOnly ? {
+        summary: 'Canvas accent updated',
+        files: [{ path: 'src/styles.css', content: 'body { background: #81adec; color: #080808; }' }],
       } : {
         summary: 'Counter generated from approved plan',
         files: [{ path: 'src/App.tsx', content: invalid ? 'export default function App() { return <main>' : `
@@ -64,6 +72,7 @@ async function setup(page: Page) {
   return {
     service, user,
     failNextGeneration() { invalid = true },
+    editStylesOnly() { styleOnly = true },
     async close() {
       service.close()
       for (const response of responses) response.emit('close')
@@ -144,5 +153,53 @@ test('unsaved draft generation goes through the same approved plan/compiler pipe
     await preview.getByRole('button', { name: 'Increment' }).click()
     await expect(preview.getByLabel('Count')).toHaveText('1')
     expect(await f.service.storage.apps.list(f.user.id)).toEqual([])
+  } finally { await f.close() }
+})
+
+
+test('chat follow-up changes only targeted CSS, shows bounded diff and restores one rollback point', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  const f = await setup(page)
+  try {
+    await page.getByRole('button', { name: 'Save a copy', exact: true }).click()
+    await expect(page.getByText('Saved to your account', { exact: true })).toBeVisible()
+    const id = await page.getByRole('combobox', { name: 'Make project' }).inputValue()
+    await planAndGenerate(page)
+    await expect(page.getByText('APP PROJECT / REV 2', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Dismiss plan' }).click()
+    const before = await f.service.storage.apps.read(f.user.id, id)
+    f.editStylesOnly()
+    await page.getByRole('textbox', { name: 'Prompt for app planning' }).fill('Change only the canvas background to blue')
+    await page.getByRole('button', { name: 'Generate plan', exact: true }).click()
+    await page.getByRole('button', { name: 'Approve plan', exact: true }).click()
+    await expect(page.getByRole('region', { name: 'App plan', exact: true }).getByRole('status')).toHaveText('Approved')
+    await page.getByRole('button', { name: 'Generate app', exact: true }).click()
+    await expect(page.getByText('APP PROJECT / REV 3', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Dismiss plan' }).click()
+    const changes = page.getByRole('region', { name: 'Applied changes' })
+    await expect(changes).toContainText('Validated and applied · 1 file')
+    await expect(changes).toContainText('Rollback point · Rev 2')
+    await changes.locator('summary').filter({ hasText: 'src/styles.css' }).click()
+    await expect(changes.getByLabel('Diff for src/styles.css')).toContainText('#81adec')
+    const after = await f.service.storage.apps.read(f.user.id, id)
+    expect(after?.files['src/App.tsx']).toEqual(before?.files['src/App.tsx'])
+    const preview = page.frameLocator('iframe').frameLocator('iframe')
+    await expect(preview.locator('body')).toHaveCSS('background-color', 'rgb(129, 173, 236)')
+    await preview.getByRole('button', { name: 'Increment' }).click()
+    await expect(preview.getByLabel('Count')).toHaveText('1')
+    await expect(page.getByTestId('make-preview-status')).toHaveText('Running')
+    await page.screenshot({ path: '/tmp/paper-iterative-desktop.png' })
+    await page.setViewportSize({ width: 390, height: 844 })
+    await expect(changes.getByRole('button', { name: 'Undo last edit' })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: '/tmp/paper-iterative-mobile.png' })
+    await changes.getByRole('button', { name: 'Undo last edit' }).click()
+    await expect(page.getByText('APP PROJECT / REV 4', { exact: true })).toBeVisible()
+    await expect(changes).toHaveCount(0)
+    expect((await f.service.storage.apps.read(f.user.id, id))?.files).toEqual(before?.files)
+    await expect(preview.getByRole('heading', { name: 'Made with Paper' })).toBeVisible()
+    await expect(page.locator('vite-error-overlay')).toHaveCount(0)
+    expect(errors).toEqual([])
   } finally { await f.close() }
 })

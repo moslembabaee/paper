@@ -11,6 +11,7 @@ import { ServerModelGateway, type ModelGatewayConfig } from './model-gateway.ts'
 import { MODEL_GATEWAY_LIMITS } from '../src/make/model-protocol.ts'
 import type { AppPlan, AppPlanApprovalRequest, AppPlanRequest, AppProject, AppGenerateResult, AppGenerationRecord, ModelRequest } from '../src/make/types.ts'
 import { formatPlanPrompt, parseModelPlanResponse, validateAppPlan, approvePlan, isPlanStale, PlanValidationError, formatGeneratePrompt, parseModelGenerateResponse } from '../src/make/plan.ts'
+import { computeBoundedDiff } from '../src/make/diff.ts'
 
 export interface ServiceConfig {
   root: string
@@ -130,80 +131,95 @@ export async function createService(config: ServiceConfig) {
     req: IncomingMessage, res: ServerResponse, userId: string,
     input: Record<string, unknown>, project: AppProject, saved: boolean,
   ): Promise<AppGenerateResult> {
-    let plan: AppPlan
-    try { plan = validateAppPlan(input.plan) }
-    catch (error) { throw httpError(400, `Malformed plan: ${(error as Error).message}`) }
-    if (plan.status !== 'approved' || !plan.approvedAt) throw httpError(400, 'Only approved plans can be generated')
-    if (plan.appId !== project.id) throw httpError(400, 'Plan app ID does not match project')
-    if (isPlanStale(plan, project.revision) || input.expectedRevision !== undefined && input.expectedRevision !== project.revision) {
-      throw httpError(409, 'Stale plan generation: app revision has changed')
-    }
-    const issued = pendingPlans.get(plan.planId)
-    const expected = issued && (saved ? issued.plan : {
-      ...issued.plan, appId: project.id, baseRevision: project.revision,
-      status: 'approved', approvedAt: plan.approvedAt,
-    })
-    if (!issued || issued.userId !== userId || issued.expiresAt < Date.now() ||
-        JSON.stringify(validateAppPlan(expected)) !== JSON.stringify(plan) ||
-        (!saved && issued.source !== JSON.stringify(project))) {
-      throw httpError(409, 'Plan approval is expired, superseded or changed. Generate and approve a new plan.')
-    }
-    const { systemPrompt, userPrompt } = formatGeneratePrompt(plan, project)
-    const turn = await generate(req, res, userId, {
-      prompt: userPrompt, systemPrompt,
-      ...(saved ? { appId: project.id, expectedRevision: project.revision } : {}),
-      context: { mode: 'generate', planId: plan.planId },
-    })
-    let provenance: AppGenerationRecord = {
-      plan, sourceRevision: project.revision, validation: 'pending', diagnostics: [], changedFiles: [],
-    }
-    await modelGateway.recordGeneration(userId, turn.turnId, provenance)
-    const metadata = { plan, turnId: turn.turnId, usage: turn.usage, budget: turn.budget }
-    let candidate: AppProject
+    let disconnected = req.aborted || res.destroyed
+    const onDisconnect = () => { if (!res.writableEnded) disconnected = true }
+    req.once('aborted', onDisconnect)
+    res.once('close', onDisconnect)
     try {
-      const generated = parseModelGenerateResponse(turn.content)
-      const files = { ...project.files }
-      const targets = new Map(plan.files.map(file => [file.path, file]))
-      for (const file of Object.values(generated.files)) {
-        const target = targets.get(file.path)
-        if (!target || target.action === 'delete') throw new Error('Generated files must match the approved plan')
-        files[file.path] = file
+      let plan: AppPlan
+      try { plan = validateAppPlan(input.plan) }
+      catch (error) { throw httpError(400, `Malformed plan: ${(error as Error).message}`) }
+      if (plan.status !== 'approved' || !plan.approvedAt) throw httpError(400, 'Only approved plans can be generated')
+      if (plan.appId !== project.id) throw httpError(400, 'Plan app ID does not match project')
+      if (isPlanStale(plan, project.revision) || input.expectedRevision !== undefined && input.expectedRevision !== project.revision) {
+        throw httpError(409, 'Stale plan generation: app revision has changed')
       }
-      for (const target of plan.files) {
-        if (target.action === 'delete') delete files[target.path]
-        else if (!Object.hasOwn(generated.files, target.path)) throw new Error(`Generated output is missing planned file ${target.path}`)
+      const issued = pendingPlans.get(plan.planId)
+      const expected = issued && (saved ? issued.plan : {
+        ...issued.plan, appId: project.id, baseRevision: project.revision,
+        status: 'approved', approvedAt: plan.approvedAt,
+      })
+      if (!issued || issued.userId !== userId || issued.expiresAt < Date.now() ||
+          JSON.stringify(validateAppPlan(expected)) !== JSON.stringify(plan) ||
+          (!saved && issued.source !== JSON.stringify(project))) {
+        throw httpError(409, 'Plan approval is expired, superseded or changed. Generate and approve a new plan.')
       }
-      candidate = validateAppProject({ ...project, files, preview: { ...project.preview, status: 'ready' } })
-      provenance = { ...provenance, changedFiles: plan.files.map(file => file.path) }
-    } catch {
-      const diagnostics = [{ file: project.preview.entryPoint, line: 1, column: 1,
-        code: 'INVALID_INPUT' as const, severity: 'error' as const, message: 'Generated output must contain valid source files matching the approved plan.' }]
-      await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'failed', diagnostics })
-      return { ...metadata, success: false, project, assets: null, diagnostics, error: 'Generated output failed validation. The previous revision is unchanged.' }
+      const { systemPrompt, userPrompt } = formatGeneratePrompt(plan, project)
+      const turn = await generate(req, res, userId, {
+        prompt: userPrompt, systemPrompt,
+        ...(saved ? { appId: project.id, expectedRevision: project.revision } : {}),
+        context: { mode: 'generate', planId: plan.planId, plannedFiles: plan.files.filter(f => f.action !== 'delete').map(f => f.path) },
+      })
+      let provenance: AppGenerationRecord = {
+        plan, sourceRevision: project.revision, validation: 'pending', diagnostics: [], changedFiles: [],
+      }
+      await modelGateway.recordGeneration(userId, turn.turnId, provenance)
+      const metadata = { plan, turnId: turn.turnId, usage: turn.usage, budget: turn.budget }
+      let candidate: AppProject
+      let diff: import('../src/make/diff.ts').BoundedDiff | undefined
+      try {
+        const generated = parseModelGenerateResponse(turn.content, {
+          requireEntryPoint: false,
+          allowEmpty: plan.files.every(f => f.action === 'delete'),
+        })
+        const files = { ...project.files }
+        const targets = new Map(plan.files.map(file => [file.path, file]))
+        for (const file of Object.values(generated.files)) {
+          const target = targets.get(file.path)
+          if (!target || target.action === 'delete') throw new Error('Generated files must match the approved plan')
+          files[file.path] = file
+        }
+        for (const target of plan.files) {
+          if (target.action === 'delete') delete files[target.path]
+          else if (!Object.hasOwn(generated.files, target.path)) throw new Error(`Generated output is missing planned file ${target.path}`)
+        }
+        candidate = validateAppProject({ ...project, files, preview: { ...project.preview, status: 'ready' } })
+        diff = computeBoundedDiff(project.files, candidate.files, { baseRevision: project.revision, targetRevision: project.revision + 1 })
+        provenance = { ...provenance, changedFiles: diff.files.map(file => file.path), diff }
+      } catch {
+        const diagnostics = [{ file: project.preview.entryPoint, line: 1, column: 1,
+          code: 'INVALID_INPUT' as const, severity: 'error' as const, message: 'Generated output must contain valid source files matching the approved plan.' }]
+        await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'failed', diagnostics })
+        return { ...metadata, success: false, project, assets: null, diagnostics, error: 'Generated output failed validation. The previous revision is unchanged.' }
+      }
+      const compiled = await compileAppProject(candidate)
+      provenance = { ...provenance, validation: compiled.success ? 'passed' : 'failed', diagnostics: compiled.diagnostics }
+      await modelGateway.recordGeneration(userId, turn.turnId, provenance)
+      if (!compiled.success || !compiled.assets) {
+        return { ...metadata, success: false, project, assets: null, diagnostics: compiled.diagnostics, error: 'Generated code failed compilation validation. The previous revision is unchanged.' }
+      }
+      if (disconnected || req.aborted || res.destroyed) {
+        await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'cancelled' })
+        throw httpError(499, 'Request cancelled')
+      }
+      let updated: AppProject
+      try {
+        updated = saved ? await storage.apps.put(userId, project.id, candidate, project.revision)
+          : validateAppProject({ ...candidate, revision: project.revision + 1, updatedAt: new Date().toISOString() })
+      } catch (error) {
+        await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'conflict' })
+        throw error
+      }
+      await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, resultRevision: updated.revision, rollbackRevision: project.revision })
+      pendingPlans.delete(plan.planId)
+      if (saved) emitApp(userId, updated, 'update')
+      return { ...metadata, success: true, project: updated, assets: compiled.assets, diagnostics: compiled.diagnostics, diff, rollbackRevision: project.revision }
+    } finally {
+      req.removeListener('aborted', onDisconnect)
+      res.removeListener('close', onDisconnect)
     }
-    const compiled = await compileAppProject(candidate)
-    provenance = { ...provenance, validation: compiled.success ? 'passed' : 'failed', diagnostics: compiled.diagnostics }
-    await modelGateway.recordGeneration(userId, turn.turnId, provenance)
-    if (!compiled.success || !compiled.assets) {
-      return { ...metadata, success: false, project, assets: null, diagnostics: compiled.diagnostics, error: 'Generated code failed compilation validation. The previous revision is unchanged.' }
-    }
-    if (req.aborted || res.destroyed) {
-      await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'cancelled' })
-      throw httpError(499, 'Request cancelled')
-    }
-    let updated: AppProject
-    try {
-      updated = saved ? await storage.apps.put(userId, project.id, candidate, project.revision)
-        : validateAppProject({ ...candidate, revision: project.revision + 1, updatedAt: new Date().toISOString() })
-    } catch (error) {
-      await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, validation: 'conflict' })
-      throw error
-    }
-    await modelGateway.recordGeneration(userId, turn.turnId, { ...provenance, resultRevision: updated.revision })
-    pendingPlans.delete(plan.planId)
-    if (saved) emitApp(userId, updated, 'update')
-    return { ...metadata, success: true, project: updated, assets: compiled.assets, diagnostics: compiled.diagnostics }
   }
+
   function cookie(name: string, value: string, maxAge: number) { return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${origin.startsWith('https:') ? '; Secure' : ''}` }
   async function providerJSON(url: string, init?: RequestInit) {
     const response = await requestFetch(url, { ...init, signal: AbortSignal.timeout(10_000) })
@@ -515,7 +531,7 @@ export async function createService(config: ServiceConfig) {
           const input = (await body(req, parsed, MODEL_GATEWAY_LIMITS.MAX_REQUEST_BYTES)) as unknown as AppPlanRequest
           if (!input || typeof input !== 'object' || Array.isArray(input)) throw httpError(400, 'Expected request object')
           if (typeof input.prompt !== 'string' || !input.prompt.trim()) throw httpError(400, 'Prompt is required')
-          if (input.expectedRevision !== undefined && input.expectedRevision !== record.revision) {
+          if (input.expectedRevision !== record.revision) {
             throw Object.assign(httpError(409, 'Revision mismatch'), { current: record.revision })
           }
           const { systemPrompt, userPrompt } = formatPlanPrompt(input.prompt, record)
@@ -592,6 +608,33 @@ export async function createService(config: ServiceConfig) {
           const record = await storage.apps.read(user.id, id)
           if (!record) throw httpError(404, 'App project not found')
           json(res, 200, { turns: modelGateway.listTurns(user.id, id) })
+          return
+        }
+        throw httpError(405, 'Method not allowed')
+      }
+
+      const appRollbackRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/rollback$/)
+      if (appRollbackRoute) {
+        if (req.method === 'POST') {
+          const id = safeId(decodeAppPath(appRollbackRoute[2]), 'app ID')
+          const record = await storage.apps.read(user.id, id)
+          if (!record) throw httpError(404, 'App project not found')
+          const input = (await body(req, parsed, 4096)) as Record<string, unknown>
+          if (input.expectedRevision !== record.revision) {
+            throw Object.assign(httpError(409, 'Revision mismatch'), { current: record.revision })
+          }
+          const targetRevision = typeof input.targetRevision === 'number' ? input.targetRevision : (record.revision - 1)
+          if (!Number.isSafeInteger(targetRevision) || targetRevision < 1 || targetRevision >= record.revision) {
+            throw httpError(400, 'Invalid rollback target revision')
+          }
+          const targetRecord = await storage.apps.readRevision(user.id, id, targetRevision)
+          if (!targetRecord) throw httpError(404, 'Rollback target revision not found')
+          const compiled = await compileAppProject(targetRecord.project)
+          if (!compiled.success || !compiled.assets) throw httpError(422, 'Rollback build validation failed. Current revision is unchanged.')
+          if (req.aborted || res.destroyed) throw httpError(499, 'Request cancelled')
+          const updated = await storage.apps.put(user.id, id, targetRecord.project, record.revision)
+          emitApp(user.id, updated, 'update')
+          json(res, 200, { ok: true, project: updated, rolledBackTo: targetRevision, assets: compiled.assets, diagnostics: compiled.diagnostics })
           return
         }
         throw httpError(405, 'Method not allowed')

@@ -274,12 +274,10 @@ export class ServerModelGateway {
         ],
       })
     } else if (request.systemPrompt?.includes('Paper Make App Generator') || request.context?.mode === 'generate') {
-      content = JSON.stringify({
-        summary: `Generated functional prototype for: ${request.prompt.slice(0, 60)}`,
-        files: [
-          {
-            path: 'src/App.tsx',
-            content: `import React, { useState } from 'react'
+      const planned = Array.isArray(request.context?.plannedFiles)
+        ? (request.context.plannedFiles as string[])
+        : null
+      const defaultApp = `import React, { useState } from 'react'
 import { Sparkles, Plus, Minus, RotateCcw } from 'lucide-react'
 import './styles.css'
 
@@ -321,11 +319,8 @@ export default function App() {
     </main>
   )
 }
-`,
-          },
-          {
-            path: 'src/styles.css',
-            content: `.make-app-shell {
+`
+      const defaultCss = `.make-app-shell {
   min-height: 100vh;
   display: flex;
   align-items: center;
@@ -421,9 +416,22 @@ export default function App() {
   color: #080808;
   border-color: #81adec;
 }
-`,
-          },
-        ],
+`
+      const allFiles = [
+        { path: 'src/App.tsx', content: defaultApp },
+        { path: 'src/styles.css', content: defaultCss },
+      ]
+      const files = planned
+        ? allFiles.filter(f => planned.includes(f.path))
+        : allFiles
+      if (files.length === 0 && planned && planned.length > 0) {
+        for (const p of planned) {
+          files.push({ path: p, content: p.endsWith('.css') ? defaultCss : defaultApp })
+        }
+      }
+      content = JSON.stringify({
+        summary: `Generated functional prototype for: ${request.prompt.slice(0, 60)}`,
+        files,
       })
     } else {
       content = JSON.stringify({ message: `Generated response for: ${request.prompt.slice(0, 100)}` })

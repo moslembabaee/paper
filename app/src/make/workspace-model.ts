@@ -1,9 +1,10 @@
-import type { AppGenerateResult, AppPlan, AppProject, AppProjectSummary, ModelBudget } from './types.ts'
+import type { AppGenerateResult, AppPlan, AppProject, AppProjectSummary, AppProjectRollbackResult, ModelBudget } from './types.ts'
 import { api, ApiError } from '../cloud/api.ts'
-import { createAppProject } from './manifest.ts'
+import { createAppProject, validateAppProject } from './manifest.ts'
 import type { CompileDiagnostic, CompilePreviewAssets, CompileResult } from './compiler.ts'
 import { fetchModelBudget, requestModelPlan, approveModelPlan, requestAppGeneration } from './model-gateway.ts'
 import { approvePlan, isPlanStale, StalePlanApprovalError, validateAppPlan, PlanValidationError } from './plan.ts'
+import { computeBoundedDiff, type BoundedDiff } from './diff.ts'
 
 export interface ActionableDiagnostic {
   readonly title: string
@@ -413,6 +414,12 @@ export interface MakeWorkspaceState {
   planPrompt: string
   planError: string
   planStatus: 'idle' | 'generating' | 'approving' | 'approved' | 'generating_app' | 'stale'
+  currentDiff: BoundedDiff | null
+  rollbackPoint: {
+    revision: number
+    project: AppProject
+    assets: CompilePreviewAssets | null
+  } | null
 }
 
 export interface MakeRepository {
@@ -420,6 +427,7 @@ export interface MakeRepository {
   read(id: string, signal?: AbortSignal): Promise<AppProject>
   create(project: AppProject, signal?: AbortSignal): Promise<AppProject>
   compile(project: AppProject, signal?: AbortSignal): Promise<CompileResult>
+  rollback?(id: string, expectedRevision: number, targetRevision?: number, signal?: AbortSignal): Promise<AppProjectRollbackResult>
 }
 
 export function createMakeRepository(accountId?: string): MakeRepository {
@@ -429,6 +437,7 @@ export function createMakeRepository(accountId?: string): MakeRepository {
     read: (id, signal) => api(`/apps/${encodeURIComponent(id)}`, { headers, signal }),
     create: (project, signal) => api('/apps', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
     compile: (project, signal) => api('/apps/compile', { method: 'POST', headers, signal, body: JSON.stringify({ project }) }),
+    rollback: (id, expectedRevision, targetRevision, signal) => api(`/apps/${encodeURIComponent(id)}/rollback`, { method: 'POST', headers, signal, body: JSON.stringify({ expectedRevision, targetRevision }) }),
   }
 }
 
@@ -463,6 +472,8 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
     planPrompt: '',
     planError: '',
     planStatus: 'idle',
+    currentDiff: null,
+    rollbackPoint: null,
   }
   const listeners = new Set<() => void>()
   let previewGeneration = 0, projectGeneration = 0, listGeneration = 0, planGeneration = 0
@@ -511,6 +522,8 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       planError: stale ? 'Stale plan approval: the app has changed. Generate a new plan.' : '',
       planMode: switched ? 'idle' : state.planMode,
       planPrompt: switched ? '' : state.planPrompt,
+      currentDiff: switched ? null : state.currentDiff,
+      rollbackPoint: switched ? null : state.rollbackPoint,
     })
   }
   const store = {
@@ -578,7 +591,7 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
       invalidatePlan()
       stopPreview()
       const updated = { ...state.activeProject, files: { ...state.activeProject.files, [path]: { path, content } }, updatedAt: new Date().toISOString() }
-      setState({ projects: state.projects.map(project => project.id === updated.id ? updated : project), activeProject: updated })
+      setState({ projects: state.projects.map(project => project.id === updated.id ? updated : project), activeProject: updated, currentDiff: null })
     },
     setActiveFile: (activeFilePath: string) => setState({ activeFilePath }),
     setDeviceViewport: (deviceViewport: PreviewDeviceViewport) => setState({ deviceViewport }),
@@ -791,6 +804,17 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
         }
         planSource = sourceKey(updatedProject)
 
+        const boundedDiff = computeBoundedDiff(project.files, updatedProject.files, {
+          baseRevision: project.revision,
+          targetRevision: updatedProject.revision,
+        })
+
+        const rollbackPoint = {
+          revision: project.revision,
+          project: structuredClone(project),
+          assets: previousAssets,
+        }
+
         setState({
           projects: [updatedProject, ...state.projects.filter(p => p.id !== updatedProject.id)],
           activeProject: updatedProject,
@@ -801,12 +825,14 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
           errorMessage: '',
           planStatus: 'approved',
           planError: '',
+          currentDiff: boundedDiff,
+          rollbackPoint,
           savedProjects: saved && result.project
             ? [result.project, ...state.savedProjects.filter(p => p.id !== result.project!.id)]
             : state.savedProjects,
         })
 
-        return { success: true, project: updatedProject, assets: result.assets }
+        return { success: true, project: updatedProject, assets: result.assets, diff: boundedDiff, rollbackRevision: rollbackPoint.revision }
       } catch (error) {
         if (generation === planGeneration) {
           setState({
@@ -818,6 +844,54 @@ export function createMakeWorkspaceStore(options: MakeWorkspaceStoreOptions = {}
         throw error
       }
     },
+    async rollback() {
+      const point = state.rollbackPoint
+      if (!point || state.projectStatus !== 'idle' || state.planStatus === 'generating_app') return null
+      const current = state.activeProject
+      const saved = state.savedProjects.some(p => p.id === current.id)
+      previewGeneration++
+      previewRequest?.abort()
+      cancelPlan()
+      cancelProject()
+      const generation = projectGeneration
+      const source = sourceKey(current)
+      projectRequest = new AbortController()
+      setState({ projectStatus: 'saving', projectError: '' })
+      try {
+        let restored: AppProject
+        let compiled: Pick<CompileResult, 'success' | 'assets' | 'diagnostics'>
+        if (saved) {
+          if (!repository.rollback) throw new Error('Rollback is unavailable for this repository')
+          const result = await repository.rollback(current.id, current.revision, point.revision, projectRequest.signal)
+          if (!result.ok) throw new Error('Rollback validation failed')
+          restored = result.project
+          compiled = { success: true, assets: result.assets, diagnostics: result.diagnostics }
+        } else {
+          restored = validateAppProject({ ...point.project, revision: current.revision + 1, updatedAt: new Date().toISOString() })
+          compiled = await (options.compiler ? options.compiler(restored) : repository.compile(restored, projectRequest.signal))
+        }
+        if (generation !== projectGeneration) return null
+        if (sourceKey(state.activeProject) !== source) {
+          setState({ projectStatus: 'idle', projectError: 'Rollback conflict: the app has changed.' })
+          return null
+        }
+        if (!compiled.success || !compiled.assets) throw new Error('Rollback build validation failed. Current revision is unchanged.')
+        planSource = null
+        setState({
+          projects: [restored, ...state.projects.filter(p => p.id !== restored.id)],
+          activeProject: restored, activeFilePath: restored.preview.entryPoint,
+          projectStatus: 'idle', previewStatus: 'ready', assets: compiled.assets,
+          diagnostics: [...compiled.diagnostics], errorMessage: '',
+          rollbackPoint: null, currentDiff: null, planStatus: 'idle', currentPlan: null,
+          savedProjects: saved ? [restored, ...state.savedProjects.filter(p => p.id !== restored.id)] : state.savedProjects,
+        })
+        return restored
+      } catch (error) {
+        if (generation === projectGeneration) setState({ projectStatus: 'idle', projectError: message(error) })
+        throw error
+      }
+    },
+    canRollback: () => state.rollbackPoint !== null,
     cancelAppGeneration() {
       if (state.planStatus !== 'generating_app') return
       cancelPlan()

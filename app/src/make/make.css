@@ -424,3 +424,21 @@
 .make-plan-applied .make-plan-summary-block { display: none; }
 .make-plan-inspect { align-self: flex-start; margin: 0 16px 8px; }
 .make-plan-footer { flex-wrap: wrap; }
+
+.make-changes { padding: 20px; border-bottom: 1px solid #222222; }
+.make-change-summary, .make-change-note, .make-rollback p { color: #aaa99f; font-size: 10px; line-height: 1.7; }
+.make-change-summary { color: #81adec; }
+.make-change-totals { display: flex; flex-wrap: wrap; gap: 12px; font: 10px var(--font-mono); }
+.make-change-totals > :first-child { color: #a6c5a1; }
+.make-change-totals > :last-child { color: #f0b7a9; }
+.make-file-diff { min-width: 0; border-top: 1px solid #222222; }
+.make-file-diff summary { display: flex; align-items: baseline; gap: 8px; cursor: pointer; padding: 12px 0; font: 10px var(--font-mono); }
+.make-file-diff summary > span { overflow-wrap: anywhere; min-width: 0; }
+.make-file-diff summary > small { margin-left: auto; color: #aaa99f; }
+.make-file-diff[open] summary { color: #81adec; }
+.make-file-diff pre { padding: 8px 0; }
+.make-diff-line { display: block; min-width: max-content; }
+.make-diff-add { background: #a6c5a10d; color: #a6c5a1; }
+.make-diff-delete { background: #f0b7a90d; color: #f0b7a9; }
+.make-diff-number { display: inline-block; min-width: 4.5em; margin-right: 8px; padding-left: 8px; color: #aaa99f; user-select: none; }
+.make-rollback { border-top: 1px solid #222222; padding-top: 10px; margin-top: 8px; }

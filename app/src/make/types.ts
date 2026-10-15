@@ -128,6 +128,8 @@ export interface AppGenerationRecord {
   readonly validation: 'pending' | 'passed' | 'failed' | 'conflict' | 'cancelled'
   readonly diagnostics: readonly import('./compiler.ts').CompileDiagnostic[]
   readonly changedFiles: readonly string[]
+  readonly diff?: import('./diff.ts').BoundedDiff
+  readonly rollbackRevision?: number
 }
 
 export interface ModelRequest {
@@ -228,8 +230,23 @@ export interface AppGenerateResult {
   readonly assets?: import('./compiler.ts').CompilePreviewAssets | null
   readonly diagnostics: readonly import('./compiler.ts').CompileDiagnostic[]
   readonly plan: AppPlan
+  readonly diff?: import('./diff.ts').BoundedDiff
+  readonly rollbackRevision?: number
   readonly turnId?: string
   readonly usage?: ModelTurnUsage
   readonly budget?: ModelBudget
   readonly error?: string
+}
+
+export interface AppProjectRollbackRequest {
+  readonly expectedRevision: number
+  readonly targetRevision?: number
+}
+
+export interface AppProjectRollbackResult {
+  readonly ok: boolean
+  readonly project: AppProject
+  readonly rolledBackTo: number
+  readonly assets: import('./compiler.ts').CompilePreviewAssets
+  readonly diagnostics: readonly import('./compiler.ts').CompileDiagnostic[]
 }

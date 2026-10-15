@@ -350,7 +350,7 @@ export function formatGeneratePrompt(
   const risks = plan.risks.length ? plan.risks.map(r => `- ${r}`).join('\n') : '- None noted'
 
   const systemPrompt = `You are the Paper Make App Generator.
-Your role is to generate a complete, working, one-screen interactive React application based on the approved plan.
+Your role is to apply the approved plan to the existing React app. For a follow-up, preserve existing behavior and change only the targeted files. Generate a complete one-screen app only when the plan requests it.
 
 Design & Implementation Requirements:
 1. Palette and Craft Aesthetic:
@@ -367,8 +367,8 @@ Design & Implementation Requirements:
    - Return every planned create/modify file and only those files. The server applies planned deletions.
    - Use responsive layout, accessible labels, and functional state updates for interactions.
    - Keep motion to transform/opacity and respect prefers-reduced-motion; avoid layout animation.
-   - Main entry point must be "src/App.tsx", exporting default component App.
-   - All styles must be in project CSS (e.g. "src/styles.css") and imported via import './styles.css'.
+   - Keep the existing entry point. Return it only when it is in the plan. A new app uses "src/App.tsx" with a default App export.
+   - Keep styles in project CSS and preserve existing imports. Return an empty files array for a delete-only plan.
    - NO external @import in CSS.
 4. Output Format:
    Respond ONLY with a valid JSON object matching this exact schema:
@@ -405,7 +405,10 @@ ${JSON.stringify(projectContext?.files ?? {})}`
   }
 }
 
-export function parseModelGenerateResponse(content: string): {
+export function parseModelGenerateResponse(
+  content: string,
+  options?: { requireEntryPoint?: boolean; allowEmpty?: boolean }
+): {
   summary: string
   files: Record<string, AppSourceFile>
 } {
@@ -447,7 +450,7 @@ export function parseModelGenerateResponse(content: string): {
   let totalBytes = 0
 
   if (Array.isArray(raw.files)) {
-    if (raw.files.length === 0) {
+    if (raw.files.length === 0 && !options?.allowEmpty) {
       throw new GenerationValidationError('Generated app files array cannot be empty')
     }
     if (raw.files.length > APP_PROJECT_LIMITS.MAX_FILES_COUNT) {
@@ -484,7 +487,7 @@ export function parseModelGenerateResponse(content: string): {
     }
   } else if (typeof raw.files === 'object') {
     const keys = Object.keys(raw.files)
-    if (keys.length === 0) {
+    if (keys.length === 0 && !options?.allowEmpty) {
       throw new GenerationValidationError('Generated app files object cannot be empty')
     }
     if (keys.length > APP_PROJECT_LIMITS.MAX_FILES_COUNT) {
@@ -525,8 +528,9 @@ export function parseModelGenerateResponse(content: string): {
     throw new GenerationValidationError(`Generated app total file size exceeds 2 MiB limit (${totalBytes} bytes)`)
   }
 
-  // Ensure entry point exists
-  if (!fileMap['src/App.tsx']) {
+  // Ensure entry point exists if required
+  const requireEntryPoint = options?.requireEntryPoint ?? true
+  if (requireEntryPoint && !fileMap['src/App.tsx']) {
     throw new GenerationValidationError('Generated app must contain entry point "src/App.tsx"')
   }
 

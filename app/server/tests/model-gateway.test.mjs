@@ -882,3 +882,103 @@ test('draft generation binds to issued plan and exact source without creating an
   assert.ok(result.data.assets.js.includes('Generated Prototype'))
   assert.deepEqual(await f.storage.apps.list(a.user.id), [])
 })
+
+test('follow-up edits target CSS alone, preserve other files and durably record one diff/rollback revision', async t => {
+  const f = await fixture(t, { modelGateway: { tokenBudget: 100000, customAdapter: async request => ({ content: JSON.stringify(request.context?.mode === 'plan' ? {
+    summary: 'Change the canvas color', files: [{ path: 'src/styles.css', action: 'modify', description: 'Use blue' }], interactions: ['Counter still works'], risks: [],
+  } : { files: [{ path: 'src/styles.css', content: 'body { background: #81adec; }' }] }) }) } })
+  const a = await f.login('css-follow-up')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject({ files: {
+    'src/App.tsx': "import './styles.css'; export default () => <button>Counter</button>",
+    'src/styles.css': 'body { background: #080808; }',
+    'src/unrelated.ts': 'export const untouched = 123',
+  } }) }) })
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+  const result = await f.request(`/api/apps/${app.id}/generate`, { method: 'POST', headers: a.headers, body: JSON.stringify({ plan, expectedRevision: 1 }) })
+  assert.equal(result.data.success, true)
+  assert.equal(result.data.project.files['src/App.tsx'].content, app.files['src/App.tsx'].content)
+  assert.deepEqual(result.data.project.files['src/unrelated.ts'], app.files['src/unrelated.ts'])
+  assert.match(result.data.assets.css, /#81adec/)
+  assert.equal(result.data.diff.changedFilesCount, 1)
+  assert.equal(result.data.diff.files[0].path, 'src/styles.css')
+  assert.equal(result.data.rollbackRevision, 1)
+  const persisted = new ServerModelGateway({ provider: 'mock' })
+  await persisted.initialize(f.root)
+  const record = persisted.listTurns(a.user.id, app.id).find(turn => turn.turnId === result.data.turnId).generation
+  assert.deepEqual(record.diff, result.data.diff)
+  assert.equal(record.rollbackRevision, 1)
+  assert.equal(record.sourceRevision, 1)
+  assert.equal(record.resultRevision, 2)
+  assert.equal(record.plan.prompt, plan.prompt)
+  assert.equal((await f.storage.apps.listRevisions(a.user.id, app.id)).length, 2)
+})
+
+test('delete-only follow-up needs no replacement entry point and preserves unrelated sources', async t => {
+  const f = await fixture(t, { modelGateway: { tokenBudget: 100000, customAdapter: async request => ({ content: JSON.stringify(request.context?.mode === 'plan' ? {
+    summary: 'Remove unused file', files: [{ path: 'src/unused.ts', action: 'delete', description: 'Unused' }], interactions: ['App still runs'], risks: [],
+  } : { files: [] }) }) } })
+  const a = await f.login('delete-follow-up')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject({ files: {
+    'src/App.tsx': 'export default () => <p>Preserved</p>', 'src/unused.ts': 'export const unused = 1',
+  } }) }) })
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+  const result = await f.request(`/api/apps/${app.id}/generate`, { method: 'POST', headers: a.headers, body: JSON.stringify({ plan }) })
+  assert.equal(result.data.success, true)
+  assert.equal(result.data.project.files['src/unused.ts'], undefined)
+  assert.deepEqual(result.data.project.files['src/App.tsx'], app.files['src/App.tsx'])
+  assert.equal(result.data.diff.files[0].action, 'delete')
+})
+
+test('rollback requires ownership and expected revision, validates before atomic restore', async t => {
+  const f = await fixture(t)
+  const a = await f.login('rollback-owner'), b = await f.login('rollback-stranger')
+  const original = createAppProject({ files: { 'src/App.tsx': 'export default () => <p>Original</p>' } })
+  const app = await f.storage.apps.put(a.user.id, original.id, original, null)
+  const current = await f.storage.apps.put(a.user.id, app.id, { ...app, files: { 'src/App.tsx': { path: 'src/App.tsx', content: 'export default () => <p>Updated</p>' } } }, 1)
+  const post = (headers, input) => f.request(`/api/apps/${app.id}/rollback`, { method: 'POST', headers, body: JSON.stringify(input) })
+  assert.equal((await post(b.headers, { expectedRevision: 2 })).status, 404)
+  assert.equal((await post(a.headers, {})).status, 409)
+  assert.equal((await post(a.headers, { expectedRevision: 1 })).status, 409)
+  assert.deepEqual(await f.storage.apps.read(a.user.id, app.id), current)
+  const restored = await post(a.headers, { expectedRevision: 2, targetRevision: 1 })
+  assert.equal(restored.status, 200)
+  assert.equal(restored.data.project.revision, 3)
+  assert.deepEqual(restored.data.project.files, app.files)
+  assert.ok(restored.data.assets.js.includes('Original'))
+  const invalidProject = createAppProject({ files: { 'src/App.tsx': 'export default () => <p>' } })
+  const broken = await f.storage.apps.put(a.user.id, invalidProject.id, invalidProject, null)
+  const usable = await f.storage.apps.put(a.user.id, broken.id, { ...broken, files: app.files }, 1)
+  const rejected = await f.request(`/api/apps/${broken.id}/rollback`, { method: 'POST', headers: a.headers, body: JSON.stringify({ expectedRevision: 2 }) })
+  assert.equal(rejected.status, 422)
+  assert.deepEqual(await f.storage.apps.read(a.user.id, broken.id), usable)
+  assert.equal((await f.storage.apps.listRevisions(a.user.id, broken.id)).length, 2)
+})
+
+test('disconnect after model output cancels follow-up before commit and preserves the usable revision', async t => {
+  const f = await fixture(t, { modelGateway: { tokenBudget: 100000 } })
+  const a = await f.login('cancel-follow-up')
+  const { data: app } = await f.request('/api/apps', { method: 'POST', headers: a.headers, body: JSON.stringify({ project: createAppProject() }) })
+  const plan = await approvedGenerationPlan(f, a.headers, app)
+  let release, started, response
+  const pending = new Promise(resolve => { release = resolve })
+  const dispatched = new Promise(resolve => { started = resolve })
+  const record = f.modelGateway.recordGeneration.bind(f.modelGateway)
+  let first = true
+  f.modelGateway.recordGeneration = async (...args) => {
+    if (first) { first = false; started(); await pending }
+    return record(...args)
+  }
+  t.after(() => release())
+  const generating = f.request(`/api/apps/${app.id}/generate`, {
+    method: 'POST', headers: a.headers, body: JSON.stringify({ plan }), onOpen(_req, res) { response = res },
+  })
+  await dispatched
+  response.emit('close')
+  release()
+  assert.equal((await generating).status, 499)
+  assert.deepEqual(await f.storage.apps.read(a.user.id, app.id), app)
+  assert.equal((await f.storage.apps.listRevisions(a.user.id, app.id)).length, 1)
+  const turn = f.modelGateway.listTurns(a.user.id, app.id).find(turn => turn.generation)
+  assert.equal(turn.generation.validation, 'cancelled')
+  assert.equal(turn.generation.rollbackRevision, undefined)
+})
