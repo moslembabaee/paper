@@ -1,5 +1,5 @@
 import { effectFilterMarkup } from '../tokens/effects'
-import { memo, useId, useMemo } from 'react'
+import { memo, useId, useMemo, useSyncExternalStore } from 'react'
 import type { CSSProperties } from 'react'
 import type { SceneStore } from './store'
 import type { SceneElement } from './types'
@@ -9,6 +9,17 @@ import { frameMask, maskPathData, maskFillRule } from './maskGeometry'
 import './scene.css'
 
 interface NodeProps { store: SceneStore; id: string; interactive: boolean; inheritedLocked?: boolean; presentationRoot?: boolean; presentation?: boolean }
+
+/** Render in the operands' parent space so nested frame transforms and masks apply. */
+function BooleanCanvasPreview({ store, parentId }: { store: SceneStore; parentId: string | null }) {
+  const read = () => { const preview = store.getBooleanPreview(); return preview?.node.parentId === parentId ? preview : null }
+  const preview = useSyncExternalStore(store.subscribeBooleanPreview, read, read)
+  if (!preview) return null
+  const { node, operation } = preview
+  return <div className="boolean-canvas-preview" data-testid="boolean-canvas-preview" data-operation={operation} style={{ left: node.x, top: node.y, width: node.width, height: node.height, transform: `rotate(${node.rotation}deg)` }} aria-hidden="true">
+    <svg viewBox={node.viewBox.join(' ')} preserveAspectRatio="none"><path d={node.d} fillRule={node.fillRule} vectorEffect="non-scaling-stroke" /></svg>
+  </div>
+}
 
 function Paint({ node }: { node: SceneElement }) {
   const { fill: solidFill, stroke, shader } = node.style
@@ -41,6 +52,7 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
   const mask = useScene(store, state => { const frame = state.elements[id]; return frame?.type === 'frame' ? frameMask(state.elements, frame) : undefined })
   const maskSelected = useScene(store, state => !!mask && state.selection.includes(mask.id))
   const selected = useScene(store, state => state.selection.includes(id))
+  const previewSource = useSyncExternalStore(store.subscribeBooleanPreview, () => !presentation && !!store.getBooleanPreview()?.sourceIds.includes(id), () => false)
   const effects = node?.style.effects
   const effectMarkup = useMemo(() => effects ? effectFilterMarkup(effects, effectId) : '', [effects, effectId])
   if (!node || !node.visible) return null
@@ -50,6 +62,7 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
     left: presentationRoot ? 0 : node.x, top: presentationRoot ? 0 : node.y, width: node.width, height: node.height,
     zIndex: presentationRoot ? 0 : node.zIndex, transform: !presentationRoot && node.rotation ? `rotate(${node.rotation}deg)` : undefined,
     pointerEvents: interactive && (presentation || !locked) ? 'auto' : 'none',
+    opacity: previewSource ? .2 : undefined,
   }
   const hasEffects = node.style.effects?.some(effect => effect.enabled)
   const frameStyle: CSSProperties | undefined = isFrame ? {
@@ -64,7 +77,7 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
       {node.style.shader && <ShapeShader node={node} />}
       <Paint node={node} />
       {isFrame && mask && <svg width="0" height="0" className="scene-mask-defs" aria-hidden="true"><defs><clipPath id={`${effectId}-mask`} clipPathUnits="userSpaceOnUse"><path d={maskPathData(mask)} clipRule={maskFillRule(mask)} /></clipPath></defs></svg>}
-      {isFrame && <div className="scene-children" data-mask-source={mask?.id} style={{ clipPath: mask ? `url(#${effectId}-mask)` : undefined }}>{node.children.filter(childId => childId !== mask?.id).map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} presentation={presentation} />)}</div>}
+      {isFrame && <div className="scene-children" data-mask-source={mask?.id} style={{ clipPath: mask ? `url(#${effectId}-mask)` : undefined }}>{node.children.filter(childId => childId !== mask?.id).map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} presentation={presentation} />)}{!presentation && <BooleanCanvasPreview store={store} parentId={id} />}</div>}
       {isFrame && mask && !presentation && (mask.mask?.showOutline || maskSelected) && <svg className="scene-mask-outline" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true"><path d={maskPathData(mask)} fill="none" stroke="#81adec" strokeWidth="1" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" /></svg>}
       {isFrame && node.style.stroke && <div className="scene-frame-border" style={{ border: `${node.style.stroke.width}px ${node.style.stroke.dash.length ? 'dashed' : 'solid'} ${node.style.stroke.color}`, borderRadius: node.cornerRadius }} />}
     </div>
@@ -74,5 +87,5 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
 export const SceneRenderer = memo(function SceneRenderer({ store, interactive = true, frameId }: { store: SceneStore; interactive?: boolean; frameId?: string }) {
   const rootIds = useScene(store, state => state.rootIds)
   if (frameId) return <SceneNode store={store} id={frameId} interactive={interactive} presentation presentationRoot />
-  return rootIds.map(id => <SceneNode key={id} store={store} id={id} interactive={interactive} />)
+  return <>{rootIds.map(id => <SceneNode key={id} store={store} id={id} interactive={interactive} />)}<BooleanCanvasPreview store={store} parentId={null} /></>
 })

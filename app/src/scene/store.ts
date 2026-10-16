@@ -15,6 +15,7 @@ import { normalizeHierarchy } from '../collaboration/model.ts'
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { BooleanCompound, BooleanOperation, ElementInput, ElementOf, ElementPatch, ElementType, PathElement, SceneDocument, SceneElement, SceneSnapshot, VectorElement } from './types.ts'
 import { computeBoolean, isVector, refreshBooleanElement, transformedSource } from './booleanGeometry.ts'
+import { optimizeSvgBezierData } from './bezierOptimization.ts'
 import { serializePath } from './pathGeometry.ts'
 import { canMask, validateMaskGraph } from './maskGeometry.ts'
 import { getWorldBounds } from './geometry.ts'
@@ -27,6 +28,12 @@ import type { PrototypeDocument, PrototypeInteraction } from '../prototype/types
 type Listener = () => void
 const EMPTY = Object.freeze([]) as readonly string[]
 
+export interface BooleanPreview {
+  readonly operation: BooleanOperation
+  readonly node: PathElement
+  readonly sourceIds: readonly string[]
+}
+
 /** Framework-independent immutable scene graph. Sibling arrays are the paint order. */
 export class SceneStore {
   private state: SceneSnapshot = Object.freeze({ version: 1, tokens: Object.freeze([]), styleLibrary: EMPTY_LIBRARY, backgroundShader: null, elements: Object.freeze({}), rootIds: EMPTY, selection: EMPTY })
@@ -35,6 +42,50 @@ export class SceneStore {
   private pending = false
   private history = new CommandHistory()
   private transaction: { before: SceneSnapshot; label: string } | null = null
+  private booleanPreview: BooleanPreview | null = null
+  private booleanPreviewSnapshot: SceneSnapshot | null = null
+  private booleanPreviewCache = new Map<BooleanOperation, BooleanPreview>()
+  private booleanPreviewListeners = new Set<Listener>()
+
+  subscribeBooleanPreview = (listener: Listener): (() => void) => {
+    this.booleanPreviewListeners.add(listener)
+    return () => { this.booleanPreviewListeners.delete(listener) }
+  }
+
+  private emitBooleanPreview() { for (const listener of [...this.booleanPreviewListeners]) listener() }
+
+  getBooleanPreview = (): BooleanPreview | null => this.booleanPreviewSnapshot === this.state && !this.history.getSnapshot().active ? this.booleanPreview : null
+
+  /** Transient geometry never enters document snapshots, persistence, or undo history. */
+  previewBoolean(operation: BooleanOperation | null): void {
+    if (operation === null) {
+      if (this.booleanPreview) { this.booleanPreview = null; this.emitBooleanPreview() }
+      return
+    }
+    if (this.booleanPreviewSnapshot !== this.state) {
+      this.booleanPreviewSnapshot = this.state
+      this.booleanPreviewCache.clear()
+    }
+    const cached = this.booleanPreviewCache.get(operation)
+    let preview = cached
+    if (!preview) {
+      const selected = this.state.selection.length === 1 ? this.state.elements[this.state.selection[0]] : undefined
+      let node: PathElement
+      if (selected?.type === 'path' && selected.boolean) {
+        this.requireCompound(selected.id)
+        node = freezeElement(refreshBooleanElement(selected, { ...selected.boolean, operation })) as PathElement
+      } else {
+        const reason = this.booleanSelectionReason()
+        if (reason) throw new Error(reason)
+        const operands = this.state.selection.map(id => this.state.elements[id] as VectorElement).sort((a, b) => a.zIndex - b.zIndex)
+        const result = computeBoolean(operands, operation)
+        node = createElement('path', { id: 'boolean-preview', parentId: operands[0].parentId, ...result.bounds, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule })
+      }
+      preview = Object.freeze({ operation, node, sourceIds: this.state.selection })
+      this.booleanPreviewCache.set(operation, preview)
+    }
+    if (preview !== this.booleanPreview) { this.booleanPreview = preview; this.emitBooleanPreview() }
+  }
 
   getHistorySnapshot = () => this.history.getSnapshot()
 
@@ -102,7 +153,16 @@ export class SceneStore {
     }
   }
 
-  private emit() { for (const listener of [...this.listeners]) listener() }
+  private emit() {
+    if (this.booleanPreviewSnapshot !== this.state || this.history.getSnapshot().active) {
+      const hadPreview = this.booleanPreview !== null
+      this.booleanPreview = null
+      this.booleanPreviewCache.clear()
+      this.booleanPreviewSnapshot = null
+      if (hadPreview) this.emitBooleanPreview()
+    }
+    for (const listener of [...this.listeners]) listener()
+  }
   private publish(next: SceneSnapshot, label: string, documentChanged = true) {
     const before = this.state
     if (documentChanged) {
@@ -621,7 +681,7 @@ export class SceneStore {
     const result = computeBoolean(operands, operation), base = operands[0]
     const node = createElement('path', {
       name: `${operation[0].toUpperCase() + operation.slice(1)}${destructive ? ' path' : ' compound'}`,
-      parentId: base.parentId, ...result.bounds, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule, style: base.style,
+      parentId: base.parentId, ...result.bounds, d: destructive ? optimizeSvgBezierData(result.d) : result.d, viewBox: result.viewBox, fillRule: result.fillRule, style: base.style,
       ...(base.tokenBindings ? { tokenBindings: {
         ...(base.tokenBindings.fill ? { fill: base.tokenBindings.fill } : {}),
         ...(base.tokenBindings.stroke ? { stroke: base.tokenBindings.stroke } : {}),
@@ -690,7 +750,9 @@ export class SceneStore {
     const node = this.requireCompound(id)
     const { boolean: sources, ...path } = node
     void sources
-    this.commit({ ...this.state.elements, [id]: freezeElement(path) }, this.state.rootIds, this.state.selection, 'Flatten boolean compound')
+    const optimized = { ...path, d: optimizeSvgBezierData(path.d) }
+    validateElement(optimized)
+    this.commit({ ...this.state.elements, [id]: freezeElement(optimized) }, this.state.rootIds, this.state.selection, 'Flatten boolean compound')
   }
 
   /** Release sources at the compound's current position, scale and rotation. */

@@ -5,6 +5,39 @@
   "current_task_id": null,
   "tasks": [
     {
+      "id": "T-ISSUE-47",
+      "phase": "Community & Issues",
+      "title": "Issue #47: feat: Non-Destructive Vector Boolean Operations and Compound Path Builder",
+      "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792121164-1`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nImplement interactive vector pathfinder operations (Union, Subtract, Intersect, Exclude) for multi-shape selections on the canvas. Support non-destructive compound shape nodes, live hover preview, and path flattening into optimized SVG bezier curve data.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #47",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 47
+    },
+    {
+      "id": "T-ISSUE-48",
+      "phase": "Community & Issues",
+      "title": "Issue #48: feat: Kinetic Variable Font Typography Inspector with Text-on-Path Deformation",
+      "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792121164-2`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nIntegrate an advanced typography control panel supporting OpenType variable font axes (weight, width, slant, optical size). Add interactive text-on-path curve deformation allowing text nodes to bind and flow dynamically along arbitrary vector bezier curves.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #48",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 48
+    },
+    {
+      "id": "T-ISSUE-49",
+      "phase": "Community & Issues",
+      "title": "Issue #49: feat: Interactive Spring Dynamics Physics Engine and Motion Simulation Canvas",
+      "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792121164-3`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nImplement a real-time 2D physics simulation layer on the infinite canvas utilizing spring-mass-damper dynamics. Enable draggable canvas nodes with inertia, velocity-based collision boundaries, magnetic snapping targets, and configurable physics presets.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #49",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 49
+    },
+    {
       "id": "T-ISSUE-44",
       "phase": "Community & Issues",
       "title": "Issue #44: feat: Interactive Multi-Point Mesh Gradient and Procedural Shader Fill Inspector",
@@ -40,7 +73,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 46,
-      "completed_at": "2026-10-16T02:36:54.635043+00:00"
+      "completed_at": "2026-10-16T02:36:54.635043+00:00",
+      "closed_at": "2026-10-16T03:25:37Z"
     },
     {
       "id": "T-ISSUE-42",
@@ -1068,7 +1102,42 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 46,
-      "completed_at": "2026-10-16T03:25:33.907653+00:00"
+      "completed_at": "2026-10-16T03:25:33.907653+00:00",
+      "closed_at": "2026-10-16T03:25:37Z"
+    },
+    {
+      "id": "T-EVOLVE-1792121164-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Non-Destructive Vector Boolean Operations and Compound Path Builder",
+      "description": "Implement interactive vector pathfinder operations (Union, Subtract, Intersect, Exclude) for multi-shape selections on the canvas. Support non-destructive compound shape nodes, live hover preview, and path flattening into optimized SVG bezier curve data.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 2,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 47,
+      "completed_at": "2026-10-16T03:51:06.574693+00:00"
+    },
+    {
+      "id": "T-EVOLVE-1792121164-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Kinetic Variable Font Typography Inspector with Text-on-Path Deformation",
+      "description": "Integrate an advanced typography control panel supporting OpenType variable font axes (weight, width, slant, optical size). Add interactive text-on-path curve deformation allowing text nodes to bind and flow dynamically along arbitrary vector bezier curves.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 48
+    },
+    {
+      "id": "T-EVOLVE-1792121164-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive Spring Dynamics Physics Engine and Motion Simulation Canvas",
+      "description": "Implement a real-time 2D physics simulation layer on the infinite canvas utilizing spring-mass-damper dynamics. Enable draggable canvas nodes with inertia, velocity-based collision boundaries, magnetic snapping targets, and configurable physics presets.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 49
     }
   ]
 }

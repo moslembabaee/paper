@@ -4,9 +4,88 @@ import { SceneStore } from '../src/scene/store.ts'
 import { createElement } from '../src/scene/elements.ts'
 import { computeBoolean, transformedSource } from '../src/scene/booleanGeometry.ts'
 import { parsePath } from '../src/scene/pathGeometry.ts'
+import { optimizeSvgBezierData } from '../src/scene/bezierOptimization.ts'
 import { sceneToSVG } from '../src/io/svg.ts'
 import { buildCSSProps, buildReactComponent } from '../src/tokens/codegen.ts'
 import { createShader } from '../src/shaders/catalog.ts'
+
+test('hover previews are cached, transient and cleared by edits, undo and selection changes', () => {
+  const store = fixture(), snapshot = store.getSnapshot(), history = store.getHistorySnapshot()
+  let documentNotifications = 0, previewNotifications = 0
+  store.subscribe(() => documentNotifications++)
+  const unsubscribePreview = store.subscribeBooleanPreview(() => previewNotifications++)
+  for (const [operation, expected] of [['union', 17500], ['subtract', 7500], ['intersect', 2500], ['exclude', 15000]]) {
+    store.previewBoolean(operation)
+    const preview = store.getBooleanPreview()
+    assert.equal(preview.operation, operation)
+    close(area(preview.node.d), expected)
+    assert.deepEqual(preview.sourceIds, ['b', 'a'])
+    assert.equal(store.getSnapshot(), snapshot)
+    assert.equal(store.getHistorySnapshot(), history)
+    store.previewBoolean(null)
+    assert.equal(store.getBooleanPreview(), null)
+    store.previewBoolean(operation)
+    assert.equal(store.getBooleanPreview(), preview)
+  }
+  assert.equal(documentNotifications, 0)
+  assert.ok(previewNotifications > 0)
+  unsubscribePreview()
+  assert.doesNotMatch(JSON.stringify(store.toJSON()), /boolean-preview|sourceIds/)
+  store.update('a', 'rectangle', { x: 10 })
+  assert.equal(store.getBooleanPreview(), null)
+  store.undo()
+  assert.equal(store.getBooleanPreview(), null)
+  store.previewBoolean('union')
+  store.select(['a'])
+  assert.equal(store.getBooleanPreview(), null)
+})
+
+test('compound previews preserve its transform and invalidate on transactions and source edits', () => {
+  const store = fixture(), compound = store.booleanSelection('subtract')
+  store.update(compound.id, 'path', { x: 250, y: 300, width: 180, height: 160, rotation: 35 })
+  const snapshot = store.getSnapshot(), source = compound.boolean.operands[0]
+  const before = transformedSource(source, snapshot.elements[compound.id])
+  store.previewBoolean('union')
+  const preview = store.getBooleanPreview()
+  assert.equal(transformedSource(source, preview.node).d, before.d)
+  close(area(preview.node.d), 17500)
+  assert.equal(store.getSnapshot(), snapshot)
+  store.beginTransaction('Move')
+  assert.equal(store.getBooleanPreview(), null)
+  assert.throws(() => store.previewBoolean('exclude'), /Finish the active edit/)
+  store.cancelTransaction()
+  assert.equal(store.getBooleanPreview(), null)
+  store.previewBoolean('intersect')
+  store.updateBooleanOperand(compound.id, 'b', { x: 75 })
+  assert.equal(store.getBooleanPreview(), null)
+})
+
+test('SVG optimization preserves open endpoints, holes, cubic loops and flattened round trips', () => {
+  assert.equal(optimizeSvgBezierData('M0 0L10 0L20 0L30 0'), 'M 0 0 H 30')
+  const ring = 'M0 0H50H100V100H0Z M25 25V75H75V25Z'
+  const optimized = optimizeSvgBezierData(ring)
+  close(area(optimized), area(ring))
+  assert.equal(parsePath(optimized).length, 2)
+  for (const d of ['M0 0C100 100 -100 100 0 0Z', 'M0 0C-20 0 120 0 100 0V100H0Z']) {
+    const result = optimizeSvgBezierData(d)
+    assert.match(result, / C /)
+    close(area(result), area(d))
+  }
+  const store = fixture()
+  store.update('a', 'rectangle', { cornerRadius: 20 })
+  const compound = store.booleanSelection('subtract')
+  store.flattenBoolean(compound.id)
+  const flattened = store.getSnapshot().elements[compound.id]
+  assert.match(flattened.d, / C /)
+  close(area(flattened.d), area(compound.d))
+  const restored = new SceneStore()
+  restored.load(JSON.parse(JSON.stringify(store.toJSON())))
+  assert.equal(restored.getSnapshot().elements[compound.id].d, flattened.d)
+  store.undo()
+  assert.equal(store.getSnapshot().elements[compound.id], compound)
+  assert.equal(optimizeSvgBezierData(''), '')
+  assert.throws(() => optimizeSvgBezierData('M0 0', { precision: 100 }), /Invalid/)
+})
 
 const close = (actual, expected, epsilon = 1e-5) => assert.ok(Math.abs(actual - expected) < epsilon, `${actual} ≈ ${expected}`)
 // Independent exact integration of cubic signed area (integrand has degree five).
@@ -137,7 +216,8 @@ test('release restores original sources, IDs and styles; flatten retains only th
   store.undo()
   store.flattenBoolean(node.id)
   assert.equal(store.getSnapshot().elements[node.id].boolean, undefined)
-  assert.equal(store.getSnapshot().elements[node.id].d, node.d)
+  close(area(store.getSnapshot().elements[node.id].d), area(node.d))
+  assert.ok(store.getSnapshot().elements[node.id].d.length < node.d.length)
   store.undo(); assert.equal(store.getSnapshot().elements[node.id].boolean, node.boolean)
   const destructive = fixture().booleanSelection('exclude', true)
   assert.equal(destructive.boolean, undefined)

@@ -1,4 +1,4 @@
-import { useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import type { BooleanOperation, PathElement, VectorElement } from './types'
 import { vectorPathData } from './booleanGeometry'
@@ -61,17 +61,49 @@ export function BooleanBar({ store }: { store: SceneStore }) {
   const [destructive, setDestructive] = useState(false)
   const [error, setError] = useState('')
   const [highlightedId, setHighlightedId] = useState<string | null>(null)
+  const preview = useSyncExternalStore(store.subscribeBooleanPreview, store.getBooleanPreview, store.getBooleanPreview)
+  const previewFrame = useRef<number | null>(null)
+  const clearPreview = () => {
+    if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current)
+    previewFrame.current = null
+    store.previewBoolean(null)
+  }
+  useEffect(() => {
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || (!store.getBooleanPreview() && previewFrame.current === null)) return
+      if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current)
+      previewFrame.current = null
+      store.previewBoolean(null)
+      event.preventDefault()
+      event.stopPropagation()
+    }
+    window.addEventListener('keydown', dismiss, true)
+    return () => {
+      window.removeEventListener('keydown', dismiss, true)
+      if (previewFrame.current !== null) cancelAnimationFrame(previewFrame.current)
+      store.previewBoolean(null)
+    }
+  }, [store])
   const selected = state.selection.length === 1 ? state.elements[state.selection[0]] : undefined
   const compound = selected?.type === 'path' && selected.boolean ? selected : undefined
   if (state.selection.length < 2 && !compound) return null
   const reason = compound ? compound.component?.kind === 'instance' ? 'Detach the instance to edit its boolean sources.' : store.isLocked(compound.id) ? 'Unlock the compound to edit its sources.' : null : store.booleanSelectionReason()
   const disabled = !!reason || active
   const run = (work: () => unknown) => { try { work(); setError(''); return true } catch (cause) { setError(cause instanceof Error ? cause.message : 'The shapes could not be combined.'); return false } }
+  const showPreview = (operation: BooleanOperation) => {
+    clearPreview()
+    if (disabled) return
+    previewFrame.current = requestAnimationFrame(() => {
+      previewFrame.current = null
+      run(() => store.previewBoolean(operation))
+    })
+  }
   return <div className="inspector-section boolean-section" data-testid="boolean-section">
     <div className="boolean-heading"><span className="section-caption">BOOLEAN</span><span>{compound ? `${compound.boolean!.operands.length} sources` : 'Shape operations'}</span></div>
-    <div className="boolean-toolbar" role="toolbar" aria-label="Boolean path operations">
-      {ACTIONS.map(({ operation, label, hint }) => <button key={operation} aria-label={label} aria-pressed={compound ? compound.boolean!.operation === operation : undefined} title={reason ?? `${label} · ${hint}`} disabled={disabled} onClick={() => run(() => compound ? store.setBooleanOperation(compound.id, operation) : store.booleanSelection(operation, destructive))}><BooleanIcon operation={operation} /><span>{label}</span></button>)}
+    <div className="boolean-toolbar" role="toolbar" aria-label="Boolean path operations" onPointerLeave={clearPreview} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) clearPreview() }} onKeyDown={event => { if (event.key === 'Escape') { clearPreview(); event.stopPropagation() } }}>
+      {ACTIONS.map(({ operation, label, hint }) => <button key={operation} aria-label={label} aria-pressed={compound ? compound.boolean!.operation === operation : undefined} data-preview={preview?.operation === operation || undefined} title={reason ?? `${label} · ${hint}`} disabled={disabled} onPointerEnter={() => showPreview(operation)} onFocus={() => showPreview(operation)} onClick={() => { clearPreview(); run(() => compound ? store.setBooleanOperation(compound.id, operation) : store.booleanSelection(operation, destructive)) }}><BooleanIcon operation={operation} /><span>{label}</span></button>)}
     </div>
+    {preview && <p className="boolean-hover-hint" role="status">{ACTIONS.find(action => action.operation === preview.operation)!.label} preview <span>Click to apply · Esc to dismiss</span></p>}
     {compound ? <>
       <CompoundPreview compound={compound} highlightedId={highlightedId} />
       <p className="boolean-hint">{reason ?? `${ACTIONS.find(action => action.operation === compound.boolean!.operation)!.hint}. Sources remain editable.`}</p>
