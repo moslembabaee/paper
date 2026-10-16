@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 import { SceneStore } from '../src/scene/store.ts'
 import { createShader, freezeShader, updateShaderParameter, validateShader } from '../src/shaders/catalog.ts'
-import { meshToSurface, surfaceToMesh, meshUniforms } from '../src/shaders/mesh.ts'
+import { meshToSurface, surfaceToMesh, meshUniforms, parseHexColor, toHexColor, interpolateMeshColor, interpolatePaletteColors, smoothMeshColors, generateGridLayout, generateRadialLayout, generateSpiralLayout, MESH_PALETTE_PRESETS } from '../src/shaders/mesh.ts'
+import { getMeshActiveAnchor, setMeshActiveAnchor, getMeshPlacementMode, setMeshPlacementMode, subscribeMeshState } from '../src/shaders/meshState.ts'
 import { exportMeshReact } from '../src/shaders/shaderExport.ts'
 import { createProject } from '../src/io/project.ts'
 import { mutateCanvas } from '../src/mcp/operations.ts'
@@ -108,3 +109,123 @@ test('React export is self-contained, typechecks, and preserves current material
   const program = ts.createProgram([filename], options, host)
   assert.deepEqual(ts.getPreEmitDiagnostics(program).map(d => ts.flattenDiagnosticMessageText(d.messageText, '\n')), [])
 })
+
+test('mesh color parser and hex conversion roundtrip faithfully', () => {
+  const white = parseHexColor('#ffffff')
+  assert.deepEqual(white, { r: 1, g: 1, b: 1, a: 1 })
+  assert.equal(toHexColor(white), '#ffffff')
+
+  const shortHex = parseHexColor('#abc')
+  assert.ok(Math.abs(shortHex.r - 0xaa / 255) < 1e-4)
+
+  const semiTrans = parseHexColor('#12345680')
+  assert.ok(Math.abs(semiTrans.a - 128 / 255) < 0.01)
+  const roundtripped = toHexColor(semiTrans)
+  assert.ok(roundtripped.startsWith('#123456'))
+})
+
+test('multi-point mesh RBF color interpolation smoothly samples the gradient field', () => {
+  const anchors = [
+    { x: 0, y: 0, radius: 0.6 },
+    { x: 1, y: 1, radius: 0.6 },
+  ]
+  const colors = ['#ff0000', '#0000ff']
+
+  // Exact vertex sampling should match vertex color closely
+  const atFirst = interpolateMeshColor(anchors, colors, { x: 0, y: 0 })
+  const parsedFirst = parseHexColor(atFirst)
+  assert.ok(parsedFirst.r > 0.9, 'Color at (0,0) should be predominantly red')
+
+  // Center point sampling should blend both colors
+  const atCenter = interpolateMeshColor(anchors, colors, { x: 0.5, y: 0.5 })
+  const parsedCenter = parseHexColor(atCenter)
+  assert.ok(parsedCenter.r > 0.3 && parsedCenter.b > 0.3, 'Center should be a blended purple')
+
+  // Edge cases: single color or empty anchors
+  assert.equal(interpolateMeshColor([], [], { x: 0.5, y: 0.5 }), '#81adec')
+  assert.equal(interpolateMeshColor([anchors[0]], ['#123456'], { x: 0.5, y: 0.5 }), '#123456')
+})
+
+test('palette spectrum interpolation maps stops across target count', () => {
+  const base = ['#000000', '#ffffff']
+  const expanded = interpolatePaletteColors(base, 5)
+  assert.equal(expanded.length, 5)
+  assert.equal(expanded[0], '#000000')
+  assert.equal(expanded[4], '#ffffff')
+  const mid = parseHexColor(expanded[2])
+  assert.ok(Math.abs(mid.r - 0.5) < 0.05, 'Mid stop should be medium gray')
+
+  // Empty or 1 count
+  assert.deepEqual(interpolatePaletteColors([], 3), ['#81adec', '#81adec', '#81adec'])
+  assert.deepEqual(interpolatePaletteColors(['#ff0000'], 2), ['#ff0000', '#ff0000'])
+})
+
+test('smoothMeshColors harmonizes color stops against surrounding vertices', () => {
+  const anchors = [
+    { x: 0.2, y: 0.2, radius: 0.6 },
+    { x: 0.8, y: 0.2, radius: 0.6 },
+    { x: 0.5, y: 0.8, radius: 0.6 },
+  ]
+  const colors = ['#ff0000', '#00ff00', '#0000ff']
+  const smoothed = smoothMeshColors(anchors, colors)
+  assert.equal(smoothed.length, 3)
+  // Each color should still retain its main hue but blend with neighbors
+  const c0 = parseHexColor(smoothed[0])
+  assert.ok(c0.r > 0.5, 'Primary component remains dominant')
+  assert.ok(c0.g > 0 || c0.b > 0, 'Neighbor colors blended in')
+})
+
+test('mesh layout generators produce balanced normalized anchor coordinates', () => {
+  const grid = generateGridLayout(6)
+  assert.equal(grid.length, 6)
+  for (const a of grid) {
+    assert.ok(a.x >= 0 && a.x <= 1, 'x coordinate within [0, 1]')
+    assert.ok(a.y >= 0 && a.y <= 1, 'y coordinate within [0, 1]')
+    assert.ok(a.radius > 0, 'radius is positive')
+  }
+
+  const radial = generateRadialLayout(5)
+  assert.equal(radial.length, 5)
+  assert.deepEqual(radial[0], { x: 0.5, y: 0.5, radius: 0.75 })
+  for (const a of radial) {
+    assert.ok(a.x >= 0 && a.x <= 1)
+    assert.ok(a.y >= 0 && a.y <= 1)
+  }
+
+  const spiral = generateSpiralLayout(4)
+  assert.equal(spiral.length, 4)
+
+  assert.ok(MESH_PALETTE_PRESETS.length >= 4)
+  for (const p of MESH_PALETTE_PRESETS) {
+    assert.ok(p.name.length > 0)
+    assert.ok(p.colors.length >= 4)
+  }
+})
+
+test('meshState external store correctly broadcasts active vertex and placement mode changes', () => {
+  let notifications = 0
+  const unsubscribe = subscribeMeshState(() => {
+    notifications++
+  })
+
+  setMeshActiveAnchor(2)
+  assert.equal(getMeshActiveAnchor(), 2)
+  assert.equal(notifications, 1)
+
+  // Redundant set does not notify
+  setMeshActiveAnchor(2)
+  assert.equal(notifications, 1)
+
+  setMeshPlacementMode(true)
+  assert.equal(getMeshPlacementMode(), true)
+  assert.equal(notifications, 2)
+
+  setMeshPlacementMode(false)
+  assert.equal(getMeshPlacementMode(), false)
+  assert.equal(notifications, 3)
+
+  unsubscribe()
+  setMeshActiveAnchor(0)
+  assert.equal(notifications, 3)
+})
+
