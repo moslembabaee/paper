@@ -424,4 +424,20 @@
 .typography-studio button:focus-visible { outline: 2px solid #81adec; outline-offset: 2px; }
 .typography-studio .opentype-preview-text { max-height: 120px; overflow: auto; }
 .axis-slider-input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #81adec; border: 2px solid var(--paper-surface); }
+.axis-optical-actions { display: flex; justify-content: space-between; gap: 6px; }
+.axis-optical-actions button { font-size: 9px; }
+.axis-optical-actions button[aria-pressed="true"] { color: var(--paper-accent-text, #81adec); }
+.text-curve-editor { border: 1px solid var(--paper-border); border-radius: 4px; overflow: hidden; background: var(--paper-input); }
+.text-curve-heading { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--paper-border); color: var(--paper-text-secondary); font: 9px var(--font-mono); letter-spacing: .06em; }
+.text-curve-heading span:last-child { color: var(--paper-accent-text, #81adec); }
+.text-curve-preview { display: block; width: 100%; height: 144px; touch-action: none; user-select: none; }
+.text-curve-grid { color: var(--paper-border-strong); pointer-events: none; }
+.text-curve-baseline { stroke: var(--paper-accent-text, #81adec); stroke-width: 1.5; pointer-events: none; }
+.text-curve-tangent { fill: none; stroke: var(--paper-text-secondary); stroke-width: .75; pointer-events: none; }
+.text-curve-handle { fill: var(--paper-surface, #222222); stroke: var(--paper-accent-text, #81adec); stroke-width: 1.5; vector-effect: non-scaling-stroke; cursor: grab; outline: none; }
+.text-curve-handle.is-anchor { fill: var(--paper-accent-text, #81adec); }
+.text-curve-handle:hover, .text-curve-handle:focus-visible { fill: var(--paper-text, #edebe1); stroke-width: 2.5; }
+.text-curve-handle:active { cursor: grabbing; }
+.text-curve-handle[aria-disabled="true"] { cursor: default; opacity: .45; }
+.text-curve-editor > .typo-hint { padding: 8px 10px; border-top: 1px solid var(--paper-border); }
 @media (prefers-reduced-motion: reduce) { .typography-tab-pane { animation: none; } }

@@ -125,12 +125,12 @@ export function compileFontVariationSettings(axes?: VariableFontAxes, fallbackWe
   // Ensure weight is included
   const weight = axes?.wght ?? fallbackWeight
   if (weight !== undefined && Number.isFinite(weight)) {
-    parts.push(`'wght' ${Math.round(weight)}`)
+    parts.push(`'wght' ${Number(weight.toFixed(2))}`)
   }
 
   // Width
   if (axes?.wdth !== undefined && Number.isFinite(axes.wdth)) {
-    parts.push(`'wdth' ${Math.round(axes.wdth)}`)
+    parts.push(`'wdth' ${Number(axes.wdth.toFixed(2))}`)
   }
 
   // Slant

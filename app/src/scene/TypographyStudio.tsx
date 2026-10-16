@@ -31,9 +31,11 @@ import {
   compileTypographyStyles,
   compileFontFeatureSettings,
   compileFontVariationSettings,
+  generatePathPreset,
   textPathOffset,
 } from './typography.ts'
 import { parsePath } from './pathGeometry'
+import { TextPathEditor } from './TextPathEditor'
 import './typography.css'
 
 interface TypographyStudioProps {
@@ -95,7 +97,9 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
     if (!Number.isFinite(value)) return
     const meta = VARIABLE_AXES_META[axis]
     if (meta) value = Math.max(meta.min, Math.min(meta.max, value))
-    const nextAxes = { ...axes, [axis]: value }
+    // Display defaults must not become explicit overrides for unrelated axes.
+    // In particular, changing weight should preserve automatic optical sizing.
+    const nextAxes = { ...node.variableAxes, [axis]: value }
     update({
       variableAxes: nextAxes,
       ...(axis === 'wght' ? { fontWeight: Math.round(value) } : {}),
@@ -103,7 +107,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
   }
 
   const removeAxis = (axis: string) => {
-    const nextAxes = { ...axes }
+    const nextAxes = { ...node.variableAxes }
     delete nextAxes[axis]
     update({ variableAxes: nextAxes })
   }
@@ -465,10 +469,13 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                 <input type="range" className="axis-slider-input" aria-label={`Variable ${meta.label.toLowerCase()} axis`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
                 <input type="number" className="axis-num-input" aria-label={`${meta.label} value`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
               </div>
-              {tag === 'opsz' && <button type="button" className="quiet-button" onClick={() => updateAxis('opsz', node.fontSize)}>Match font size</button>}
+              {tag === 'opsz' && <div className="axis-optical-actions">
+                <button type="button" className="quiet-button" aria-pressed={node.variableAxes?.opsz === undefined} onClick={() => removeAxis('opsz')}>Automatic optical size</button>
+                <button type="button" className="quiet-button" onClick={() => updateAxis('opsz', node.fontSize)}>Match size</button>
+              </div>}
             </div>
           })}
-          <div className="opentype-preview-box"><span className="opentype-preview-label">Live specimen</span><div className="opentype-preview-text" style={{ fontFamily: node.fontFamily, fontVariationSettings: compileFontVariationSettings(axes), fontOpticalSizing: 'none' }}>{node.text || 'Aa / 012345'}</div></div>
+          <div className="opentype-preview-box"><span className="opentype-preview-label">Live specimen</span><div className="opentype-preview-text" style={{ fontFamily: node.fontFamily, fontVariationSettings: compileFontVariationSettings(node.variableAxes, node.fontWeight), fontOpticalSizing: node.variableAxes?.opsz === undefined ? 'auto' : 'none' }}>{node.text || 'Aa / 012345'}</div></div>
 
           {/* Extended & Custom Variable Axes */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
@@ -855,6 +862,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
           {top.enabled && (
             <>
               {/* Curve Presets */}
+              <TextPathEditor key={`${node.id}:${top.pathId ?? 'local'}`} store={store} node={node} />
               <label className="property-label">
                 Curve Presets
                 <div className="path-presets-grid" style={{ marginTop: 4 }}>
@@ -862,6 +870,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                     <button
                       key={preset.id}
                       aria-label={preset.label}
+                      aria-pressed={top.preset === preset.id && !top.pathId}
                       type="button"
                       className={`path-preset-btn ${top.preset === preset.id && !top.pathId ? 'is-active' : ''}`}
                       onClick={() => {
@@ -875,7 +884,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                         })
                       }}
                     >
-                      <span style={{ fontSize: 13 }}>{preset.icon}</span>
+                      {preset.id === 'custom' ? <span aria-hidden="true">{preset.icon}</span> : <svg viewBox="-3 -3 102 46" aria-hidden="true"><path d={generatePathPreset(preset.id, 96, 40)} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" /></svg>}
                       <span>{preset.label}</span>
                     </button>
                   ))}

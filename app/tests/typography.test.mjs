@@ -7,6 +7,7 @@ import { getWorldMatrix } from '../src/scene/geometry.ts'
 import { compileFontVariationSettings, compileTypographyStyles, resolveTextPathD, reversePathD, textAnchorForPath, textPathOffset } from '../src/scene/typography.ts'
 import { sceneToSVG, exportBounds } from '../src/io/svg.ts'
 import { buildCSSProps, buildReactComponent } from '../src/tokens/codegen.ts'
+import { updateTextCurve } from '../src/scene/textPathEditing.ts'
 
 const textScene = () => {
   const store = new SceneStore()
@@ -25,6 +26,7 @@ test('axis settings retain precision and case-sensitive extended tags', () => {
   const node = { ...getText(textScene()), variableAxes: { wght: 620, opsz: 32 } }
   assert.equal(compileTypographyStyles(node).fontWeight, 620)
   assert.equal(compileTypographyStyles(node).fontOpticalSizing, 'none')
+  assert.match(compileFontVariationSettings({ wght: 620.25, wdth: 85.75 }), /'wght' 620.25, 'wdth' 85.75/)
 })
 
 test('path alignment overrides paragraph alignment and has useful default offsets', () => {
@@ -132,4 +134,47 @@ test('malformed linked geometry uses the preset while a path edit is incomplete'
   store.add('path', { id: 'draft', d: 'M0 0 C' })
   store.update('text', 'text', { textOnPath: { enabled: true, pathId: 'draft', preset: 'arc' } })
   assert.match(resolveTextPathD(getText(store), store.getSnapshot().elements), / Q /)
+})
+
+test('direct deformation becomes a custom curve, retains flow options, and undoes as one gesture', () => {
+  const store = textScene()
+  store.update('text', 'text', { textOnPath: { enabled: true, preset: 'arc', offset: 50, align: 'center', reverse: true, spacing: 2 } })
+  const before = getText(store), count = store.getHistorySnapshot().undoCount
+  store.beginTransaction('Deform text curve')
+  updateTextCurve(store, 'text', 'M0 30 C60 0 160 90 240 30')
+  updateTextCurve(store, 'text', 'M0 30 C60 10 160 90 240 30')
+  store.endTransaction()
+  assert.equal(store.getHistorySnapshot().undoCount, count + 1)
+  assert.deepEqual(getText(store).textOnPath, { ...before.textOnPath, preset: 'custom', pathId: null, pathData: 'M0 30 C60 10 160 90 240 30' })
+  store.undo()
+  assert.deepEqual(getText(store), before)
+  store.redo()
+  assert.equal(getText(store).textOnPath.preset, 'custom')
+  const committed = getText(store)
+  store.beginTransaction('Deform text curve')
+  updateTextCurve(store, 'text', 'M0 30 L240 30')
+  store.cancelTransaction()
+  assert.deepEqual(getText(store), committed)
+})
+
+test('editing a linked baseline preserves placement and updates all followers, respecting locks', () => {
+  const store = textScene()
+  store.add('frame', { id: 'frame', x: 400, y: 120, rotation: 15 })
+  store.add('path', { id: 'curve', parentId: 'frame', x: 20, y: 40, width: 300, height: 100, rotation: -20, viewBox: [0, 0, 300, 100], d: 'M0 30 L240 30' })
+  store.update('text', 'text', { textOnPath: { enabled: true, pathId: 'curve' } })
+  store.add('text', { id: 'follower', textOnPath: { enabled: true, pathId: 'curve' } })
+  const original = store.getSnapshot().elements.curve
+  const before = resolveTextPathD(getText(store), store.getSnapshot().elements)
+  const followerBefore = resolveTextPathD(store.getSnapshot().elements.follower, store.getSnapshot().elements)
+  assert.equal(updateTextCurve(store, 'text', 'M0 30 C60 10 160 90 240 30'), true)
+  const state = store.getSnapshot()
+  assert.deepEqual(state.elements.curve, { ...original, d: 'M0 30 C60 10 160 90 240 30' })
+  assert.notEqual(resolveTextPathD(getText(store), state.elements), before)
+  assert.notEqual(resolveTextPathD(state.elements.follower, state.elements), followerBefore)
+  assert.equal(getText(store).textOnPath.pathId, 'curve')
+  store.setLocked('frame', true)
+  const locked = store.getSnapshot()
+  assert.equal(updateTextCurve(store, 'text', 'M0 0 L100 100'), false)
+  assert.equal(store.getSnapshot(), locked)
+  assert.equal(updateTextCurve(store, 'missing', 'M0 0 L100 100'), false)
 })
