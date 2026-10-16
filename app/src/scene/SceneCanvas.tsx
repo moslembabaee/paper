@@ -19,9 +19,10 @@ import { CollaborationOverlay } from '../collaboration/CollaborationOverlay'
 import type { CollaborationSession } from '../collaboration/session'
 import { Sparkles } from 'lucide-react'
 import { CanvasContextMenu } from './CanvasContextMenu'
+import { PhysicsOverlay } from '../physics/PhysicsOverlay'
 import { InteractiveCanvasOverlay } from './InteractiveCanvasOverlay'
 
-export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity, prototypeOverlay, collaboration, annotationOverlay, commentMode = false, interactiveMode = false, onExitInteractiveMode }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null; prototypeOverlay?: ReactNode; collaboration?: CollaborationSession | null; annotationOverlay?: ReactNode; commentMode?: boolean; interactiveMode?: boolean; onExitInteractiveMode?: () => void }) {
+export function SceneCanvas({ store, controller, grid, panMode, penMode = false, onExitPen, initialCamera, agentActivity, prototypeOverlay, collaboration, annotationOverlay, commentMode = false, interactiveMode = false, onExitInteractiveMode, physicsMode = false, onExitPhysicsMode }: { store: SceneStore; controller: ViewportController; grid: boolean; panMode: boolean; penMode?: boolean; onExitPen?: () => void; initialCamera?: Camera; agentActivity?: AgentActivity | null; prototypeOverlay?: ReactNode; collaboration?: CollaborationSession | null; annotationOverlay?: ReactNode; commentMode?: boolean; interactiveMode?: boolean; onExitInteractiveMode?: () => void; physicsMode?: boolean; onExitPhysicsMode?: () => void }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; worldPos: Point } | null>(null)
@@ -32,7 +33,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
     document.fonts.addEventListener('loadingdone', refresh)
     return () => { active = false; document.fonts.removeEventListener('loadingdone', refresh) }
   }, [store])
-  const interactionDisabled = Boolean(prototypeOverlay) || commentMode || interactiveMode
+  const interactionDisabled = Boolean(prototypeOverlay) || commentMode || interactiveMode || physicsMode
   if (interactionDisabled && editingId !== null) setEditingId(null)
   useArrangeShortcuts(store, controller, !interactionDisabled && !penMode && !editingId)
   useLayoutEffect(() => {
@@ -87,8 +88,8 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   const bounds = useMemo(() => unionBounds(items), [items])
   return (
     <div ref={hostRef} style={{ display: 'contents' }}>
-      <CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (interactiveMode ? <InteractiveCanvasOverlay store={store} controller={controller} onExit={onExitInteractiveMode} /> : !panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <><SelectionOverlay store={store} controller={controller} panMode={panMode} />{!panMode && <MeshCanvasOverlay store={store} controller={controller} />}</>)}</>}>
-        <SceneRenderer store={store} interactive={!panMode && !commentMode && !interactiveMode} />
+      <CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (physicsMode ? <PhysicsOverlay store={store} controller={controller} onExit={onExitPhysicsMode} /> : interactiveMode ? <InteractiveCanvasOverlay store={store} controller={controller} onExit={onExitInteractiveMode} /> : !panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <><SelectionOverlay store={store} controller={controller} panMode={panMode} />{!panMode && <MeshCanvasOverlay store={store} controller={controller} />}</>)}</>}>
+        <SceneRenderer store={store} interactive={!panMode && !commentMode && !interactiveMode && !physicsMode} />
       </CanvasViewport>
       {interactiveMode && (
         <div className="interactive-canvas-status" data-testid="interactive-canvas-status">

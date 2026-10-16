@@ -24,6 +24,8 @@ import { FIXED_SIZING, invalidateLayoutTextMetrics, reflowAutoLayout } from './a
 import { componentRoot, recordComponentEdit, recordComponentTokenEdit, subtree, synchronizeComponents, validateComponentGraph } from './components.ts'
 import { EMPTY_PROTOTYPE, DEFAULT_TRANSITION, prunePrototype, validatePrototype } from '../prototype/model.ts'
 import type { PrototypeDocument, PrototypeInteraction } from '../prototype/types.ts'
+import { validatePhysicsDocument } from '../physics/constants.ts'
+import type { PhysicsDocument } from '../physics/types.ts'
 
 type Listener = () => void
 const EMPTY = Object.freeze([]) as readonly string[]
@@ -1041,6 +1043,12 @@ export class SceneStore {
     if (!equalValue(this.state.prototype ?? EMPTY_PROTOTYPE, prototype)) this.publish(Object.freeze({ ...this.state, prototype }), label)
   }
 
+  /** Enable, disable, or update the real-time physics simulation layer. */
+  setPhysics(value: PhysicsDocument, label = 'Edit physics'): void {
+    const physics = validatePhysicsDocument(value)
+    if (!equalValue(this.state.physics, physics)) this.publish(Object.freeze({ ...this.state, physics }), label)
+  }
+
   connectPrototype(sourceId: string, targetId: string): PrototypeInteraction {
     const value = this.state.prototype ?? EMPTY_PROTOTYPE
     const interaction: PrototypeInteraction = { id: crypto.randomUUID(), sourceId, targetId, trigger: 'click', action: 'navigate', delay: 800, transition: DEFAULT_TRANSITION }
@@ -1058,7 +1066,21 @@ export class SceneStore {
     this.setPrototype({ ...value, interactions: value.interactions.filter(item => item.id !== id) }, 'Remove interaction')
   }
 
-  toJSON(): SceneDocument { return { version: 1, ...(this.state.motion ? { motion: this.state.motion } : {}), ...(this.state.comments ? { comments: this.state.comments } : {}), tokens: this.state.tokens, styleLibrary: this.state.styleLibrary, elements: this.state.elements, rootIds: this.state.rootIds, ...(this.state.prototype ? { prototype: this.state.prototype } : {}), ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}) } }
+  toJSON(): SceneDocument {
+    const doc: SceneDocument = {
+      version: 1,
+      ...(this.state.motion ? { motion: this.state.motion } : {}),
+      ...(this.state.comments ? { comments: this.state.comments } : {}),
+      tokens: this.state.tokens,
+      styleLibrary: this.state.styleLibrary,
+      elements: this.state.elements,
+      rootIds: this.state.rootIds,
+      ...(this.state.prototype ? { prototype: this.state.prototype } : {}),
+      ...(this.state.physics ? { physics: this.state.physics } : {}),
+      ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}),
+    }
+    return doc
+  }
 
   /** Font loading changes text metrics without creating a user edit. */
   refreshLayout(): void {
@@ -1125,6 +1147,7 @@ export class SceneStore {
     const motion = document.motion === undefined ? undefined : validateMotion(document.motion, elements)
     const comments = document.comments === undefined ? undefined : validateComments(document.comments)
     const prototype = document.prototype === undefined ? undefined : validatePrototype(document.prototype, elements)
-    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(motion ? { motion } : {}), ...(comments ? { comments } : {}), ...(prototype ? { prototype } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
+    const physics = document.physics === undefined ? undefined : validatePhysicsDocument(document.physics)
+    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(motion ? { motion } : {}), ...(comments ? { comments } : {}), ...(prototype ? { prototype } : {}), ...(physics ? { physics } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
   }
 }

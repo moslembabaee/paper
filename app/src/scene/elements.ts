@@ -4,6 +4,7 @@ import type { BooleanCompound, ElementGeometry, ElementInput, ElementOf, Element
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
 import { parsePath, serializePath } from './pathGeometry.ts'
 import { freezeComponent, validateComponent } from './components.ts'
+import { validateElementPhysics } from '../physics/constants.ts'
 
 const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectangle', ellipse: 'Ellipse', path: 'Vector path', text: 'Text', image: 'Image' }
 const frozenElements = new WeakSet<SceneElement>()
@@ -34,6 +35,7 @@ export function freezeElement(element: SceneElement): SceneElement {
   if (element.type === 'text') element = { ...element, ...(element.variableAxes ? { variableAxes: Object.freeze({ ...element.variableAxes }) } : {}), ...(element.openTypeFeatures ? { openTypeFeatures: Object.freeze({ ...element.openTypeFeatures }) } : {}), ...(element.textOnPath ? { textOnPath: Object.freeze({ ...element.textOnPath }) } : {}) }
   if (element.mask) element = { ...element, mask: Object.freeze({ ...element.mask }) }
   if (element.sizing) element = { ...element, sizing: Object.freeze({ ...element.sizing }) }
+  if (element.physics) element = { ...element, physics: Object.freeze({ ...element.physics }) }
   if (element.type === 'frame' && element.layout) element = { ...element, layout: Object.freeze({ ...element.layout, padding: Object.freeze({ ...element.layout.padding }) }) }
   const style = Object.freeze({
     ...element.style,
@@ -67,6 +69,7 @@ export function withElementGeometry(element: SceneElement, geometry: Pick<Elemen
 export function validateElement(element: SceneElement, depth = 0): void {
   if (element.mask !== undefined && (!element.mask || !['frame', 'rectangle', 'ellipse', 'path'].includes(element.type) || typeof element.mask.enabled !== 'boolean' || typeof element.mask.showOutline !== 'boolean')) throw new Error('Invalid vector mask')
   if (element.component !== undefined) validateComponent(element.component)
+  if (element.physics !== undefined) validateElementPhysics(element.physics)
   if (depth > 16) throw new Error('Boolean compounds may be nested up to 16 levels')
   if (typeof element.id !== 'string' || !element.id || typeof element.name !== 'string' || !element.name || (element.parentId !== null && typeof element.parentId !== 'string') || !['frame', 'rectangle', 'ellipse', 'path', 'text', 'image'].includes(element.type)) throw new Error('Invalid element identity')
   for (const key of ['x', 'y', 'width', 'height', 'rotation', 'zIndex'] as const) {
@@ -172,6 +175,7 @@ export function createElement<T extends ElementType>(type: T, input: ElementInpu
     rotation: 0, visible: true, locked: false,
     ...defaults[type], ...input, type,
     style: { fill: type === 'text' ? '#080808' : type === 'frame' ? '#f5f4ee' : type === 'image' ? null : '#81adec', stroke: null, opacity: 1, shadow: null, ...input.style },
+    ...(input.physics ? { physics: input.physics } : {}),
   } as SceneElement
   const normalized = element.type === 'path' && element.nodes ? { ...element, d: serializePath(element.nodes) } : element
   validateElement(normalized)

@@ -1,5 +1,5 @@
 import { Activity, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, MessageSquare, MousePointer2, PenTool, Play, SlidersHorizontal, Sparkles, Square, Type, X } from 'lucide-react'
+import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, MessageSquare, MousePointer2, PenTool, Play, SlidersHorizontal, Sparkles, Square, Type, Waves, X } from 'lucide-react'
 import type { AppSceneReference } from './make/types'
 import type { ElementType } from './scene/types'
 import { componentRoot } from './scene/components'
@@ -80,6 +80,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
   const [tool, setTool] = useState<'select' | 'hand' | 'pen' | 'comment'>('select')
   const [shadersOpen, setShadersOpen] = useState(false)
   const [motionOpen, setMotionOpen] = useState(false)
+  const [physicsOpen, setPhysicsOpen] = useState(false)
   const stageRef = useRef<HTMLElement>(null)
   const [grid, setGrid] = useState(workspace.project?.grid ?? true)
   const [layersVisible, setLayersVisible] = useState(true)
@@ -90,6 +91,9 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
   const [interactionId, setInteractionId] = useState<string | null>(null)
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [changing, setChanging] = useState(false)
+  useEffect(() => {
+    if (prototypeMode || interactiveMode || devMode || motionOpen || presenting || tool === 'pen' || tool === 'comment') setPhysicsOpen(false)
+  }, [prototypeMode, interactiveMode, devMode, motionOpen, presenting, tool])
   const transition = useRef(false)
   const saveLocalProject = manager.save
   const onPersist = useCallback((project: Parameters<typeof saveLocalProject>[1]) => saveLocalProject(workspace.record.id, project), [saveLocalProject, workspace.record.id])
@@ -140,6 +144,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
   }
 
   const addElement = useCallback((type: ElementType) => {
+    setPhysicsOpen(false)
     const { elements, selection } = store.getSnapshot()
     const selected = selection.length === 1 ? elements[selection[0]] : undefined
     let parentId = type === 'frame' ? null : selected?.type === 'frame' ? selected.id : selected?.parentId ?? null
@@ -170,10 +175,12 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
         togglePixelSnap()
         return
       }
+      if (event.key === 'Escape' && physicsOpen) { event.preventDefault(); setPhysicsOpen(false); return }
       if (event.key === 'Escape' && interactiveMode) { event.preventDefault(); setInteractiveMode(false); return }
       if (event.key === 'Escape' && tool === 'comment') { event.preventDefault(); setTool('select'); return }
       if (event.ctrlKey || event.metaKey || event.altKey) return
       const key = event.key.toLowerCase()
+      if (physicsOpen && !['h', 'v', 'm'].includes(key)) return
       if (key === 'i' && !prototypeMode) { event.preventDefault(); setInteractiveMode(v => !v); setTool('select'); return }
       if (key === 'c') { event.preventDefault(); startComment(); return }
       if (prototypeMode) {
@@ -193,7 +200,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
     }
     document.addEventListener('keydown', keydown)
     return () => document.removeEventListener('keydown', keydown)
-  }, [prototypeMode, presenting, addElement, tool, startComment, interactiveMode])
+  }, [prototypeMode, presenting, addElement, tool, startComment, interactiveMode, physicsOpen])
 
   return <div className="paper-app">
     <header className="app-header">
@@ -221,10 +228,11 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
           <span className="toolbar-divider" />
           {!prototypeMode && <button className="tool-button" data-testid="tool-shaders" aria-label="Browse shaders" title="Shaders (S)" onClick={() => { setTool('select'); setShadersOpen(true) }}><Sparkles size={16} /></button>}
           {!prototypeMode && <button className={`tool-button ${motionOpen ? 'active' : ''}`} data-testid="tool-motion" aria-label="Motion timeline" aria-pressed={motionOpen} title="Motion timeline (K)" onClick={() => setMotionOpen(!motionOpen)}><SlidersHorizontal size={16} /></button>}
+          {!prototypeMode && <button className={`tool-button ${physicsOpen ? 'active' : ''}`} data-testid="tool-physics" aria-label="Spring dynamics simulation" aria-pressed={physicsOpen} title="Spring dynamics · Drag, throw, and explore motion" onClick={() => { setPhysicsOpen(value => !value); setMotionOpen(false); setInteractiveMode(false); setDevMode(false); comments.setOpen(false); setTool('select') }}><Waves size={16} /></button>}
           <button className={`tool-button comment-tool ${comments.open ? 'active' : ''}`} data-testid="tool-comments" aria-label="Toggle comments" aria-pressed={comments.open} aria-expanded={comments.open} aria-controls={comments.open ? "paper-comments" : undefined} title="Comments · Place a pin with C" onClick={() => comments.open ? closeComments() : comments.setOpen(true)}><MessageSquare size={16} />{!!comments.unread.size && <span className="comment-tool-unread">{comments.unread.size}</span>}</button>
           <HistoryControls store={store} />
         </div>
-        <SceneCanvas interactiveMode={interactiveMode} onExitInteractiveMode={() => setInteractiveMode(false)} commentMode={tool === 'comment'} annotationOverlay={comments.open ? <CommentOverlay store={store} controller={controller} threads={comments.threads} unread={comments.unread} activeId={comments.activeId} draft={comments.draft} placing={tool === 'comment'} onSelect={thread => { setTool('select'); comments.select(thread) }} onPlace={anchor => { comments.setDraft(anchor); comments.setActiveId(null); setTool('select') }} /> : undefined} collaboration={collaboration} prototypeOverlay={prototypeMode ? <ConnectionWires store={store} controller={controller} panMode={tool === 'hand'} selectedId={interactionId} onSelect={setInteractionId} /> : undefined} agentActivity={cloud.activity || bridge.activity} store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
+        <SceneCanvas physicsMode={physicsOpen} onExitPhysicsMode={() => setPhysicsOpen(false)} interactiveMode={interactiveMode} onExitInteractiveMode={() => setInteractiveMode(false)} commentMode={tool === 'comment'} annotationOverlay={comments.open ? <CommentOverlay store={store} controller={controller} threads={comments.threads} unread={comments.unread} activeId={comments.activeId} draft={comments.draft} placing={tool === 'comment'} onSelect={thread => { setTool('select'); comments.select(thread) }} onPlace={anchor => { comments.setDraft(anchor); comments.setActiveId(null); setTool('select') }} /> : undefined} collaboration={collaboration} prototypeOverlay={prototypeMode ? <ConnectionWires store={store} controller={controller} panMode={tool === 'hand'} selectedId={interactionId} onSelect={setInteractionId} /> : undefined} agentActivity={cloud.activity || bridge.activity} store={store} controller={controller} initialCamera={workspace.initialCamera} grid={grid} panMode={tool === 'hand'} penMode={tool === 'pen'} onExitPen={() => setTool('select')} />
         {comments.open && <CommentsSidebar comments={comments} store={store} session={collaboration} placing={tool === 'comment'} onNew={startComment} onCancel={cancelComment} onClose={closeComments} />}
         {prototypeMode && <div className="prototype-canvas-status"><GitBranch size={12} /><span>PROTOTYPE</span><span>Select a layer · Drag a connection</span></div>}
         {motionOpen && <MotionDrawer store={store} stage={stageRef} onClose={() => setMotionOpen(false)} />}

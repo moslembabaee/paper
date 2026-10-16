@@ -4,6 +4,7 @@ import type { ShaderPaint } from '../shaders/types.ts'
 import type { PathNodes } from './pathGeometry.ts'
 import type { CommentDocument } from '../comments/types.ts'
 import type { PrototypeDocument, SpringParameters } from '../prototype/types.ts'
+import type { ElementPhysicsConfig, PhysicsDocument } from '../physics/types.ts'
 
 /** Coordinates are relative to the parent frame. Rotation is in degrees. */
 export interface ElementGeometry {
@@ -47,6 +48,8 @@ export interface BaseElement extends ElementGeometry {
   readonly sizing?: ElementSizing
   readonly tokenBindings?: TokenBindings
   readonly sharedStyleBindings?: SharedStyleBindings
+  /** Real-time 2D spring dynamics physics properties */
+  readonly physics?: ElementPhysicsConfig
   readonly id: string
   readonly name: string
   readonly parentId: string | null
@@ -318,6 +321,8 @@ export interface SceneDocument {
   readonly tokens?: readonly DesignToken[]
   readonly styleLibrary?: StyleLibrary
   readonly backgroundShader?: ShaderPaint | null
+  /** Active physics simulation document. Absent means the simulation layer is disabled. */
+  readonly physics?: PhysicsDocument
   readonly elements: Readonly<Record<string, SceneElement>>
   readonly rootIds: readonly string[]
 }
