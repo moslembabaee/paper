@@ -4,6 +4,7 @@ import type { ShaderControl } from '../shaders/types.ts'
 import { grainBlendModes, shaderBlendModes } from '../shaders/types.ts'
 import { modulatorWaveforms, pipelinePassTypes } from '../shaders/pipeline/types.ts'
 import { audioSignals } from '../shaders/audio/types.ts'
+import { postProcessDefinitions, MAX_POST_PROCESS_PASSES } from '../canvas/postprocessing/model.ts'
 
 /** The small JSON Schema vocabulary used by Paper's agent-facing contract. */
 export interface JsonSchema {
@@ -90,6 +91,15 @@ export const shaderSchema: JsonSchema = {
       kind: { type: 'string', enum: [kind] },
       params: object(params, Object.keys(params)),
       composite: object({ blendMode: { type: 'string', enum: shaderBlendModes }, opacity: { type: 'number', minimum: 0, maximum: 1 } }, ['blendMode', 'opacity']),
+      postProcessing: object({
+        version: { type: 'integer', enum: [1] }, enabled: flag, preset: str(),
+        passes: { type: 'array', maxItems: MAX_POST_PROCESS_PASSES, items: { anyOf: Object.entries(postProcessDefinitions).map(([type, definition]) => {
+          const params = Object.fromEntries(Object.entries(definition.controls).map(([key, control]): [string, JsonSchema] => [key,
+            control.kind === 'number' ? { type: 'number', minimum: control.min, maximum: control.max }
+              : control.kind === 'boolean' ? flag : { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }]))
+          return object({ id: str(), type: { type: 'string', enum: [type] }, name: str(), enabled: flag, opacity: { type: 'number', minimum: 0, maximum: 1 }, blendMode: { type: 'string', enum: ['normal', 'screen', 'multiply', 'overlay'] }, params: object(params, Object.keys(params)) }, ['id', 'type', 'name', 'enabled', 'opacity', 'blendMode', 'params'])
+        }) } },
+      }, ['version', 'enabled', 'preset', 'passes']),
       ...(kind === 'mesh-gradient' ? { mesh: object(meshProperties, Object.keys(meshProperties)) } : {}),
       ...(kind === 'multi-pass' ? { pipeline: object(pipelineProperties, Object.keys(pipelineProperties)) } : {}),
       ...motionProperties,

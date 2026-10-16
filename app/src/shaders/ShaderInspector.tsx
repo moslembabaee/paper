@@ -6,6 +6,7 @@ import { shaderBlendModes } from './types'
 import './shaders.css'
 import { MeshInspector } from './MeshInspector'
 import { MaterialComposer } from './pipeline/MaterialComposer'
+import { PostProcessingInspector } from '../canvas/postprocessing/PostProcessingInspector'
 
 function Slider({ control, value, onChange }: { control: Extract<ShaderControl, { type: 'number' }>; value: number; onChange: (value: number) => void }) {
   const inputId = useId()
@@ -53,6 +54,7 @@ export function ShaderInspector({ paint, onChange, target, image, showPicker = t
           {colors.length > 2 && <button aria-label={`Remove shader color ${index + 1}`} onClick={() => parameter(control.key, colors.filter((_, i) => i !== index))}>×</button>}
         </div>)}{colors.length < control.max && <button className="shader-add-color" aria-label="Add shader palette color" onClick={() => parameter(control.key, [...colors, '#81adec'])}>+</button>}</div></div>
       })}
+      <PostProcessingInspector pipeline={paint.postProcessing} onChange={postProcessing => onChange({ ...paint, postProcessing })} />
       <div className="shader-divider" /><span className="section-caption">COMPOSITING</span>
       <label className="property-select">Blend mode<select aria-label="Shader blend mode" value={paint.composite?.blendMode ?? 'normal'} onChange={event => onChange({ ...paint, composite: { opacity: paint.composite?.opacity ?? 1, blendMode: event.currentTarget.value as typeof shaderBlendModes[number] } })}>
         {shaderBlendModes.map(mode => <option key={mode} value={mode}>{mode.replace(/-/g, ' ').replace(/^./, char => char.toUpperCase())}</option>)}

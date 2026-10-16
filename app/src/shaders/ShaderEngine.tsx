@@ -7,6 +7,8 @@ import { meshUniforms } from './mesh'
 import { meshFragmentShader } from './meshFragment'
 import { createMultiPassUniformUpdater, multiPassFragmentShader, multiPassUniforms } from './pipeline/multiPassFragment'
 import { audioAnalysis } from './audio/engine'
+import { PostProcessingSurface } from '../canvas/postprocessing/PostProcessingSurface'
+import '../canvas/postprocessing/postprocessing.css'
 
 function useSourceImage(source: string, onError: () => void) {
   const [loaded, setLoaded] = useState<{ source: string; image: HTMLImageElement } | null>(null)
@@ -105,13 +107,20 @@ function MultiPassShaderMount({
 }
 
 /** Uniform updates stay inside Paper's WebGL engine, outside React's frame loop. */
-export default function ShaderEngine({ paint, paused, onError, captureScale, capturePixelCount }: { paint: ShaderPaint; paused: boolean; onError: () => void; captureScale?: number; capturePixelCount?: number }) {
+type ShaderEngineProps = { paint: ShaderPaint; paused: boolean; onError: () => void; captureScale?: number; capturePixelCount?: number }
+export default function ShaderEngine(props: ShaderEngineProps) {
+  const active = props.paint.postProcessing?.enabled && props.paint.postProcessing.passes.some(pass => pass.enabled && pass.opacity > 0)
+  const source = <ShaderSource {...props} />
+  return active && !props.captureScale ? <PostProcessingSurface paint={props.paint} paused={props.paused}>{source}</PostProcessingSurface> : source
+}
+
+function ShaderSource({ paint, paused, onError, captureScale, capturePixelCount }: ShaderEngineProps) {
   const common = {
     width: '100%', height: '100%', style: { position: 'absolute' as const, inset: 0 },
     minPixelRatio: captureScale ?? 1, maxPixelCount: capturePixelCount ?? (captureScale ? 64_000_000 : 1_500_000),
     speed: paused || !paint.animated ? 0 : paint.speed,
     frame: paint.frame,
-    webGlContextAttributes: { alpha: true, antialias: false, powerPreference: 'high-performance' as const, preserveDrawingBuffer: !!captureScale },
+    webGlContextAttributes: { alpha: true, antialias: false, powerPreference: 'high-performance' as const, preserveDrawingBuffer: !!captureScale || !!paint.postProcessing?.enabled },
   }
   const placement = { scale: paint.scale, rotation: paint.rotation, offsetX: paint.offsetX, offsetY: paint.offsetY }
   switch (paint.kind) {

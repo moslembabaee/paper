@@ -3,6 +3,7 @@ import type { PaperShaderElement } from '@paper-design/shaders-react'
 import ShaderEngine from '../shaders/ShaderEngine'
 import type { ShaderPaint } from '../shaders/types'
 import { awaitExportTask } from './exportTask'
+import { PostProcessingCompositor } from '../canvas/postprocessing/Compositor'
 
 function afterLayout(): Promise<void> {
   return new Promise(resolve => {
@@ -44,6 +45,15 @@ export async function captureShader(paint: ShaderPaint, width: number, height: n
         await awaitExportTask(afterLayout(), signal)
         signal?.throwIfAborted()
         mount.setFrame(paint.frame)
+        if (paint.postProcessing?.enabled && paint.postProcessing.passes.some(pass => pass.enabled && pass.opacity > 0)) {
+          const output = document.createElement('canvas')
+          const compositor = new PostProcessingCompositor(output, canvas.width * canvas.height)
+          try {
+            compositor.setPipeline(paint.postProcessing)
+            if (!compositor.render(canvas, paint.frame / 1000)) throw new Error('Post-processing could not render the export.')
+            return output.toDataURL('image/png')
+          } finally { compositor.dispose() }
+        }
         return canvas.toDataURL('image/png')
       }
       await new Promise(resolve => window.setTimeout(resolve, 30))

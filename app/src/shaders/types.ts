@@ -1,5 +1,6 @@
 import type { DitheringParams, DotOrbitParams, FlutedGlassParams, GrainGradientParams, HalftoneCmykParams, MeshGradientParams, MetaballsParams, NeuroNoiseParams, PerlinNoiseParams, WarpParams } from '@paper-design/shaders-react'
 import type { MultiPassParams, ShaderPipeline } from './pipeline/types.ts'
+import type { CanvasPostProcessingPipeline } from '../canvas/postprocessing/types.ts'
 
 export type { MultiPassParams, ShaderPipeline } from './pipeline/types.ts'
 export type { PipelinePass, PipelinePassType, UniformModulator } from './pipeline/types.ts'
@@ -52,7 +53,7 @@ export interface MeshMaterial {
   readonly chromaticAberration: number
   readonly grainBlend: typeof grainBlendModes[number]
 }
-export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K]; readonly composite?: ShaderComposite; readonly mesh?: MeshMaterial; readonly pipeline?: ShaderPipeline } }[ShaderKind]
+export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K]; readonly composite?: ShaderComposite; readonly mesh?: MeshMaterial; readonly pipeline?: ShaderPipeline; readonly postProcessing?: CanvasPostProcessingPipeline } }[ShaderKind]
 export type ShaderValue = number | string | readonly string[]
 export type ShaderControl =
   | { readonly key: string; readonly label: string; readonly type: 'number'; readonly min: number; readonly max: number; readonly step: number; readonly integer?: boolean }

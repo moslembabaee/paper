@@ -43,7 +43,11 @@ export const ShaderSurface = memo(function ShaderSurface({ paint, style, classNa
     observer.observe(root)
     const media = window.matchMedia('(prefers-reduced-motion: reduce)')
     const motion = () => setPaused(document.hidden || media.matches)
-    const lost = fail
+    const lost = (event: Event) => {
+      // The finishing compositor can fall back to its source without discarding it.
+      if (event.target instanceof HTMLCanvasElement && event.target.hasAttribute('data-post-processing-output')) return
+      fail()
+    }
     motion()
     document.addEventListener('visibilitychange', motion)
     media.addEventListener('change', motion)

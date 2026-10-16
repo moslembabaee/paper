@@ -3,6 +3,7 @@ import { shaderBlendModes } from './types.ts'
 import { createMeshMaterial, defaultMeshAnchor, validateMeshMaterial } from './mesh.ts'
 import { PIPELINE_PRESETS, createDefaultPipeline, presetKeys } from './pipeline/presets.ts'
 import { validatePipeline } from './pipeline/pipelineOps.ts'
+import { freezePostProcessing, validatePostProcessing } from '../canvas/postprocessing/model.ts'
 
 const number = (key: string, label: string, min = 0, max = 1, step = .01, integer = false): Extract<ShaderControl, { type: 'number' }> => ({ key, label, type: 'number', min, max, step, integer })
 const color = (key: string, label: string): ShaderControl => ({ key, label, type: 'color' })
@@ -116,6 +117,7 @@ export function createShader(kind: ShaderKind, image?: string): ShaderPaint {
 export function freezeShader(paint: ShaderPaint): ShaderPaint {
   if (
     Object.isFrozen(paint) &&
+    (!paint.postProcessing || (Object.isFrozen(paint.postProcessing) && Object.isFrozen(paint.postProcessing.passes) && paint.postProcessing.passes.every(pass => Object.isFrozen(pass) && Object.isFrozen(pass.params)))) &&
     (!paint.mesh || (Object.isFrozen(paint.mesh) && Object.isFrozen(paint.mesh.anchors) && paint.mesh.anchors.every(Object.isFrozen))) &&
     (!paint.pipeline ||
       (Object.isFrozen(paint.pipeline) &&
@@ -155,6 +157,7 @@ export function freezeShader(paint: ShaderPaint): ShaderPaint {
 
   return Object.freeze({
     ...paint,
+    ...(paint.postProcessing ? { postProcessing: freezePostProcessing(paint.postProcessing) } : {}),
     ...(paint.mesh ? { mesh: Object.freeze({ ...paint.mesh, anchors: Object.freeze(paint.mesh.anchors.map(anchor => Object.freeze({ ...anchor }))) }) } : {}),
     ...(pipeline ? { pipeline } : {}),
     ...(paint.composite ? { composite: Object.freeze({ ...paint.composite }) } : {}),
@@ -212,6 +215,7 @@ const isColor = (value: unknown): value is string => typeof value === 'string' &
 export function validateShader(value: unknown): asserts value is ShaderPaint {
   if (!value || typeof value !== 'object') throw new Error('Invalid shader paint')
   const paint = value as ShaderPaint
+  if (paint.postProcessing !== undefined) validatePostProcessing(paint.postProcessing)
   if (!Object.hasOwn(shaderCatalog, paint.kind) || !paint.params || typeof paint.params !== 'object' || typeof paint.animated !== 'boolean') throw new Error('Invalid shader kind or parameters')
   if (paint.composite !== undefined) {
     const composite = paint.composite
