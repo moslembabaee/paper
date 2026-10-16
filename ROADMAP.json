@@ -5,6 +5,40 @@
   "current_task_id": null,
   "tasks": [
     {
+      "id": "T-ISSUE-50",
+      "phase": "Community & Issues",
+      "title": "Issue #50: feat: Multi-Pass Shader Pipeline and Interactive GLSL Material Composer",
+      "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792128901-1`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nBuild a composable shader pipeline supporting layered post-processing effects (Mesh Gradient, Liquid Distortion, Glassmorphism, Grain, and Chromatic Aberration) powered by @paper-design/shaders-react, with customizable parameter controls, blend modes, and real-time uniform modulation.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #50",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 50,
+      "completed_at": "2026-10-16T06:30:48.816368+00:00"
+    },
+    {
+      "id": "T-ISSUE-51",
+      "phase": "Community & Issues",
+      "title": "Issue #51: feat: Keyframe Motion Sequencer and Easing Timeline Engine",
+      "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792128901-2`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nImplement a canvas keyframe timeline sequencer allowing users to animate position, scale, rotation, opacity, and shader parameters across time with bezier curve easing, playback controls (play, pause, scrub, loop), and keyframe interpolation.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #51",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 51
+    },
+    {
+      "id": "T-ISSUE-52",
+      "phase": "Community & Issues",
+      "title": "Issue #52: feat: Procedural SVG Path Morphing and Morph Target Interpolation Engine",
+      "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792128901-3`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nImplement an algorithmic vector path morphing system that matches point counts, aligns segment trajectories, and smoothly interpolates between arbitrary complex vector shapes with interactive scrub preview and SVG export.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #52",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 52
+    },
+    {
       "id": "T-ISSUE-47",
       "phase": "Community & Issues",
       "title": "Issue #47: feat: Non-Destructive Vector Boolean Operations and Compound Path Builder",
@@ -40,7 +74,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 49,
-      "completed_at": "2026-10-16T05:10:39.311213+00:00"
+      "completed_at": "2026-10-16T05:10:39.311213+00:00",
+      "closed_at": "2026-10-16T05:34:32Z"
     },
     {
       "id": "T-ISSUE-44",
@@ -1146,7 +1181,41 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 49,
-      "completed_at": "2026-10-16T05:34:26.136385+00:00"
+      "completed_at": "2026-10-16T05:34:26.136385+00:00",
+      "closed_at": "2026-10-16T05:34:32Z"
+    },
+    {
+      "id": "T-EVOLVE-1792128901-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Multi-Pass Shader Pipeline and Interactive GLSL Material Composer",
+      "description": "Build a composable shader pipeline supporting layered post-processing effects (Mesh Gradient, Liquid Distortion, Glassmorphism, Grain, and Chromatic Aberration) powered by @paper-design/shaders-react, with customizable parameter controls, blend modes, and real-time uniform modulation.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 50
+    },
+    {
+      "id": "T-EVOLVE-1792128901-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Keyframe Motion Sequencer and Easing Timeline Engine",
+      "description": "Implement a canvas keyframe timeline sequencer allowing users to animate position, scale, rotation, opacity, and shader parameters across time with bezier curve easing, playback controls (play, pause, scrub, loop), and keyframe interpolation.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 51
+    },
+    {
+      "id": "T-EVOLVE-1792128901-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Procedural SVG Path Morphing and Morph Target Interpolation Engine",
+      "description": "Implement an algorithmic vector path morphing system that matches point counts, aligns segment trajectories, and smoothly interpolates between arbitrary complex vector shapes with interactive scrub preview and SVG export.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 52
     }
   ]
 }

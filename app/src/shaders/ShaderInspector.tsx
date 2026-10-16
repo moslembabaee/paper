@@ -5,6 +5,7 @@ import type { ShaderControl, ShaderDefinition, ShaderKind, ShaderMotion, ShaderP
 import { shaderBlendModes } from './types'
 import './shaders.css'
 import { MeshInspector } from './MeshInspector'
+import { MaterialComposer } from './pipeline/MaterialComposer'
 
 function Slider({ control, value, onChange }: { control: Extract<ShaderControl, { type: 'number' }>; value: number; onChange: (value: number) => void }) {
   const inputId = useId()
@@ -36,7 +37,9 @@ export function ShaderInspector({ paint, onChange, target, image, showPicker = t
       <div className="shader-target"><i />{target}</div><p className="shader-description">{definition.description}</p>
       {paint.kind === 'glass-refraction' && <p className="shader-image-note">Glass refracts the source image. Animated mode gently shifts the texture.</p>}
       {paint.kind === 'mesh-gradient' && <MeshInspector paint={paint} onChange={onChange} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} />}
+      {paint.kind === 'multi-pass' && <MaterialComposer paint={paint} onChange={onChange} />}
       {definition.controls.map(control => {
+        if (paint.kind === 'multi-pass') return null
         if (paint.kind === 'mesh-gradient' && paint.mesh && control.type === 'palette') return null
         if (paint.kind === 'mesh-gradient' && paint.mesh && (control.key === 'grainMixer' || control.key === 'grainOverlay')) return null
         const value = params[control.key]

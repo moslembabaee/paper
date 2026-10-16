@@ -2,6 +2,7 @@ import { TOKEN_META } from '../tokens/model.ts'
 import { motionControls, shaderCatalog, shaderKinds } from '../shaders/catalog.ts'
 import type { ShaderControl } from '../shaders/types.ts'
 import { grainBlendModes, shaderBlendModes } from '../shaders/types.ts'
+import { modulatorWaveforms, pipelinePassTypes } from '../shaders/pipeline/types.ts'
 
 /** The small JSON Schema vocabulary used by Paper's agent-facing contract. */
 export interface JsonSchema {
@@ -53,10 +54,44 @@ const meshProperties = {
   chromaticAberration: unitInterval,
   grainBlend: { type: 'string', enum: grainBlendModes } as JsonSchema,
 }
+const pipelinePassProperties = {
+  id: str(),
+  type: { type: 'string' as const, enum: pipelinePassTypes } as JsonSchema,
+  name: str(),
+  enabled: flag,
+  blendMode: { type: 'string' as const, enum: shaderBlendModes } as JsonSchema,
+  opacity: unitInterval,
+  params: { type: 'object' as const, additionalProperties: true } as JsonSchema,
+}
+const pipelineModulatorProperties = {
+  id: str(),
+  name: str(),
+  targetPassId: str(),
+  targetParam: str(),
+  waveform: { type: 'string' as const, enum: modulatorWaveforms } as JsonSchema,
+  frequency: { type: 'number' as const, minimum: 0.001, maximum: 20 } as JsonSchema,
+  amplitude: unitInterval,
+  offset: num,
+  enabled: flag,
+}
+const pipelineProperties = {
+  version: { type: 'integer' as const, enum: [1] } as JsonSchema,
+  name: str(),
+  preset: str(),
+  passes: list(object(pipelinePassProperties, ['id', 'type', 'name', 'enabled', 'blendMode', 'opacity', 'params'])),
+  modulators: list(object(pipelineModulatorProperties, ['id', 'name', 'targetPassId', 'targetParam', 'waveform', 'frequency', 'amplitude', 'offset', 'enabled'])),
+}
 export const shaderSchema: JsonSchema = {
   anyOf: shaderKinds.map(kind => {
     const params = Object.fromEntries(shaderCatalog[kind].controls.map(control => [control.key, controlSchema(control)]))
-    return object({ kind: { type: 'string', enum: [kind] }, params: object(params, Object.keys(params)), composite: object({ blendMode: { type: 'string', enum: shaderBlendModes }, opacity: { type: 'number', minimum: 0, maximum: 1 } }, ['blendMode', 'opacity']), ...(kind === 'mesh-gradient' ? { mesh: object(meshProperties, Object.keys(meshProperties)) } : {}), ...motionProperties }, ['kind', 'params', ...Object.keys(motionProperties)])
+    return object({
+      kind: { type: 'string', enum: [kind] },
+      params: object(params, Object.keys(params)),
+      composite: object({ blendMode: { type: 'string', enum: shaderBlendModes }, opacity: { type: 'number', minimum: 0, maximum: 1 } }, ['blendMode', 'opacity']),
+      ...(kind === 'mesh-gradient' ? { mesh: object(meshProperties, Object.keys(meshProperties)) } : {}),
+      ...(kind === 'multi-pass' ? { pipeline: object(pipelineProperties, Object.keys(pipelineProperties)) } : {}),
+      ...motionProperties,
+    }, ['kind', 'params', ...Object.keys(motionProperties)])
   }),
 }
 const stroke = object({ color: str(), width: nonnegative, dash: list(nonnegative) }, ['color', 'width', 'dash'])

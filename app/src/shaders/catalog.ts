@@ -1,6 +1,8 @@
 import type { ShaderControl, ShaderDefinition, ShaderKind, ShaderMotion, ShaderPaint, ShaderValue } from './types.ts'
 import { shaderBlendModes } from './types.ts'
 import { createMeshMaterial, defaultMeshAnchor, validateMeshMaterial } from './mesh.ts'
+import { PIPELINE_PRESETS, createDefaultPipeline, presetKeys } from './pipeline/presets.ts'
+import { validatePipeline } from './pipeline/pipelineOps.ts'
 
 const number = (key: string, label: string, min = 0, max = 1, step = .01, integer = false): Extract<ShaderControl, { type: 'number' }> => ({ key, label, type: 'number', min, max, step, integer })
 const color = (key: string, label: string): ShaderControl => ({ key, label, type: 'color' })
@@ -59,6 +61,38 @@ export const shaderCatalog = {
     defaults: { image: '/shader-source.svg', colorBack: '#edebe1', colorShadow: '#222222', colorHighlight: '#edebe1', shadows: .25, highlights: .25, size: .5, angle: 0, distortion: .55, distortionShape: 'lens', shape: 'lines', shift: 0, stretch: .1, blur: .08, edges: .25, marginLeft: 0, marginRight: 0, marginTop: 0, marginBottom: 0, grainMixer: .02, grainOverlay: .02 },
     controls: [{ key: 'image', label: 'Source image', type: 'image' }, color('colorBack', 'Background'), color('colorShadow', 'Shadow tint'), color('colorHighlight', 'Highlight tint'), select('distortionShape', 'Refraction', ['prism', 'lens', 'contour', 'cascade', 'flat']), select('shape', 'Glass pattern', ['lines', 'linesIrregular', 'wave', 'zigzag', 'pattern']), number('size', 'Rib size'), number('angle', 'Rib angle', 0, 180, 1), number('distortion', 'Refraction strength'), number('shift', 'Image shift', -1, 1), number('stretch', 'Stretch'), number('blur', 'Frosting'), number('edges', 'Edge softness'), number('shadows', 'Shadows'), number('highlights', 'Highlights'), ...['Left', 'Right', 'Top', 'Bottom'].map(side => number(`margin${side}`, `${side} margin`)), number('grainMixer', 'Grain mixer'), number('grainOverlay', 'Grain overlay')],
   },
+  'multi-pass': {
+    label: 'Multi-Pass Pipeline',
+    description: 'Layered post-processing pipeline with liquid, glass, chromatic split, and grain.',
+    defaults: {
+      preset: 'prismatic-glass',
+      colors,
+      meshTurbulence: 0.45,
+      liquidDistortion: 0.55,
+      liquidFrequency: 2.2,
+      glassRefraction: 0.65,
+      glassFrost: 0.28,
+      chromaticAberration: 0.48,
+      grainIntensity: 0.12,
+      grainBlend: 'overlay',
+      modulatorSpeed: 0.4,
+      modulatorDepth: 0.25,
+    },
+    controls: [
+      select('preset', 'Preset', presetKeys),
+      palette(10),
+      number('meshTurbulence', 'Mesh turbulence'),
+      number('liquidDistortion', 'Liquid distortion'),
+      number('liquidFrequency', 'Liquid frequency', 0.5, 10, 0.1),
+      number('glassRefraction', 'Glass refraction'),
+      number('glassFrost', 'Glass frost blur'),
+      number('chromaticAberration', 'Chromatic aberration'),
+      number('grainIntensity', 'Film grain'),
+      select('grainBlend', 'Grain blend', ['overlay', 'soft-light', 'multiply', 'screen']),
+      number('modulatorSpeed', 'Modulator speed', 0, 3, 0.05),
+      number('modulatorDepth', 'Modulator depth'),
+    ],
+  },
 } satisfies { [K in ShaderKind]: ShaderDefinition<K> }
 
 export const shaderKinds = Object.keys(shaderCatalog) as ShaderKind[]
@@ -67,19 +101,109 @@ export const motionControls = [number('speed', 'Speed', 0, 3), number('frame', '
 export function createShader(kind: ShaderKind, image?: string): ShaderPaint {
   const params = { ...shaderCatalog[kind].defaults }
   const paint = { kind, params, animated: kind !== 'halftone-cmyk' && kind !== 'glass-refraction', speed: .35, frame: 12000, scale: 1, rotation: 0, offsetX: 0, offsetY: 0, composite: { blendMode: 'normal', opacity: 1 } } as ShaderPaint
-  return freezeShader(kind === 'mesh-gradient' ? { ...paint, mesh: createMeshMaterial(colors.length) } : (kind === 'halftone-cmyk' || kind === 'glass-refraction') && image ? { ...paint, params: { ...params, image } } as ShaderPaint : paint)
+  return freezeShader(
+    kind === 'mesh-gradient'
+      ? { ...paint, mesh: createMeshMaterial(colors.length) }
+      : kind === 'multi-pass'
+        ? { ...paint, pipeline: createDefaultPipeline('prismatic-glass') }
+        : (kind === 'halftone-cmyk' || kind === 'glass-refraction') && image
+          ? ({ ...paint, params: { ...params, image } } as ShaderPaint)
+          : paint
+  )
 }
 
 /** Serializable, owned values: neither callers nor inspectors can mutate store state. */
 export function freezeShader(paint: ShaderPaint): ShaderPaint {
-  if (Object.isFrozen(paint) && (!paint.mesh || (Object.isFrozen(paint.mesh) && Object.isFrozen(paint.mesh.anchors) && paint.mesh.anchors.every(Object.isFrozen))) && (!paint.composite || Object.isFrozen(paint.composite)) && Object.isFrozen(paint.params) && Object.values(paint.params).every(value => !Array.isArray(value) || Object.isFrozen(value))) return paint
+  if (
+    Object.isFrozen(paint) &&
+    (!paint.mesh || (Object.isFrozen(paint.mesh) && Object.isFrozen(paint.mesh.anchors) && paint.mesh.anchors.every(Object.isFrozen))) &&
+    (!paint.pipeline ||
+      (Object.isFrozen(paint.pipeline) &&
+        Object.isFrozen(paint.pipeline.passes) &&
+        paint.pipeline.passes.every(pass => Object.isFrozen(pass) && Object.isFrozen(pass.params)) &&
+        Object.isFrozen(paint.pipeline.modulators) &&
+        paint.pipeline.modulators.every(Object.isFrozen))) &&
+    (!paint.composite || Object.isFrozen(paint.composite)) &&
+    Object.isFrozen(paint.params) &&
+    Object.values(paint.params).every(value => !Array.isArray(value) || Object.isFrozen(value))
+  )
+    return paint
+
   const params = Object.fromEntries(Object.entries(paint.params).map(([key, value]) => [key, Array.isArray(value) ? Object.freeze([...value]) : value]))
-  return Object.freeze({ ...paint, ...(paint.mesh ? { mesh: Object.freeze({ ...paint.mesh, anchors: Object.freeze(paint.mesh.anchors.map(anchor => Object.freeze({ ...anchor }))) }) } : {}), ...(paint.composite ? { composite: Object.freeze({ ...paint.composite }) } : {}), params: Object.freeze(params) }) as ShaderPaint
+  const pipeline = paint.pipeline
+    ? Object.freeze({
+        ...paint.pipeline,
+        passes: Object.freeze(
+          paint.pipeline.passes.map(pass =>
+            Object.freeze({
+              ...pass,
+              params: Object.freeze({
+                ...pass.params,
+                ...(Array.isArray((pass.params as unknown as Record<string, unknown>).colors)
+                  ? { colors: Object.freeze([...((pass.params as unknown as Record<string, unknown>).colors as string[])]) }
+                  : {}),
+                ...(Array.isArray((pass.params as unknown as Record<string, unknown>).anchors)
+                  ? { anchors: Object.freeze(((pass.params as unknown as Record<string, unknown>).anchors as unknown[]).map(a => Object.freeze({ ...(a as object) }))) }
+                  : {}),
+              }),
+            })
+          )
+        ),
+        modulators: Object.freeze(paint.pipeline.modulators.map(mod => Object.freeze({ ...mod }))),
+      })
+    : undefined
+
+  return Object.freeze({
+    ...paint,
+    ...(paint.mesh ? { mesh: Object.freeze({ ...paint.mesh, anchors: Object.freeze(paint.mesh.anchors.map(anchor => Object.freeze({ ...anchor }))) }) } : {}),
+    ...(pipeline ? { pipeline } : {}),
+    ...(paint.composite ? { composite: Object.freeze({ ...paint.composite }) } : {}),
+    params: Object.freeze(params),
+  }) as ShaderPaint
 }
 
 export function updateShaderParameter(paint: ShaderPaint, key: string, value: ShaderValue): ShaderPaint {
   const mesh = paint.mesh && key === 'colors' && Array.isArray(value) ? { ...paint.mesh, anchors: value.map((_, index) => paint.mesh!.anchors[index] ?? defaultMeshAnchor(index)) } : paint.mesh
-  const next = { ...paint, params: { ...paint.params, [key]: value }, ...(mesh ? { mesh } : {}) } as ShaderPaint
+  let pipeline = paint.pipeline
+  if (paint.kind === 'multi-pass') {
+    if (key === 'preset' && typeof value === 'string') {
+      const preset = PIPELINE_PRESETS[value]
+      if (preset) {
+        pipeline = preset.createPipeline()
+      }
+    } else if (pipeline) {
+      const passMap = new Map(pipeline.passes.map(p => [p.type, p]))
+      if (key === 'colors' && Array.isArray(value)) {
+        const p = passMap.get('mesh-gradient')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, colors: value as string[] } } : pass) }
+      } else if (key === 'meshTurbulence' && typeof value === 'number') {
+        const p = passMap.get('mesh-gradient')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, turbulence: value } } : pass) }
+      } else if (key === 'liquidDistortion' && typeof value === 'number') {
+        const p = passMap.get('liquid-distortion')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, distortion: value } } : pass) }
+      } else if (key === 'liquidFrequency' && typeof value === 'number') {
+        const p = passMap.get('liquid-distortion')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, frequency: value } } : pass) }
+      } else if (key === 'glassRefraction' && typeof value === 'number') {
+        const p = passMap.get('glassmorphism')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, refraction: value } } : pass) }
+      } else if (key === 'glassFrost' && typeof value === 'number') {
+        const p = passMap.get('glassmorphism')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, frost: value } } : pass) }
+      } else if (key === 'chromaticAberration' && typeof value === 'number') {
+        const p = passMap.get('chromatic-aberration')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, intensity: value } } : pass) }
+      } else if (key === 'grainIntensity' && typeof value === 'number') {
+        const p = passMap.get('grain')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, intensity: value } } : pass) }
+      } else if (key === 'grainBlend' && typeof value === 'string') {
+        const p = passMap.get('grain')
+        if (p) pipeline = { ...pipeline, preset: 'custom', passes: pipeline.passes.map(pass => pass.id === p.id ? { ...pass, params: { ...pass.params, blendMode: value as 'overlay' | 'soft-light' | 'multiply' | 'screen' } } : pass) }
+      }
+    }
+  }
+  const next = { ...paint, params: { ...paint.params, [key]: value }, ...(mesh ? { mesh } : {}), ...(pipeline ? { pipeline } : {}) } as ShaderPaint
   validateShader(next)
   return freezeShader(next)
 }
@@ -110,4 +234,8 @@ export function validateShader(value: unknown): asserts value is ShaderPaint {
     if (!valid) throw new Error(`Invalid shader ${control.key}`)
   }
   if (paint.mesh !== undefined) validateMeshMaterial(paint.mesh, paint)
+  if (paint.pipeline !== undefined) {
+    if (paint.kind !== 'multi-pass') throw new Error('Invalid shader pipeline')
+    validatePipeline(paint.pipeline, paint)
+  }
 }

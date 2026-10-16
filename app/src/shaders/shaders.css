@@ -164,3 +164,113 @@
 .shader-browser-apply:disabled { opacity:.4; cursor:not-allowed; }
 @media (max-width:760px) { .shader-browser { width:calc(100vw - 24px); max-height:calc(100dvh - 24px); } .shader-browser-body { grid-template-columns:minmax(0,1fr) 250px; } .shader-browser-catalog { padding:16px; } .shader-library-grid { grid-template-columns:1fr; } .shader-browser-footer { padding:14px 16px; } }
 @media (max-width:520px) { .shader-browser-body { display:block; overflow-y:auto; height:calc(100dvh - 240px); } .shader-browser-catalog { overflow:visible; } .shader-library-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .shader-card-art { height:100px; } .shader-browser-detail { border-left:0; border-top:1px solid var(--paper-border); overflow:visible; } .shader-browser-header { padding:18px; } .shader-browser-footer { align-items:flex-start; } }
+
+/* ── Interactive GLSL Material Composer & Pipeline ── */
+.material-composer { display:flex; flex-direction:column; gap:14px; margin:14px 0; min-width:0; }
+.composer-preset-bar { display:flex; flex-direction:column; gap:8px; padding-bottom:10px; border-bottom:1px solid var(--paper-border); }
+.composer-preset-header { display:flex; justify-content:space-between; align-items:center; }
+.composer-preset-scroll { display:flex; gap:6px; overflow-x:auto; padding:2px 0 4px; scrollbar-width:thin; }
+.composer-preset-pill { display:inline-flex; align-items:center; gap:6px; padding:4px 10px; font-size:11px; white-space:nowrap; border-radius:14px; border:1px solid var(--paper-border); background:var(--paper-surface); color:var(--paper-text-muted); cursor:pointer; transition:all .15s ease; }
+.composer-preset-pill:hover { border-color:var(--paper-border-strong); color:var(--paper-text); }
+.composer-preset-pill.active { border-color:#81adec; background:rgba(129,172,236,0.12); color:#81adec; font-weight:500; }
+.composer-preset-dot { width:5px; height:5px; border-radius:50%; background:currentColor; }
+
+.composer-tabs { display:flex; gap:4px; padding:3px; background:var(--paper-bg); border:1px solid var(--paper-border); border-radius:6px; }
+.composer-tab-btn { flex:1; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:6px 8px; border:0; border-radius:4px; background:transparent; color:var(--paper-text-muted); font-size:11px; cursor:pointer; transition:all .15s; }
+.composer-tab-btn:hover { color:var(--paper-text); }
+.composer-tab-btn.active { background:var(--paper-surface); color:var(--paper-text); font-weight:500; box-shadow:0 1px 3px rgba(0,0,0,0.1); }
+.composer-badge { font:9px var(--font-mono); background:var(--paper-border); color:var(--paper-text); padding:1px 5px; border-radius:10px; }
+.composer-tab-btn.active .composer-badge { background:#81adec33; color:#81adec; }
+
+.composer-tab-panel { display:flex; flex-direction:column; gap:12px; }
+.composer-panel-actions { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.composer-sublabel { font:10px var(--font-mono); text-transform:uppercase; letter-spacing:.5px; color:var(--paper-text-muted); }
+.composer-hint { font-size:10px; color:var(--paper-text-muted); margin:2px 0 0; line-height:1.4; }
+
+.composer-add-wrapper { position:relative; }
+.composer-add-pass-btn { display:inline-flex; align-items:center; gap:5px; padding:4px 9px; font-size:10px; font-weight:500; background:var(--paper-surface); border:1px solid var(--paper-border); border-radius:4px; color:var(--paper-text); cursor:pointer; transition:background .15s; }
+.composer-add-pass-btn:hover { background:var(--paper-accent-soft); border-color:#81adec; }
+.composer-dropdown-menu { position:absolute; right:0; top:calc(100% + 4px); z-index:40; display:flex; flex-direction:column; gap:2px; min-width:180px; padding:4px; background:var(--paper-surface); border:1px solid var(--paper-border-strong); border-radius:6px; box-shadow:0 8px 24px rgba(0,0,0,0.3); backdrop-filter:blur(8px); }
+.composer-menu-item { display:inline-flex; align-items:center; gap:8px; padding:6px 10px; font-size:11px; text-align:left; border:0; border-radius:4px; background:transparent; color:var(--paper-text); cursor:pointer; }
+.composer-menu-item:hover { background:var(--paper-accent-soft); color:#81adec; }
+
+.composer-pass-list { display:flex; flex-direction:column; gap:8px; }
+.composer-pass-card { display:flex; flex-direction:column; border:1px solid var(--paper-border); border-radius:6px; background:var(--paper-surface); overflow:hidden; transition:border-color .15s, opacity .15s; }
+.composer-pass-card:hover { border-color:var(--paper-border-strong); }
+.composer-pass-card.disabled { opacity:.5; }
+.composer-pass-card.expanded { border-color:#81adec88; box-shadow:0 2px 8px rgba(0,0,0,0.06); }
+
+.composer-pass-card-header { display:flex; align-items:center; gap:6px; padding:8px 10px; background:var(--paper-surface); border-bottom:1px solid transparent; user-select:none; }
+.composer-pass-card.expanded .composer-pass-card-header { border-bottom-color:var(--paper-border); }
+.composer-pass-expand-btn { padding:2px; border:0; background:transparent; color:var(--paper-text-muted); cursor:pointer; display:flex; }
+.composer-pass-visibility-btn { padding:2px; border:0; background:transparent; color:var(--paper-text-muted); cursor:pointer; display:flex; }
+.composer-pass-visibility-btn:hover { color:var(--paper-text); }
+.composer-pass-title-group { flex:1; display:flex; align-items:center; gap:6px; cursor:pointer; min-width:0; }
+.composer-pass-icon { color:#81adec; flex-shrink:0; }
+.composer-pass-name { font-size:11px; font-weight:500; color:var(--paper-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.composer-pass-type-badge { font:8px var(--font-mono); text-transform:uppercase; padding:1px 5px; border-radius:3px; background:var(--paper-bg); color:var(--paper-text-muted); border:1px solid var(--paper-border); white-space:nowrap; }
+
+.composer-pass-tools { display:flex; align-items:center; gap:2px; }
+.composer-tool-btn { padding:3px; border:0; background:transparent; color:var(--paper-text-muted); border-radius:3px; cursor:pointer; display:flex; }
+.composer-tool-btn:hover { background:var(--paper-bg); color:var(--paper-text); }
+.composer-tool-btn:disabled { opacity:.3; cursor:not-allowed; }
+.composer-tool-btn.delete:hover { color:#db7d98; }
+
+.composer-pass-quick-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 10px; background:rgba(0,0,0,0.02); border-bottom:1px solid var(--paper-border); font-size:10px; }
+.composer-inline-select { display:flex; align-items:center; gap:6px; color:var(--paper-text-muted); }
+.composer-inline-select select { font-size:10px; background:var(--paper-bg); border:1px solid var(--paper-border); border-radius:3px; color:var(--paper-text); padding:2px 4px; }
+.composer-inline-slider { display:flex; align-items:center; gap:6px; color:var(--paper-text-muted); font:9px var(--font-mono); }
+.composer-inline-slider input[type='range'] { width:70px; }
+
+.composer-pass-details { padding:10px; display:flex; flex-direction:column; gap:8px; background:var(--paper-bg); }
+.composer-row { display:flex; flex-direction:column; gap:4px; }
+.composer-row-label { display:flex; justify-content:space-between; align-items:center; font-size:10px; color:var(--paper-text-muted); }
+.composer-row-val { font:9px var(--font-mono); color:var(--paper-text); }
+.composer-slider-wrap { display:flex; align-items:center; }
+.composer-slider-wrap input[type='range'] { width:100%; }
+.composer-select { width:100%; font-size:11px; padding:4px 6px; background:var(--paper-surface); border:1px solid var(--paper-border); border-radius:4px; color:var(--paper-text); }
+
+.composer-colors-strip { display:flex; flex-direction:column; gap:6px; margin-bottom:4px; }
+.composer-palette-list { display:flex; flex-wrap:wrap; gap:5px; align-items:center; }
+.composer-color-chip { position:relative; width:22px; height:22px; border-radius:4px; border:1px solid var(--paper-border-strong); overflow:hidden; }
+.composer-color-chip input[type='color'] { position:absolute; inset:-4px; width:calc(100% + 8px); height:calc(100% + 8px); cursor:pointer; }
+.composer-remove-chip { position:absolute; top:-2px; right:-2px; width:12px; height:12px; border-radius:50%; background:#080808cc; color:#fff; font-size:9px; border:0; display:grid; place-items:center; cursor:pointer; line-height:1; }
+.composer-add-chip { width:22px; height:22px; border-radius:4px; border:1px dashed var(--paper-border-strong); background:transparent; color:var(--paper-text-muted); display:grid; place-items:center; cursor:pointer; }
+.composer-add-chip:hover { border-color:#81adec; color:#81adec; }
+
+.composer-pill-toggle { display:flex; gap:4px; }
+.composer-chip { padding:3px 8px; font-size:10px; border-radius:3px; border:1px solid var(--paper-border); background:var(--paper-surface); color:var(--paper-text-muted); cursor:pointer; }
+.composer-chip.active { background:var(--paper-accent-soft); border-color:#81adec; color:#81adec; font-weight:500; }
+
+.composer-modulator-list { display:flex; flex-direction:column; gap:10px; }
+.composer-mod-card { display:flex; flex-direction:column; gap:8px; padding:10px; border:1px solid var(--paper-border); border-radius:6px; background:var(--paper-surface); }
+.composer-mod-card.disabled { opacity:.5; }
+.composer-mod-header { display:flex; align-items:center; gap:6px; }
+.composer-active-lfo { color:#81adec; animation:mesh-pulse 1.2s infinite ease-in-out; }
+.composer-mod-title-input { flex:1; font-size:11px; font-weight:500; background:transparent; border:1px solid transparent; border-radius:3px; color:var(--paper-text); padding:2px 4px; }
+.composer-mod-title-input:hover, .composer-mod-title-input:focus { border-color:var(--paper-border); background:var(--paper-bg); }
+.composer-waveform-badge { font:9px var(--font-mono); text-transform:uppercase; padding:2px 6px; border-radius:3px; background:var(--paper-bg); border:1px solid var(--paper-border); color:#81adec; }
+
+.composer-routing-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.composer-routing-field { display:flex; flex-direction:column; gap:3px; font-size:9px; color:var(--paper-text-muted); }
+.composer-routing-field select { font-size:10px; padding:3px 5px; background:var(--paper-bg); border:1px solid var(--paper-border); border-radius:3px; color:var(--paper-text); }
+
+.composer-waveform-strip { display:flex; gap:4px; }
+.composer-wf-btn { flex:1; display:flex; flex-direction:column; align-items:center; gap:2px; padding:4px 2px; border:1px solid var(--paper-border); border-radius:4px; background:var(--paper-bg); color:var(--paper-text-muted); font-size:11px; cursor:pointer; }
+.composer-wf-name { font:8px var(--font-mono); text-transform:uppercase; }
+.composer-wf-btn:hover { border-color:var(--paper-border-strong); color:var(--paper-text); }
+.composer-wf-btn.active { border-color:#81adec; background:rgba(129,172,236,0.12); color:#81adec; font-weight:600; }
+
+.composer-empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:24px 16px; border:1px dashed var(--paper-border); border-radius:6px; color:var(--paper-text-muted); gap:6px; font-size:11px; }
+.composer-empty-state p { font-size:10px; margin:0; max-width:220px; line-height:1.4; }
+
+.composer-code-header { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.composer-code-types { display:flex; gap:4px; }
+.composer-code-pill { padding:3px 7px; font-size:10px; border-radius:3px; border:1px solid var(--paper-border); background:var(--paper-surface); color:var(--paper-text-muted); cursor:pointer; }
+.composer-code-pill.active { background:var(--paper-accent-soft); border-color:#81adec; color:#81adec; font-weight:500; }
+.composer-code-actions { display:flex; gap:4px; }
+.composer-copy-btn, .composer-download-btn { display:inline-flex; align-items:center; gap:4px; padding:4px 8px; font-size:10px; border-radius:3px; border:1px solid var(--paper-border); background:var(--paper-surface); color:var(--paper-text); cursor:pointer; }
+.composer-copy-btn:hover, .composer-download-btn:hover { background:var(--paper-accent-soft); border-color:#81adec; }
+.composer-code-viewport { max-height:260px; overflow-y:auto; border:1px solid var(--paper-border); border-radius:5px; background:#080808; padding:10px; }
+.composer-code-block { margin:0; font:10px/1.5 var(--font-mono); color:#edebe1; white-space:pre-wrap; word-break:break-all; }
+

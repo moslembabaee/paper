@@ -1,10 +1,11 @@
 import { Dithering, DotOrbit, FlutedGlass, GrainGradient, HalftoneCmyk, MeshGradient, Metaballs, NeuroNoise, PerlinNoise, ShaderMount, Warp } from '@paper-design/shaders-react'
-import type { FlutedGlassProps, HalftoneCmykProps, PaperShaderElement } from '@paper-design/shaders-react'
+import type { FlutedGlassProps, HalftoneCmykProps, PaperShaderElement, ShaderMountProps } from '@paper-design/shaders-react'
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { ShaderPaint } from './types'
 import { meshUniforms } from './mesh'
 import { meshFragmentShader } from './meshFragment'
+import { multiPassFragmentShader, multiPassUniforms } from './pipeline/multiPassFragment'
 
 function useSourceImage(source: string, onError: () => void) {
   const [loaded, setLoaded] = useState<{ source: string; image: HTMLImageElement } | null>(null)
@@ -58,6 +59,47 @@ function ImageGlass({ source, onError, ...props }: Omit<FlutedGlassProps, 'image
   return image ? <FlutedGlass {...props} ref={ref} shift={shift} speed={0} image={image} /> : null
 }
 
+function useMultiPassModulator(
+  ref: RefObject<PaperShaderElement | null>,
+  paint: Extract<ShaderPaint, { kind: 'multi-pass' }>,
+  paused: boolean
+) {
+  useEffect(() => {
+    const hasModulators = paint.pipeline?.modulators?.some(m => m.enabled)
+    if (paused || !paint.animated || paint.speed === 0 || !hasModulators) return
+    let request = 0
+    const start = performance.now()
+    let lastUpdate = 0
+    const tick = (now: number) => {
+      if (now - lastUpdate >= 16) {
+        lastUpdate = now
+        const mount = ref.current?.paperShaderMount
+        if (mount) {
+          const elapsed = (now - start) * paint.speed
+          mount.setUniforms(multiPassUniforms(paint, elapsed))
+        }
+      }
+      request = requestAnimationFrame(tick)
+    }
+    request = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(request)
+  }, [ref, paint, paused])
+}
+
+function MultiPassShaderMount({
+  paint,
+  common,
+  paused,
+}: {
+  paint: Extract<ShaderPaint, { kind: 'multi-pass' }>
+  common: Omit<ShaderMountProps, 'fragmentShader' | 'uniforms'>
+  paused: boolean
+}) {
+  const ref = useRef<PaperShaderElement>(null)
+  useMultiPassModulator(ref, paint, paused)
+  return <ShaderMount ref={ref} {...common} fragmentShader={multiPassFragmentShader} uniforms={multiPassUniforms(paint, 0)} />
+}
+
 /** Uniform updates stay inside Paper's WebGL engine, outside React's frame loop. */
 export default function ShaderEngine({ paint, paused, onError, captureScale, capturePixelCount }: { paint: ShaderPaint; paused: boolean; onError: () => void; captureScale?: number; capturePixelCount?: number }) {
   const common = {
@@ -79,5 +121,6 @@ export default function ShaderEngine({ paint, paused, onError, captureScale, cap
     case 'perlin-noise': return <PerlinNoise {...common} {...placement} {...paint.params} />
     case 'liquid-distortion': return <Warp {...common} {...placement} {...paint.params} colors={[...paint.params.colors]} />
     case 'glass-refraction': return <ImageGlass {...common} {...placement} {...paint.params} source={paint.params.image} onError={onError} fit="cover" />
+    case 'multi-pass': return <MultiPassShaderMount paint={paint} common={common} paused={paused} />
   }
 }
