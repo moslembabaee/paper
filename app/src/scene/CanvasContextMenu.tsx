@@ -28,12 +28,14 @@ import {
   Type,
   Maximize,
   ZoomIn,
+  LayoutGrid,
+  Ungroup,
 } from 'lucide-react'
 import type { ViewportController } from '../canvas'
 import type { Point } from '../canvas/types'
-import { alignSelection, deleteSelection, duplicateSelection, orderSelection } from './arrange'
+import { alignSelection, createAutoLayoutSelection, deleteSelection, duplicateSelection, groupSelection, orderSelection, removeAutoLayoutSelection, ungroupSelection } from './arrange'
 import type { Alignment, LayerOrder } from './arrange'
-import { selectionBounds, selectionRoots } from './selectionGeometry'
+import { selectionRoots } from './selectionGeometry'
 import type { SceneStore } from './store'
 import type { ElementType } from './types'
 import { sceneToSVG } from '../io/svg'
@@ -222,33 +224,23 @@ export function CanvasContextMenu({ store, controller, position, onClose }: Canv
     onClose()
   }
 
+  const handleAddAutoLayout = () => {
+    createAutoLayoutSelection(store)
+    onClose()
+  }
+
+  const handleRemoveAutoLayout = () => {
+    removeAutoLayoutSelection(store)
+    onClose()
+  }
+
+  const handleUngroup = () => {
+    ungroupSelection(store)
+    onClose()
+  }
+
   const handleGroupInFrame = () => {
-    const ids = selectedRoots.filter(id => store.isVisible(id) && !store.isLocked(id))
-    if (!ids.length) return
-    const bounds = selectionBounds(state, ids)
-    if (!bounds) return
-    store.batch(() => {
-      const parent = state.elements[ids[0]].parentId
-      const frame = store.add('frame', {
-        name: 'Group',
-        parentId: parent,
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
-        clipContent: false,
-        style: { fill: null },
-      })
-      for (const id of ids) {
-        const node = state.elements[id]
-        store.reparent(id, frame.id, node.zIndex)
-        store.update(id, node.type, {
-          x: node.x - bounds.x,
-          y: node.y - bounds.y,
-        })
-      }
-      store.select([frame.id])
-    }, 'Group selection in frame')
+    groupSelection(store)
     onClose()
   }
 
@@ -321,7 +313,15 @@ export function CanvasContextMenu({ store, controller, position, onClose }: Canv
             label={anyVisible ? 'Hide' : 'Show'}
             onClick={handleToggleVisibility}
           />
-          <MenuItem icon={<Frame size={14} />} label="Frame Selection" shortcut={`${modKey}Alt+G`} onClick={handleGroupInFrame} />
+          {isSingle && firstNode?.type === 'frame' && !!firstNode.layout ? (
+            <MenuItem icon={<LayoutGrid size={14} />} label="Remove Auto Layout" shortcut="Alt+Shift+A" onClick={handleRemoveAutoLayout} />
+          ) : (
+            <MenuItem icon={<LayoutGrid size={14} />} label="Add Auto Layout" shortcut="Shift+A" onClick={handleAddAutoLayout} />
+          )}
+          <MenuItem icon={<Frame size={14} />} label="Group Selection" shortcut={`${modKey}G`} onClick={handleGroupInFrame} />
+          {selectedRoots.some(id => state.elements[id]?.type === 'frame') && (
+            <MenuItem icon={<Ungroup size={14} />} label="Ungroup" shortcut={`${modKey}Shift+G`} onClick={handleUngroup} />
+          )}
 
           <div className="context-menu-separator" />
 

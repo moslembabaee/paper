@@ -10,7 +10,7 @@ import { SnapGuides } from './SnapGuides'
 import type { SceneStore } from './store'
 import type { AutoLayout, ElementGeometry } from './types'
 import { AutoLayoutHandles } from './AutoLayoutHandles'
-import { dragSpacing, layoutHandleCursor, spacingValue } from './layoutHandles'
+import { dragSpacing, layoutHandleCursor } from './layoutHandles'
 import type { SpacingProperty } from './layoutHandles'
 import { useScene } from './useScene'
 import './selection.css'
@@ -103,8 +103,13 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       const zoom = controller.getSnapshot().camera.zoom
       if (drag.type === 'spacing') {
         const current = store.getSnapshot().elements[drag.id]
-        const layout = dragSpacing(drag.layout, drag.property, drag.axis, drag.sign, drag.rotation, delta, event.shiftKey)
-        if (current?.type === 'frame' && current.layout && !store.isLocked(drag.id) && spacingValue(current.layout, drag.property) !== spacingValue(layout, drag.property)) store.update(drag.id, 'frame', { layout })
+        const layout = dragSpacing(drag.layout, drag.property, drag.axis, drag.sign, drag.rotation, delta, event.shiftKey, event.altKey)
+        if (current?.type === 'frame' && current.layout && !store.isLocked(drag.id)) {
+          const c = current.layout
+          if (c.gap !== layout.gap || c.padding.top !== layout.padding.top || c.padding.right !== layout.padding.right || c.padding.bottom !== layout.padding.bottom || c.padding.left !== layout.padding.left) {
+            store.update(drag.id, 'frame', { layout })
+          }
+        }
       } else if (drag.type === 'marquee') {
         const bounds = { x: Math.min(drag.start.x, point.x), y: Math.min(drag.start.y, point.y), width: Math.abs(delta.x), height: Math.abs(delta.y) }
         setMarquee(bounds)

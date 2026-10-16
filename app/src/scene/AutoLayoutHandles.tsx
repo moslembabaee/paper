@@ -27,7 +27,20 @@ export function AutoLayoutHandles({ frame, state, store, zoom, rotation, active 
     {layoutHandles(frame, state.elements).map(handle => {
       const value = spacingValue(layout, handle.property)
       const label = handle.property === 'gap' ? 'Gap' : `Padding ${handle.property}`
-      return <div key={handle.id} className={`layout-spacing-handle is-${handle.axis}`} data-layout-handle={handle.id} data-property={handle.property} data-axis={handle.axis} data-sign={handle.sign} data-active={active === handle.property} data-value={`${label} ${Number(value.toFixed(2))}`} data-testid={`layout-handle-${handle.id}`} role="slider" aria-label={label} aria-valuemin={0} aria-valuenow={value} aria-valuetext={`${value} pixels`} aria-orientation={handle.axis === 'x' ? 'horizontal' : 'vertical'} tabIndex={0} title={`${label}: ${value} px · Drag to adjust · Shift for 8 px steps`} style={{ left: handle.x * zoom, top: handle.y * zoom, cursor: layoutHandleCursor(handle.axis, rotation) }} onKeyDown={event => keydown(event, handle.property)} />
+      return <div key={handle.id} className={`layout-spacing-handle is-${handle.axis}`} data-layout-handle={handle.id} data-property={handle.property} data-axis={handle.axis} data-sign={handle.sign} data-active={active === handle.property} data-value={`${label} ${Number(value.toFixed(2))}`} data-testid={`layout-handle-${handle.id}`} role="slider" aria-label={label} aria-valuemin={0} aria-valuenow={value} aria-valuetext={`${value} pixels`} aria-orientation={handle.axis === 'x' ? 'horizontal' : 'vertical'} tabIndex={0} title={`${label}: ${value} px · Drag to adjust · Shift: 8px · Alt: symmetric · Double-click: 0px`} style={{ left: handle.x * zoom, top: handle.y * zoom, cursor: layoutHandleCursor(handle.axis, rotation) }} onKeyDown={event => keydown(event, handle.property)} onDoubleClick={event => {
+        event.stopPropagation()
+        const current = store.getSnapshot().elements[frame.id]
+        if (current?.type !== 'frame' || !current.layout || store.isLocked(current.id)) return
+        if (event.altKey && handle.property !== 'gap') {
+          const p = current.layout.padding
+          const patch = handle.property === 'top' || handle.property === 'bottom'
+            ? { top: 0, bottom: 0 }
+            : { left: 0, right: 0 }
+          store.update(current.id, 'frame', { layout: { ...current.layout, padding: { ...p, ...patch } } })
+        } else {
+          store.update(current.id, 'frame', { layout: adjustSpacing(current.layout, handle.property, 0) })
+        }
+      }} />
     })}
   </div>
 }

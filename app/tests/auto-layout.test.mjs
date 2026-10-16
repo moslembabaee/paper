@@ -8,6 +8,7 @@ import { sceneToSVG } from '../src/io/svg.ts'
 import { createProject } from '../src/io/project.ts'
 import { mutateCanvas } from '../src/mcp/operations.ts'
 import { adjustSpacing, dragSpacing, layoutHandles } from '../src/scene/layoutHandles.ts'
+import { createAutoLayoutSelection, groupSelection, removeAutoLayoutSelection, ungroupSelection } from '../src/scene/arrange.ts'
 
 const layout = (patch = {}) => ({ ...DEFAULT_AUTO_LAYOUT, padding: { top: 10, right: 20, bottom: 30, left: 40 }, gap: 12, ...patch })
 const sizing = (width = 'fixed', height = 'fixed') => ({ width, height })
@@ -505,3 +506,102 @@ test('spacing handles distinguish item and line gaps, ignore hidden children, an
   store.setVisible('b', false)
   assert.equal(layoutHandles(node(store, 'frame'), store.getSnapshot().elements).some(h => h.id === 'gap-b'), false)
 })
+
+test('symmetric padding dragging updates opposite sides together', () => {
+  const initial = layout()
+  // Drag top handle with symmetric = true: both top and bottom update
+  const draggedY = dragSpacing(initial, 'top', 'y', 1, 0, { x: 0, y: 15 }, false, true)
+  assert.equal(draggedY.padding.top, 25)
+  assert.equal(draggedY.padding.bottom, 25)
+  assert.equal(draggedY.padding.left, initial.padding.left)
+  assert.equal(draggedY.padding.right, initial.padding.right)
+
+  // Drag left handle with symmetric = true: both left and right update
+  const draggedX = dragSpacing(initial, 'left', 'x', 1, 0, { x: 10, y: 0 }, false, true)
+  assert.equal(draggedX.padding.left, 50)
+  assert.equal(draggedX.padding.right, 50)
+  assert.equal(draggedX.padding.top, initial.padding.top)
+  assert.equal(draggedX.padding.bottom, initial.padding.bottom)
+})
+
+test('createAutoLayoutSelection on single frame infers direction, padding, gap, and reorders children', () => {
+  const store = new SceneStore()
+  store.add('frame', { id: 'f', x: 0, y: 0, width: 300, height: 200 })
+  store.add('rectangle', { id: 'r2', parentId: 'f', x: 150, y: 30, width: 80, height: 50 })
+  store.add('rectangle', { id: 'r1', parentId: 'f', x: 20, y: 30, width: 80, height: 50 })
+  store.select(['f'])
+
+  createAutoLayoutSelection(store)
+  const f = node(store, 'f')
+  assert.ok(f.layout)
+  assert.equal(f.layout.direction, 'horizontal')
+  assert.equal(f.layout.gap, 50) // 150 - (20 + 80)
+  assert.equal(f.layout.padding.left, 20)
+  assert.equal(f.layout.padding.top, 30)
+  assert.equal(f.layout.padding.right, 70) // 300 - (150 + 80)
+  assert.equal(f.layout.padding.bottom, 120) // 200 - (30 + 50)
+  // Children reordered spatially: r1 first, r2 second
+  assert.deepEqual(f.children, ['r1', 'r2'])
+})
+
+test('createAutoLayoutSelection wraps multiple canvas elements in hug auto-layout frame', () => {
+  const store = new SceneStore()
+  store.add('rectangle', { id: 'r1', x: 50, y: 100, width: 60, height: 40 })
+  store.add('rectangle', { id: 'r2', x: 140, y: 100, width: 60, height: 40 })
+  store.select(['r1', 'r2'])
+
+  const createdId = createAutoLayoutSelection(store)
+  assert.ok(createdId)
+  const frame = node(store, createdId)
+  assert.ok(frame)
+  assert.equal(frame.type, 'frame')
+  assert.ok(frame.layout)
+  assert.equal(frame.layout.direction, 'horizontal')
+  assert.equal(frame.layout.gap, 30) // 140 - (50 + 60)
+  assert.equal(frame.sizing.width, 'hug')
+  assert.equal(frame.sizing.height, 'hug')
+  assert.deepEqual(store.getSnapshot().selection, [createdId])
+})
+
+test('removeAutoLayoutSelection clears layout and resets fill child sizing to fixed', () => {
+  const store = scene()
+  store.update('a', 'rectangle', { sizing: sizing('fill', 'fill') })
+  store.select(['frame'])
+  assert.ok(node(store, 'frame').layout)
+  assert.equal(node(store, 'a').sizing.width, 'fill')
+
+  removeAutoLayoutSelection(store)
+  assert.equal(node(store, 'frame').layout, null)
+  assert.equal(node(store, 'a').sizing.width, 'fixed')
+  assert.equal(node(store, 'a').sizing.height, 'fixed')
+})
+
+test('groupSelection and ungroupSelection handle hierarchy and convert coordinates', () => {
+  const store = new SceneStore()
+  store.add('rectangle', { id: 'r1', x: 100, y: 100, width: 50, height: 50 })
+  store.add('rectangle', { id: 'r2', x: 200, y: 150, width: 60, height: 40 })
+  store.select(['r1', 'r2'])
+
+  const groupId = groupSelection(store)
+  assert.ok(groupId)
+  const group = node(store, groupId)
+  assert.equal(group.x, 100)
+  assert.equal(group.y, 100)
+  assert.equal(group.width, 160) // (200 + 60) - 100
+  assert.equal(group.height, 90) // (150 + 40) - 100
+  assert.equal(node(store, 'r1').x, 0)
+  assert.equal(node(store, 'r1').y, 0)
+  assert.equal(node(store, 'r2').x, 100)
+  assert.equal(node(store, 'r2').y, 50)
+
+  // Ungroup restores canvas coordinates
+  store.select([groupId])
+  const ungroups = ungroupSelection(store)
+  assert.deepEqual(ungroups.sort(), ['r1', 'r2'])
+  assert.equal(node(store, groupId), undefined)
+  assert.equal(node(store, 'r1').x, 100)
+  assert.equal(node(store, 'r1').y, 100)
+  assert.equal(node(store, 'r2').x, 200)
+  assert.equal(node(store, 'r2').y, 150)
+})
+

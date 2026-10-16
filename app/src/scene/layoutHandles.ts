@@ -67,9 +67,21 @@ export function adjustSpacing(layout: AutoLayout, property: SpacingProperty, val
   return property === 'gap' ? { ...layout, gap: next } : { ...layout, padding: { ...layout.padding, [property]: next } }
 }
 
-/** World deltas already account for zoom; project them onto the frame's axes. */
-export function dragSpacing(layout: AutoLayout, property: SpacingProperty, axis: 'x' | 'y', sign: number, rotation: number, delta: Point, coarse: boolean): AutoLayout {
+/** World deltas already account for zoom; project them onto the frame's axes.
+ * When symmetric is true (e.g. Alt key held), opposite padding sides update together. */
+export function dragSpacing(layout: AutoLayout, property: SpacingProperty, axis: 'x' | 'y', sign: number, rotation: number, delta: Point, coarse: boolean, symmetric = false): AutoLayout {
   const local = rotateVector(delta, -rotation)
   const value = spacingValue(layout, property) + local[axis] * sign
-  return adjustSpacing(layout, property, coarse ? Math.round(value / 8) * 8 : Math.round(value))
+  const next = coarse ? Math.round(value / 8) * 8 : Math.round(value)
+  if (symmetric && property !== 'gap') {
+    const p = layout.padding
+    const clamped = Math.max(0, next)
+    if (property === 'top' || property === 'bottom') {
+      return { ...layout, padding: { ...p, top: clamped, bottom: clamped } }
+    }
+    if (property === 'left' || property === 'right') {
+      return { ...layout, padding: { ...p, left: clamped, right: clamped } }
+    }
+  }
+  return adjustSpacing(layout, property, next)
 }

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { ViewportController } from '../canvas'
-import { alignSelection, deleteSelection, distributeSelection, duplicateSelection, nudgeSelection, orderSelection, resizeSelection } from './arrange'
+import { alignSelection, createAutoLayoutSelection, deleteSelection, distributeSelection, duplicateSelection, groupSelection, nudgeSelection, orderSelection, removeAutoLayoutSelection, resizeSelection, ungroupSelection } from './arrange'
 import type { Alignment } from './arrange'
 import type { SceneStore } from './store'
 
@@ -42,6 +42,22 @@ export function useArrangeShortcuts(store: SceneStore, controller: ViewportContr
         if (store.getSnapshot().selection.length > 0) {
           event.preventDefault(); finish()
           duplicateSelection(store)
+          return
+        }
+      }
+      if ((key === 'KeyA' || event.key === 'a' || event.key === 'A') && event.shiftKey && !command) {
+        if (store.getSnapshot().selection.length > 0) {
+          event.preventDefault(); finish()
+          if (event.altKey) removeAutoLayoutSelection(store)
+          else createAutoLayoutSelection(store)
+          return
+        }
+      }
+      if (command && (key === 'KeyG' || event.key === 'g' || event.key === 'G') && !event.altKey) {
+        if (store.getSnapshot().selection.length > 0) {
+          event.preventDefault(); finish()
+          if (event.shiftKey) ungroupSelection(store)
+          else groupSelection(store)
           return
         }
       }
