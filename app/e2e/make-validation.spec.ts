@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { compileAppProject } from '../src/make/compiler'
 import { createAppProject } from '../src/make/manifest'
-import { validateAppInBrowser } from '../server/app-validation'
+import { runAppValidation } from '../server/app-validation'
 
 // Actual browser execution is required. An infrastructure blocker fails these
 // tests; scripted API fixtures are deliberately not used in this suite.
@@ -9,7 +9,7 @@ async function check(content: string) {
   const project = createAppProject({ files: { 'src/App.tsx': content } })
   const result = await compileAppProject(project)
   expect(result.success).toBe(true)
-  return validateAppInBrowser(result.assets!, new AbortController().signal)
+  return runAppValidation(result.assets!, new AbortController().signal)
 }
 
 test('runtime crash never passes and captures only the isolated app at both sizes', async () => {
@@ -26,6 +26,13 @@ test('a repaired visible app passes desktop/mobile checks', async () => {
   expect(result.status).toBe('passed')
   expect(result.diagnostics).toEqual([])
   expect(result.viewports.map(v => [v.width, v.height])).toEqual([[1280, 800], [390, 844]])
+})
+
+test('a candidate that hangs its renderer stops at the fixed deadline without passing or returning captures', async () => {
+  const result = await check('export default function App() { while (true) {} }')
+  expect(result.status).toBe('blocked')
+  expect(result.diagnostics.some(d => d.code === 'VALIDATION_BLOCKED')).toBe(true)
+  expect(result.screenshots).toEqual([])
 })
 
 test('blank renders, delayed rejections, mobile overflow and denied network calls cannot be green', async () => {

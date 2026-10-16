@@ -368,6 +368,14 @@ timeout are blockers, never successful validations. At most two browser checks
 run concurrently per API process. Deploy the validator with process/resource
 isolation appropriate for untrusted browser workloads.
 
+Generation also owns a 15-second deadline around the validator, so cancellation
+or a runner that ignores its signal cannot leave the request waiting forever.
+It rejects a passing status accompanied by errors, missing/duplicate viewports,
+incorrect viewport sizes, or missing/oversized/invalid JPEG evidence. These
+infrastructure blockers stop immediately without spending another repair turn
+or writing a revision. Diagnostic secrets and image URLs are removed before
+truncation, including image payloads in filenames.
+
 No account cookies, host screenshots, or storage state enter the validation
 browser. It uses the existing sandbox/CSP with all network requests denied.
 Credential-like source blocks capture; known server credentials and token patterns

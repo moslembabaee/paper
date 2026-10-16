@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react'
-import { Trash2, X } from 'lucide-react'
+import { Pipette, Trash2, X } from 'lucide-react'
 import type { MeshAnchor } from './types'
 import { clampUnit } from './mesh'
 
@@ -20,6 +20,7 @@ interface Props {
   onRadiusStart?: () => void
   onRadiusEnd?: () => void
   onDelete?: () => void
+  onSampleField?: () => void
   showCanvasControls?: boolean
 }
 
@@ -213,6 +214,17 @@ export function MeshAnchorHandle(props: Props) {
                 }}
               />
             </div>
+            {props.onSampleField && (
+              <button
+                type="button"
+                className="mesh-popover-sample"
+                title="Sample surrounding color field at this vertex"
+                aria-label={`Sample field color for vertex ${props.index + 1}`}
+                onClick={props.onSampleField}
+              >
+                <Pipette size={11} />
+              </button>
+            )}
             {props.onDelete && (
               <button
                 type="button"
@@ -233,6 +245,19 @@ export function MeshAnchorHandle(props: Props) {
             >
               <X size={11} />
             </button>
+          </div>
+          <div className="mesh-popover-quick-swatches" role="group" aria-label="Quick palette colors">
+            {['#edebe1', '#81adec', '#516b94', '#222222', '#080808'].map(hex => (
+              <button
+                key={hex}
+                type="button"
+                className="mesh-popover-quick-dot"
+                style={{ background: hex }}
+                title={`Set vertex color to ${hex}`}
+                aria-label={`Set color ${hex}`}
+                onClick={() => latest.current.onColorChange?.(hex)}
+              />
+            ))}
           </div>
           {props.onRadiusChange && (
             <div className="mesh-handle-popover-radius">

@@ -6,11 +6,13 @@ import {
   Crosshair,
   Download,
   Grid,
+  LayoutGrid,
   Pipette,
   Plus,
   RotateCcw,
   Sparkles,
   Wand2,
+  Waves,
   X,
 } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
@@ -19,15 +21,18 @@ import {
   clampUnit,
   createMeshMaterial,
   defaultMeshAnchor,
+  generateCornerPatchLayout,
   generateGridLayout,
   generateRadialLayout,
   generateSpiralLayout,
+  generateWaveLayout,
   interpolateMeshColor,
   interpolatePaletteColors,
   meshToSurface,
   MESH_PALETTE_PRESETS,
   smoothMeshColors,
   surfaceToMesh,
+  synthesizeProceduralColorField,
 } from './mesh'
 import { MeshAnchorHandle } from './MeshAnchorHandle'
 import {
@@ -48,14 +53,21 @@ export function MeshInspector({
   onChange,
   onGestureStart,
   onGestureEnd,
+  target,
+  onBindTarget,
 }: {
   paint: MeshPaint
   onChange: (paint: ShaderPaint) => void
   onGestureStart?: () => boolean | void
   onGestureEnd?: (cancel: boolean) => void
+  target?: string
+  onBindTarget?: (mode: 'selection' | 'background' | 'new-card') => void
 }) {
   const activeAnchor = useMeshActiveAnchor()
   const placementMode = useMeshPlacementMode()
+  const [synthesizerHarmony, setSynthesizerHarmony] = useState<
+    'harmonic' | 'analogous' | 'complementary' | 'triadic' | 'vibrant'
+  >('harmonic')
   const [copiedSource, setCopiedSource] = useState('')
   const [copyError, setCopyError] = useState('')
   const preview = useRef<HTMLDivElement>(null)
@@ -135,13 +147,15 @@ export function MeshInspector({
     })
   }
 
-  const applyLayout = (type: 'grid' | 'radial' | 'spiral') => {
+  const applyLayout = (type: 'grid' | 'radial' | 'spiral' | 'wave' | 'patch') => {
     if (!mesh) return
     const count = mesh.anchors.length
     let anchors: MeshAnchor[]
     if (type === 'grid') anchors = generateGridLayout(count)
     else if (type === 'radial') anchors = generateRadialLayout(count)
-    else anchors = generateSpiralLayout(count)
+    else if (type === 'spiral') anchors = generateSpiralLayout(count)
+    else if (type === 'wave') anchors = generateWaveLayout(count)
+    else anchors = generateCornerPatchLayout(count)
     update({ anchors })
   }
 
@@ -163,11 +177,28 @@ export function MeshInspector({
     })
   }
 
+  const synthesizeField = (
+    harmony: 'harmonic' | 'analogous' | 'complementary' | 'triadic' | 'vibrant' = synthesizerHarmony
+  ) => {
+    if (!mesh) return
+    const baseColor = paint.params.colors[active] ?? '#81adec'
+    const synthesized = synthesizeProceduralColorField(
+      baseColor,
+      paint.params.colors.length,
+      harmony
+    )
+    commit({
+      ...paint,
+      params: { ...paint.params, colors: synthesized },
+    })
+  }
+
   const sampleFieldForActive = () => {
     if (!mesh || !anchor) return
     const others = mesh.anchors.filter((_, i) => i !== active)
     const otherColors = paint.params.colors.filter((_, i) => i !== active)
-    const sampled = interpolateMeshColor(others, otherColors, anchor)
+    const interp = mesh.interpolation ?? 'bicubic'
+    const sampled = interpolateMeshColor(others, otherColors, anchor, interp)
     commit({
       ...paint,
       params: {
@@ -274,6 +305,26 @@ export function MeshInspector({
                 <RotateCcw size={11} />
                 <span>Spiral</span>
               </button>
+              <button
+                type="button"
+                className="mesh-tool-btn"
+                title="Arrange along harmonic wave curve"
+                aria-label="Arrange vertices in wave"
+                onClick={() => applyLayout('wave')}
+              >
+                <Waves size={11} />
+                <span>Wave</span>
+              </button>
+              <button
+                type="button"
+                className="mesh-tool-btn"
+                title="Arrange as 2D bicubic patch corners"
+                aria-label="Arrange vertices in patch"
+                onClick={() => applyLayout('patch')}
+              >
+                <LayoutGrid size={11} />
+                <span>Patch</span>
+              </button>
             </div>
 
             <div className="mesh-tool-group">
@@ -299,6 +350,36 @@ export function MeshInspector({
                 <span>Spectrum</span>
               </button>
             </div>
+          </div>
+
+          {/* Procedural Color Field Synthesizer */}
+          <div className="mesh-synthesizer-section" role="region" aria-label="Procedural Color Field Synthesizer">
+            <div className="mesh-synthesizer-header">
+              <span className="section-caption">COLOR FIELD SYNTHESIZER</span>
+              <span className="shader-engine-mark">GPU BICUBIC</span>
+            </div>
+            <div className="mesh-harmony-chips" role="group" aria-label="Color harmony modes">
+              {(['harmonic', 'analogous', 'complementary', 'triadic', 'vibrant'] as const).map(mode => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`mesh-harmony-chip ${synthesizerHarmony === mode ? 'active' : ''}`}
+                  onClick={() => setSynthesizerHarmony(mode)}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="mesh-synthesize-btn"
+              title={`Synthesize ${synthesizerHarmony} procedural color field from vertex ${active + 1}`}
+              aria-label={`Synthesize ${synthesizerHarmony} color field`}
+              onClick={() => synthesizeField(synthesizerHarmony)}
+            >
+              <Wand2 size={11} />
+              <span>Synthesize {synthesizerHarmony.toUpperCase()} field</span>
+            </button>
           </div>
 
           {/* Curated Palette Presets */}
@@ -501,6 +582,28 @@ export function MeshInspector({
 
           {/* Procedural Noise & Grain Finish */}
           <div className="shader-divider" />
+          <span className="section-caption">ENGINE & INTERPOLATION</span>
+          <label className="property-select">
+            Interpolation
+            <select
+              aria-label="Mesh interpolation mode"
+              value={mesh.interpolation ?? 'bicubic'}
+              onChange={event =>
+                update({ interpolation: event.currentTarget.value as MeshMaterial['interpolation'] })
+              }
+            >
+              <option value="bicubic">Bicubic Spline (Smooth Hermite)</option>
+              <option value="gaussian-rbf">Gaussian RBF (Inverse-Distance)</option>
+              <option value="catmull-rom">Catmull-Rom (Tension Spline)</option>
+            </select>
+          </label>
+          <MeshRange
+            label="Warp modulation"
+            value={mesh.warpModulation ?? 0.25}
+            onChange={warpModulation => update({ warpModulation })}
+          />
+
+          <div className="shader-divider" />
           <span className="section-caption">PROCEDURAL FINISH</span>
           <MeshRange
             label="Turbulence"
@@ -559,6 +662,48 @@ export function MeshInspector({
               ))}
             </select>
           </label>
+
+          {/* Direct Scene Canvas Binding */}
+          {target && (
+            <div className="mesh-binding-section" role="region" aria-label="Scene canvas binding">
+              <div className="mesh-binding-row">
+                <span className="section-caption">CANVAS BINDING</span>
+                <span className="mesh-binding-target-badge">{target}</span>
+              </div>
+              {onBindTarget && (
+                <div className="mesh-binding-actions">
+                  {target !== 'Canvas background' && (
+                    <button
+                      type="button"
+                      className="mesh-binding-btn"
+                      title="Apply this mesh gradient to canvas background"
+                      onClick={() => onBindTarget('background')}
+                    >
+                      Apply to Background
+                    </button>
+                  )}
+                  {target === 'Canvas background' && (
+                    <button
+                      type="button"
+                      className="mesh-binding-btn"
+                      title="Bind this mesh gradient to selected canvas layers"
+                      onClick={() => onBindTarget('selection')}
+                    >
+                      Bind to Selection
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="mesh-binding-btn"
+                    title="Create a new canvas shape with this mesh gradient"
+                    onClick={() => onBindTarget('new-card')}
+                  >
+                    Create Mesh Card
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 

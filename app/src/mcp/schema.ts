@@ -1,7 +1,7 @@
 import { TOKEN_META } from '../tokens/model.ts'
 import { motionControls, shaderCatalog, shaderKinds } from '../shaders/catalog.ts'
 import type { ShaderControl } from '../shaders/types.ts'
-import { grainBlendModes, shaderBlendModes } from '../shaders/types.ts'
+import { grainBlendModes, meshInterpolationModes, shaderBlendModes } from '../shaders/types.ts'
 import { modulatorWaveforms, pipelinePassTypes } from '../shaders/pipeline/types.ts'
 import { audioSignals } from '../shaders/audio/types.ts'
 import { postProcessDefinitions, MAX_POST_PROCESS_PASSES } from '../canvas/postprocessing/model.ts'
@@ -55,6 +55,8 @@ const meshProperties = {
   frequency: { type: 'number', minimum: 1, maximum: 12 } as JsonSchema,
   chromaticAberration: unitInterval,
   grainBlend: { type: 'string', enum: grainBlendModes } as JsonSchema,
+  interpolation: { type: 'string', enum: meshInterpolationModes } as JsonSchema,
+  warpModulation: unitInterval,
 }
 const pipelinePassProperties = {
   id: str(),
@@ -100,7 +102,7 @@ export const shaderSchema: JsonSchema = {
           return object({ id: str(), type: { type: 'string', enum: [type] }, name: str(), enabled: flag, opacity: { type: 'number', minimum: 0, maximum: 1 }, blendMode: { type: 'string', enum: ['normal', 'screen', 'multiply', 'overlay'] }, params: object(params, Object.keys(params)) }, ['id', 'type', 'name', 'enabled', 'opacity', 'blendMode', 'params'])
         }) } },
       }, ['version', 'enabled', 'preset', 'passes']),
-      ...(kind === 'mesh-gradient' ? { mesh: object(meshProperties, Object.keys(meshProperties)) } : {}),
+      ...(kind === 'mesh-gradient' ? { mesh: object(meshProperties, ['anchors', 'turbulence', 'frequency', 'chromaticAberration', 'grainBlend']) } : {}),
       ...(kind === 'multi-pass' ? { pipeline: object(pipelineProperties, Object.keys(pipelineProperties)) } : {}),
       ...motionProperties,
     }, ['kind', 'params', ...Object.keys(motionProperties)])

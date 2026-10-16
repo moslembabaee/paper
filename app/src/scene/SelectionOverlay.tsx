@@ -7,6 +7,8 @@ import type { ResizeHandle, SelectionBox, TransformOrigin } from './selectionGeo
 import { computeSnap } from './snapEngine'
 import type { SnapGuide } from './snapEngine'
 import { SnapGuides } from './SnapGuides'
+import { SpatialBoundsIndex } from './spatialIndex'
+import { getSnapConfig } from './snapConfig'
 import type { SceneStore } from './store'
 import type { AutoLayout, ElementGeometry } from './types'
 import { AutoLayoutHandles } from './AutoLayoutHandles'
@@ -32,6 +34,7 @@ interface Gesture {
   origins: TransformOrigin[]
   initialSelection: readonly string[]
   targets: Bounds[]
+  spatialIndex?: SpatialBoundsIndex
   moved: boolean
   cursor: string
 }
@@ -121,8 +124,9 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
           if (Math.abs(delta.x) > Math.abs(delta.y)) delta.y = 0
           else delta.x = 0
         }
-        if (!event.altKey) {
-          const snap = computeSnap({ ...drag.bounds, x: drag.bounds.x + delta.x, y: drag.bounds.y + delta.y }, drag.targets, 8 / zoom, {
+        const snapCfg = getSnapConfig()
+        if (!event.altKey && snapCfg.enabled) {
+          const snap = computeSnap({ ...drag.bounds, x: drag.bounds.x + delta.x, y: drag.bounds.y + delta.y }, drag.targets, snapCfg.screenThreshold / zoom, {
             xAnchors: event.shiftKey && delta.x === 0 ? [] : undefined,
             yAnchors: event.shiftKey && delta.y === 0 ? [] : undefined,
             distances: !event.shiftKey,
@@ -134,9 +138,10 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
         update(drag.origins, origin => moveGeometry(origin, delta))
       } else if (drag.type === 'resize') {
         let after = resizedBox(drag.box, drag.handle, delta, event.shiftKey)
+        const snapCfg = getSnapConfig()
         // Edge snapping uses the moving handle only, preserving its fixed anchor.
-        if (!event.altKey && !event.shiftKey && Math.abs(drag.box.rotation % 360) < 1e-6) {
-          const snap = computeSnap(after, drag.targets, 8 / zoom, {
+        if (!event.altKey && !event.shiftKey && snapCfg.enabled && Math.abs(drag.box.rotation % 360) < 1e-6) {
+          const snap = computeSnap(after, drag.targets, snapCfg.screenThreshold / zoom, {
             xAnchors: drag.handle.includes('e') ? [1] : drag.handle.includes('w') ? [0] : [],
             yAnchors: drag.handle.includes('s') ? [1] : drag.handle.includes('n') ? [0] : [], distances: false,
           })

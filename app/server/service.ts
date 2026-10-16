@@ -15,7 +15,7 @@ import { formatPlanPrompt, parseModelPlanResponse, validateAppPlan, approvePlan,
 import { extractFrameDesignContext, DesignContextError } from '../src/make/design-context.ts'
 import type { AppSceneReference } from '../src/make/types.ts'
 import { computeBoundedDiff } from '../src/make/diff.ts'
-import { validateAppInBrowser, boundedDiagnostics, type AppBrowserValidator, type ValidationScreenshot } from './app-validation.ts'
+import { validateAppInBrowser, runAppValidation, boundedDiagnostics, type AppBrowserValidator, type ValidationScreenshot } from './app-validation.ts'
 import { redactSensitiveText } from '../src/make/model-protocol.ts'
 import type { AppValidationAttempt, AppValidationReport } from '../src/make/types.ts'
 import { formatSourceFile } from './source-format.ts'
@@ -222,7 +222,7 @@ export async function createService(config: ServiceConfig) {
       // A plan authorizes one bounded run, including at most one repair. Replays
       // and concurrent submissions must replan rather than reset the retry budget.
       pendingPlans.delete(plan.planId)
-      const sanitize = (text: string) => redactSensitiveText(modelGateway.sanitizeFeedback(text), [config.secret])
+      const sanitize = (text: string) => redactSensitiveText(modelGateway.sanitizeFeedback(text), serverSecrets)
       // Redact source before JSON serialization: escaped quotes otherwise hide
       // credential assignments from text-level redaction of the final prompt.
       const safePrompt = (source: AppProject) => formatGeneratePrompt(plan, {
@@ -279,9 +279,7 @@ export async function createService(config: ServiceConfig) {
             compiled = await compileWithAssets(userId, candidate)
             diagnostics = boundedDiagnostics(compiled.diagnostics, sanitize)
             if (compiled.success && compiled.assets) {
-              const browser = await (config.appValidator ?? validateAppInBrowser)(compiled.assets, validationController.signal).catch(() => ({
-                status: 'blocked' as const, diagnostics: [{ file: project.preview.entryPoint, line: 1, column: 1, severity: 'error' as const, code: 'VALIDATION_BLOCKED' as const, message: 'Browser validation could not complete.' }], viewports: [], screenshots: [],
-              }))
+              const browser = await runAppValidation(compiled.assets, validationController.signal, config.appValidator, { sanitize })
               status = browser.status
               diagnostics = boundedDiagnostics(browser.diagnostics, sanitize)
               viewports = browser.viewports

@@ -131,7 +131,7 @@ vec3 blendColors(int mode, vec3 base, vec3 blend) {
   return blend; // normal
 }
 
-// --- Sample Mesh Gradient Color Field ---
+// --- Sample Mesh Gradient Color Field (Smooth Bicubic Spline) ---
 vec4 sampleMeshField(vec2 p) {
   vec4 color = vec4(0.0);
   float total = 0.0;
@@ -139,7 +139,11 @@ vec4 sampleMeshField(vec2 p) {
     if (float(i) >= u_mesh_count) break;
     vec2 delta = p - u_mesh_anchors[i].xy;
     float r = max(0.05, u_mesh_anchors[i].z);
-    float weight = exp(-dot(delta, delta) * 8.0 / (r * r)) + 0.00001;
+    vec2 t = clamp(abs(delta) / r, 0.0, 1.0);
+    vec2 h = (vec2(1.0) - t) * (vec2(1.0) - t) * (vec2(1.0) + vec2(2.0) * t);
+    float rad = clamp(length(delta) / r, 0.0, 1.0);
+    float hRad = (1.0 - rad) * (1.0 - rad) * (1.0 + 2.0 * rad);
+    float weight = (h.x * h.y * 0.7 + hRad * 0.3) + 0.00001;
     color += vec4(u_mesh_colors[i].rgb * u_mesh_colors[i].a, u_mesh_colors[i].a) * weight;
     total += weight;
   }

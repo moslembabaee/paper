@@ -176,6 +176,19 @@ export function MeshCanvasOverlay({ store, controller }: { store: SceneStore; co
     setMeshActiveAnchor(Math.max(0, index - 1))
   }
 
+  const handleSampleField = (index: number) => {
+    const currentNode = node ? store.getSnapshot().elements[node.id] : undefined
+    const current = node ? currentNode?.style.shader : store.getSnapshot().backgroundShader
+    if (current?.kind !== 'mesh-gradient' || !current.mesh) return
+    const targetAnchor = current.mesh.anchors[index]
+    if (!targetAnchor) return
+    const others = current.mesh.anchors.filter((_, i) => i !== index)
+    const otherColors = current.params.colors.filter((_, i) => i !== index)
+    const interp = current.mesh.interpolation ?? 'bicubic'
+    const sampled = interpolateMeshColor(others, otherColors, targetAnchor, interp)
+    handleColorChange(index, sampled)
+  }
+
   const active = Math.min(activeAnchor, mesh.anchors.length - 1)
 
   return (
@@ -230,6 +243,7 @@ export function MeshCanvasOverlay({ store, controller }: { store: SceneStore; co
             onRadiusStart={handleRadiusStart}
             onRadiusEnd={handleRadiusEnd}
             onDelete={mesh.anchors.length > 2 ? () => handleDelete(index) : undefined}
+            onSampleField={() => handleSampleField(index)}
             project={(clientX, clientY) => {
               const rect = host.current!.getBoundingClientRect()
               const point = { x: clientX - rect.left, y: clientY - rect.top }

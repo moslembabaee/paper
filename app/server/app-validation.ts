@@ -3,6 +3,7 @@ import type { CompileDiagnostic, CompilePreviewAssets } from '../src/make/compil
 import { PREVIEW_PERMISSIONS_POLICY, PREVIEW_SANDBOX_POLICY, parsePreviewMessage } from '../src/make/preview-sandbox.ts'
 import { PREVIEW_VIEWPORTS } from '../src/make/breakpoints.ts'
 import type { AppValidationAttempt } from '../src/make/types.ts'
+import { redactSensitiveText } from '../src/make/model-protocol.ts'
 import {
   VALIDATION_LIMITS,
   boundedDiagnostics,
@@ -17,6 +18,80 @@ export {
   type ValidationScreenshot,
   type BrowserValidation,
   type AppBrowserValidator,
+}
+
+// The caller owns the deadline, even if a runner ignores cancellation. Only a
+// complete desktop/mobile result may authorize a source write or repair input.
+export async function runAppValidation(
+  assets: CompilePreviewAssets,
+  signal: AbortSignal,
+  validator: AppBrowserValidator = validateAppInBrowser,
+  options: { timeoutMs?: number; sanitize?: (text: string) => string } = {},
+): Promise<BrowserValidation> {
+  const controller = new AbortController()
+  const blocked = (message: string): BrowserValidation => ({
+    status: 'blocked', screenshots: [], viewports: [], diagnostics: [{
+      file: assets.entryPoint, line: 1, column: 1, code: 'VALIDATION_BLOCKED', severity: 'error', message,
+    }],
+  })
+  let expired = false
+  let onAbort: () => void = () => {}
+  const stopped = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new Error('Validation stopped'))
+    controller.signal.addEventListener('abort', onAbort, { once: true })
+  })
+  const cancel = () => controller.abort()
+  const timer = setTimeout(() => { expired = true; cancel() }, options.timeoutMs ?? VALIDATION_LIMITS.timeoutMs)
+  signal.addEventListener('abort', cancel, { once: true })
+  try {
+    if (signal.aborted) cancel()
+    const result = await Promise.race([
+      stopped,
+      Promise.resolve().then(() => {
+        controller.signal.throwIfAborted()
+        return validator(assets, controller.signal)
+      }),
+    ])
+    controller.signal.throwIfAborted()
+    if (result.status === 'blocked') return blocked('Browser validation could not complete. The previous revision is unchanged.')
+    if (!['passed', 'failed'].includes(result.status) ||
+        !Array.isArray(result.diagnostics) || !Array.isArray(result.viewports) || !Array.isArray(result.screenshots) ||
+        result.viewports.length !== 2 || result.screenshots.length !== 2 ||
+        result.status === 'passed' && result.diagnostics.some(d => d.severity === 'error') ||
+        result.status === 'failed' && !result.diagnostics.some(d => d.severity === 'error')) {
+      return blocked('Browser validation returned incomplete or inconsistent evidence.')
+    }
+    const screenshots: ValidationScreenshot[] = []
+    const viewports: AppValidationAttempt['viewports'][number][] = []
+    for (const viewport of ['desktop', 'mobile'] as const) {
+      const summary = result.viewports.filter(v => v.viewport === viewport)
+      const images = result.screenshots.filter(s => s.viewport === viewport)
+      const size = PREVIEW_VIEWPORTS[viewport]
+      if (summary.length !== 1 || images.length !== 1 ||
+          summary[0].width !== size.width || summary[0].height !== size.height) {
+        return blocked('Browser validation requires desktop and mobile evidence at the approved sizes.')
+      }
+      const dataUrl = images[0].dataUrl
+      if (typeof dataUrl !== 'string' || dataUrl.length > Math.ceil(VALIDATION_LIMITS.maxScreenshotBytes / 3) * 4 + 23 ||
+          !/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(dataUrl)) {
+        return blocked('Browser validation screenshot exceeded its budget or used an invalid format.')
+      }
+      const bytes = Buffer.from(dataUrl.slice(23), 'base64')
+      if (!bytes.length || bytes.length > VALIDATION_LIMITS.maxScreenshotBytes || bytes.length !== summary[0].screenshotBytes ||
+          bytes.toString('base64') !== dataUrl.slice(23) || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
+        return blocked('Browser validation screenshot evidence is invalid.')
+      }
+      screenshots.push({ viewport, dataUrl })
+      viewports.push({ viewport, width: summary[0].width, height: summary[0].height, screenshotBytes: bytes.length })
+    }
+    return { status: result.status, diagnostics: boundedDiagnostics(result.diagnostics, options.sanitize ?? redactSensitiveText), screenshots, viewports }
+  } catch {
+    return blocked(expired ? 'Browser validation exceeded its fixed time limit.' : signal.aborted ? 'Browser validation cancelled.' : 'Browser validation could not complete.')
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', cancel)
+    controller.signal.removeEventListener('abort', onAbort)
+  }
 }
 
 // No cookies, host UI, account data, filesystem screenshots, or network access.

@@ -83,7 +83,33 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
         {node.style.shadow && <><ColorField label="Shadow" value={node.style.shadow.color} onChange={color => style({ shadow: { ...node.style.shadow!, color } })} /><div className="property-pair"><NumberField label="Shadow X" value={node.style.shadow.x} onChange={x => style({ shadow: { ...node.style.shadow!, x } })} /><NumberField label="Shadow Y" value={node.style.shadow.y} onChange={y => style({ shadow: { ...node.style.shadow!, y } })} /></div><NumberField label="Blur" value={node.style.shadow.blur} min={0} onChange={blur => style({ shadow: { ...node.style.shadow!, blur } })} /></>}
       </div>
       <div className="inspector-section"><span className="section-caption">LAYER EFFECTS</span><EffectStackEditor effects={node.style.effects ?? []} tokens={resolveTokens(state.tokens, state.styleLibrary.activeThemeId)} onChange={effects => { try { style({ effects, shadow: null }) } catch { /* Keep the last valid effect while a color is being typed. */ } }} /></div>
-      <ShaderInspector onGestureStart={meshGestureStart} onGestureEnd={meshGestureEnd} key={`shader-${node.id}`} paint={node.style.shader ?? null} onChange={shader => style({ shader })} target={node.type === 'image' ? 'Image effect' : 'Layer fill'} image={node.type === 'image' ? node.src : undefined} onBrowse={onOpenShaders} />
+      <ShaderInspector
+        onGestureStart={meshGestureStart}
+        onGestureEnd={meshGestureEnd}
+        key={`shader-${node.id}`}
+        paint={node.style.shader ?? null}
+        onChange={shader => style({ shader })}
+        target={node.type === 'image' ? 'Image effect' : `${node.name || 'Layer'} fill`}
+        image={node.type === 'image' ? node.src : undefined}
+        onBrowse={onOpenShaders}
+        onBindTarget={mode => {
+          if (mode === 'background') {
+            if (node.style.shader) store.setBackgroundShader(node.style.shader)
+          } else if (mode === 'new-card') {
+            if (node.style.shader) {
+              const newNode = store.add('rectangle', {
+                x: node.x + 40,
+                y: node.y + 40,
+                width: node.width,
+                height: node.height,
+                cornerRadius: 8,
+                style: { fill: null, shader: node.style.shader },
+              })
+              store.select([newNode.id])
+            }
+          }
+        }}
+      />
       {node.type === 'text' && <TypographyStudio key={node.id} store={store} node={node} binding={binding} />}
       {node.type === 'path' && <div className="inspector-section"><span className="section-caption">VECTOR PATH</span><textarea className="property-textarea property-mono" key={node.id + node.d} aria-label="SVG path data" readOnly={!!node.boolean} defaultValue={node.d} onBlur={event => { if (!node.boolean && event.currentTarget.value !== node.d) store.update(node.id, 'path', { d: event.currentTarget.value }) }} />{node.boolean && <p>Flatten the compound to edit its merged outline with the pen tool.</p>}{!node.boolean && onOpenMorph && <button className="text-action" style={{ marginTop: 8 }} onClick={() => onOpenMorph?.({ id: `canvas-${node.id}`, name: node.name, d: node.d, viewBox: node.viewBox ?? [0, 0, 120, 120], fillRule: node.fillRule, color: node.style.fill ?? '#81adec' })}>Morph vector path <ChevronRight size={12} /></button>}</div>}
       {node.type === 'image' && <div className="inspector-section"><span className="section-caption">IMAGE</span><label className="property-label">Source<input className="property-input" key={node.id + node.src} aria-label="Image source" defaultValue={node.src} onBlur={event => store.update(node.id, 'image', { src: event.currentTarget.value })} /></label><label className="property-label">Alt text<input className="property-input" key={node.id + node.alt} aria-label="Image alt text" defaultValue={node.alt} onBlur={event => store.update(node.id, 'image', { alt: event.currentTarget.value })} /></label><label className="property-select">Fit<select aria-label="Image fit" value={node.fit} onChange={event => store.update(node.id, 'image', { fit: event.currentTarget.value as typeof node.fit })}><option value="contain">Contain</option><option value="cover">Cover</option><option value="fill">Fill</option></select></label></div>}
@@ -93,7 +119,37 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
         <div className="element-actions"><button aria-label="Send backward" disabled={instanceChild || node.zIndex === 0} onClick={() => store.reorder(node.id, node.zIndex - 1)}><ArrowDown size={13} /></button><button aria-label="Bring forward" disabled={instanceChild || node.zIndex === store.getChildren(node.parentId).length - 1} onClick={() => store.reorder(node.id, node.zIndex + 1)}><ArrowUp size={13} /></button><button aria-label="Lock selected element" onClick={() => store.setLocked(node.id, true)}><LockKeyhole size={13} /></button><button aria-label="Delete selected element" disabled={instanceChild} title={instanceChild ? 'Detach the instance to delete individual layers' : 'Delete layer'} onClick={() => store.remove(node.id)}><Trash2 size={13} /></button></div>
       </div>
     </> : <div className="inspector-section"><span className="section-caption">WORKING SPACE</span><h3>{state.selection.length > 1 ? 'Ideas, together.' : 'Beyond the edges.'}</h3><p>{state.selection.length > 1 ? 'Select a single layer to edit its properties.' : <>Select a layer to shape it.<br />Add something. Make it yours.</>}</p></div>}
-    {state.selection.length === 0 && <ShaderInspector onGestureStart={meshGestureStart} onGestureEnd={meshGestureEnd} paint={state.backgroundShader ?? null} onChange={paint => store.setBackgroundShader(paint)} target="Canvas background" onBrowse={onOpenShaders} />}
+    {state.selection.length === 0 && (
+      <ShaderInspector
+        onGestureStart={meshGestureStart}
+        onGestureEnd={meshGestureEnd}
+        paint={state.backgroundShader ?? null}
+        onChange={paint => store.setBackgroundShader(paint)}
+        target="Canvas background"
+        onBrowse={onOpenShaders}
+        onBindTarget={mode => {
+          if (mode === 'selection' && state.selection.length > 0 && state.backgroundShader) {
+            store.beginTransaction('Bind mesh to selection')
+            for (const id of state.selection) {
+              const el = state.elements[id]
+              if (el) store.update(id, el.type, { style: { shader: state.backgroundShader } })
+            }
+            store.endTransaction()
+          } else if (mode === 'new-card' && state.backgroundShader) {
+            const cam = controller.getSnapshot().camera
+            const newNode = store.add('rectangle', {
+              x: -cam.x / cam.zoom + 120,
+              y: -cam.y / cam.zoom + 120,
+              width: 240,
+              height: 240,
+              cornerRadius: 12,
+              style: { fill: null, shader: state.backgroundShader },
+            })
+            store.select([newNode.id])
+          }
+        }}
+      />
+    )}
     <div className="inspector-section"><span className="section-caption">ENGINEERING GRID</span><div className="setting-row"><span>Show grid</span><button className={`grid-switch ${grid ? 'on' : ''}`} role="switch" aria-checked={grid} aria-label="Show engineering grid" onClick={onGridChange}><span /></button></div><div className="setting-row"><span>Major interval</span><code>120 px</code></div><div className="setting-row"><span>Subdivisions</span><code>24 px</code></div></div>
     {!node && <div className="inspector-section navigation-guide"><span className="section-caption">FIND YOUR WAY</span><div><span>Pan</span><kbd>Space + drag</kbd></div><div><span>Zoom</span><kbd>Scroll / pinch</kbd></div><div><span>Actual size</span><kbd>0</kbd></div><div><span>Fit canvas</span><kbd>1</kbd></div><div><span>Multi-select</span><kbd>Shift + click</kbd></div></div>}
     <div className="inspector-bottom"><p>Your ideas.<br />Your tools. Your space.</p><span>OPEN SOURCE · SELF HOSTED</span></div>

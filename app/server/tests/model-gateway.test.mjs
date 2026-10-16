@@ -1022,6 +1022,23 @@ test('runtime diagnostics trigger one repair before saving with bounded private 
   assert.doesNotMatch(JSON.stringify(result.data.validation), /data:image|\/9j\//)
 })
 
+test('incomplete or contradictory browser success blocks generation without writing a revision', async t => {
+  for (const invalid of [
+    { status: 'passed', diagnostics: [], viewports: [], screenshots: [] },
+    { ...await browserPass(), diagnostics: (await runtimeFailure()).diagnostics },
+    { ...await browserPass(), screenshots: screenshots.slice(0, 1) },
+    { ...await browserPass(), screenshots: screenshots.map(s => ({ ...s, dataUrl: 'data:image/jpeg;base64,' + 'A'.repeat(20000) })) },
+  ]) {
+    const f = await repairFixture(t, { appValidator: async () => invalid })
+    const result = await f.generate()
+    assert.equal(result.data.success, false)
+    assert.equal(result.data.validation.status, 'blocked')
+    assert.equal(f.requests.length, 2, 'infrastructure failures must not spend a repair turn')
+    assert.deepEqual(await f.storage.apps.read(f.a.user.id, f.app.id), f.app)
+    assert.doesNotMatch(JSON.stringify(result.data.validation), /data:image/)
+  }
+})
+
 async function repairFixture(t, options = {}) {
   const requests = []
   const f = await fixture(t, { appValidator: options.appValidator ?? runtimeFailure, modelGateway: {
@@ -1116,4 +1133,17 @@ test('diagnostic floods and credentials are bounded before feedback, response an
   for (const value of [JSON.stringify(feedback.diagnostics), JSON.stringify(result.data.validation), await readFile(join(f.root, 'model-usage.json'), 'utf8')]) {
     assert.doesNotMatch(value, /sk-live-paper-secret|abcdefghijklmnop|data:image|\/9j\//)
   }
+})
+
+test('known server secrets are redacted before truncating runtime feedback', async t => {
+  const f = await repairFixture(t, { appValidator: async () => ({ ...await runtimeFailure(), diagnostics: [{
+    file: 'src/App.tsx', line: 1, column: 1, code: 'RUNTIME_ERROR', severity: 'error',
+    message: 'x'.repeat(490) + secret,
+  }] }) })
+  const result = await f.generate()
+  const feedback = f.requests.find(r => r.context?.mode === 'repair').context.feedback
+  for (const value of [JSON.stringify(feedback.diagnostics), JSON.stringify(result.data.validation), await readFile(join(f.root, 'model-usage.json'), 'utf8')]) {
+    assert.doesNotMatch(value, /a-persistent/)
+  }
+  assert.equal(result.data.success, false)
 })

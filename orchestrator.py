@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tri-Agent Orchestrator (Claude Code + OpenAI Codex + Google Antigravity)
+Tri-Agent Orchestrator (Claude Code)
 Autonomous, long-running engineering loop with failover, memory management,
 automated verification, and continuous Git synchronization.
 """
@@ -30,7 +30,7 @@ LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "orchestrator.log"
 
-AGENT_CHAIN = ["codex", "claude"]
+AGENT_CHAIN = ["claude"]
 
 def log(msg: str):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -39,7 +39,7 @@ def log(msg: str):
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(line + "\n")
 
-def run_cmd(cmd: str, timeout: int = 720, cwd: str = str(PROJECT_ROOT)) -> tuple[int, str]:
+def run_cmd(cmd: str, timeout: int = 600, cwd: str = str(PROJECT_ROOT)) -> tuple[int, str]:
     import signal as _signal
     try:
         proc = subprocess.Popen(
@@ -119,24 +119,9 @@ def reconcile_issue_before_dispatch(roadmap: dict, task: dict) -> bool:
 
 def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple[int, str]:
     log(f"Dispatching task to agent [{agent.upper()}] (retry={is_retry})...")
-    
-    if agent == "claude":
-        # Run Claude Code in non-interactive print mode (clamped to 40 turns, 12m timeout)
-        cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 80'
-        return run_cmd(cmd, timeout=720)
-
-    elif agent == "antigravity":
-        # Run Antigravity CLI with Gemini 3.8 Flash High
-        cmd = f'agy -p {shlex.quote(prompt)} --model gemini-3.8-flash-high --dangerously-skip-permissions --print-timeout 12m'
-        return run_cmd(cmd, timeout=720)
-
-    elif agent == "codex":
-        # Run OpenAI Codex non-interactively in workspace-write sandbox
-        cmd = f'codex exec --sandbox workspace-write -c \'model_reasoning_effort="high"\' {shlex.quote(prompt)}'
-        return run_cmd(cmd, timeout=720)
-        
-    else:
-        return -1, f"Unknown agent: {agent}"
+    # Run Claude Code in non-interactive print mode
+    cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 80'
+    return run_cmd(cmd, timeout=600)
 
 def build_prompt(task: dict, error_feedback: str = None) -> str:
     prompt = f"""
@@ -191,7 +176,7 @@ def run_loop():
                     save_roadmap(roadmap)
                 
             log("✨ No active proposals or pending tasks! Running Architecture Audit for new proposals...")
-            log("Running Autonomous Architecture & Craft Audit via Claude / Codex / Antigravity...")
+            log("Running Autonomous Architecture & Craft Audit via Claude...")
             
             audit_prompt = """Do not use any tools or bash commands. Do not read files.
 Based on Paper.design specifications, identify 3 high-impact features needed in /root/projects/paper/app.
@@ -211,7 +196,7 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
             # For audit generation, run claude with max-turns 2 and no tool browsing
             c_code, c_out = run_cmd(f'claude -p {shlex.quote(audit_prompt)} --max-turns 2', timeout=180)
             if c_code != 0 or not c_out.strip():
-                c_code, c_out = execute_agent_task("codex", audit_prompt)
+                c_code, c_out = execute_agent_task("claude", audit_prompt)
             try:
                 raw_json = c_out.strip()
                 if "```json" in raw_json:
@@ -395,7 +380,7 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
 
 The Tri-Agent Orchestra attempted to implement task `{pending_task['id']}` (**{pending_task['title']}**), but execution was blocked across the failover chain.
 
-- **Attempted Failover Chain:** Claude Code ➔ OpenAI Codex ➔ Google Antigravity
+- **Attempted Agent:** Claude Code
 - **Latest Blocker Output:**
 ```text
 {err_snippet}

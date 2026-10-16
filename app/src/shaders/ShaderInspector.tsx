@@ -24,7 +24,7 @@ function ImageSource({ value, onChange }: { value: string; onChange: (value: str
   }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />{error && <span className="shader-image-error" role="alert">{error}</span>}</label>
 }
 
-export function ShaderInspector({ paint, onChange, target, image, showPicker = true, allowRemove = true, onBrowse, onGestureStart, onGestureEnd }: { paint: ShaderPaint | null; onChange: (paint: ShaderPaint | null) => void; target: string; image?: string; showPicker?: boolean; allowRemove?: boolean; onBrowse?: () => void; onGestureStart?: () => boolean | void; onGestureEnd?: (cancel: boolean) => void }) {
+export function ShaderInspector({ paint, onChange, target, image, showPicker = true, allowRemove = true, onBrowse, onGestureStart, onGestureEnd, onBindTarget }: { paint: ShaderPaint | null; onChange: (paint: ShaderPaint | null) => void; target: string; image?: string; showPicker?: boolean; allowRemove?: boolean; onBrowse?: () => void; onGestureStart?: () => boolean | void; onGestureEnd?: (cancel: boolean) => void; onBindTarget?: (mode: 'selection' | 'background' | 'new-card') => void }) {
   const definition: ShaderDefinition | undefined = paint ? shaderCatalog[paint.kind] : undefined
   const params = paint?.params as Readonly<Record<string, ShaderValue>> | undefined
   const parameter = (key: string, value: ShaderValue) => { if (paint) onChange(updateShaderParameter(paint, key, value)) }
@@ -37,7 +37,7 @@ export function ShaderInspector({ paint, onChange, target, image, showPicker = t
     {paint && definition && params ? <>
       <div className="shader-target"><i />{target}</div><p className="shader-description">{definition.description}</p>
       {paint.kind === 'glass-refraction' && <p className="shader-image-note">Glass refracts the source image. Animated mode gently shifts the texture.</p>}
-      {paint.kind === 'mesh-gradient' && <MeshInspector paint={paint} onChange={onChange} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} />}
+      {paint.kind === 'mesh-gradient' && <MeshInspector paint={paint} onChange={onChange} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} target={target} onBindTarget={onBindTarget} />}
       {paint.kind === 'multi-pass' && <MaterialComposer paint={paint} onChange={onChange} />}
       {definition.controls.map(control => {
         if (paint.kind === 'multi-pass') return null

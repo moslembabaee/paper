@@ -27,15 +27,15 @@ export function boundedDiagnostics(
   diagnostics: readonly CompileDiagnostic[],
   sanitize: (text: string) => string = text => text
 ): CompileDiagnostic[] {
+  const scrub = (text: string, limit: number) => sanitize(text)
+    .replace(/data:image\/[^\s"'<>]+/gi, '[image omitted]').slice(0, limit)
   return diagnostics.slice(0, VALIDATION_LIMITS.maxDiagnostics).map(d => ({
-    file: sanitize(d.file).slice(0, 256),
+    file: scrub(d.file, 256),
     line: d.line,
     column: d.column,
     code: d.code,
     severity: d.severity,
-    message: sanitize(d.message)
-      .replace(/data:image\/[^\s"'<>]+/gi, '[image omitted]')
-      .slice(0, VALIDATION_LIMITS.maxMessageChars),
+    message: scrub(d.message, VALIDATION_LIMITS.maxMessageChars),
   }))
 }
 
