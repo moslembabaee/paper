@@ -91,7 +91,8 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 53,
-      "completed_at": "2026-10-16T22:41:08.218281+00:00"
+      "completed_at": "2026-10-16T22:41:08.218281+00:00",
+      "closed_at": "2026-10-16T23:13:28Z"
     },
     {
       "id": "T-ISSUE-54",
@@ -1401,7 +1402,8 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 53,
-      "completed_at": "2026-10-16T23:13:24.998331+00:00"
+      "completed_at": "2026-10-16T23:13:24.998331+00:00",
+      "closed_at": "2026-10-16T23:13:28Z"
     },
     {
       "id": "T-EVOLVE-1792151007-2",
@@ -1409,8 +1411,8 @@
       "title": "Non-Destructive Vector Boolean Operations and Path Geometry Engine",
       "description": "Implement constructive area geometry (CAG) vector boolean operations supporting Union, Difference, Intersection, and Exclusion across overlapping vector shapes. Support a non-destructive compound shape hierarchy that preserves source paths, provides live preview on hover, and exports clean SVG path geometry.",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "failed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 54
     },
@@ -1420,10 +1422,11 @@
       "title": "Kinetic Typography and Variable Font Dynamics Engine",
       "description": "Build an interactive typography tool supporting OpenType variable font axis modulation (weight, width, slant, optical size) with real-time canvas scrubbing. Add text-on-path layout along arbitrary B\u00e9zier curves, glyph-level motion staggering, and integration with the spring physics animation timeline.",
       "assigned_agent": "claude",
-      "status": "approved",
+      "status": "completed",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 55
+      "github_issue_number": 55,
+      "completed_at": "2026-10-16T23:32:21.331626+00:00"
     },
     {
       "id": "T-EVOLVE-1792161464-1",

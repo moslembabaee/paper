@@ -48,15 +48,30 @@ export class SceneStore {
   private booleanPreviewSnapshot: SceneSnapshot | null = null
   private booleanPreviewCache = new Map<BooleanOperation, BooleanPreview>()
   private booleanPreviewListeners = new Set<Listener>()
+  private highlightedBooleanSource: string | null = null
+  private highlightedBooleanSourceListeners = new Set<Listener>()
 
   subscribeBooleanPreview = (listener: Listener): (() => void) => {
     this.booleanPreviewListeners.add(listener)
     return () => { this.booleanPreviewListeners.delete(listener) }
   }
 
+  subscribeHighlightedBooleanSource = (listener: Listener): (() => void) => {
+    this.highlightedBooleanSourceListeners.add(listener)
+    return () => { this.highlightedBooleanSourceListeners.delete(listener) }
+  }
+
   private emitBooleanPreview() { for (const listener of [...this.booleanPreviewListeners]) listener() }
 
   getBooleanPreview = (): BooleanPreview | null => this.booleanPreviewSnapshot === this.state && !this.history.getSnapshot().active ? this.booleanPreview : null
+
+  getHighlightedBooleanSource = (): string | null => this.highlightedBooleanSource
+
+  highlightBooleanSource(id: string | null): void {
+    if (this.highlightedBooleanSource === id) return
+    this.highlightedBooleanSource = id
+    for (const listener of [...this.highlightedBooleanSourceListeners]) listener()
+  }
 
   /** Transient geometry never enters document snapshots, persistence, or undo history. */
   previewBoolean(operation: BooleanOperation | null): void {
@@ -81,7 +96,8 @@ export class SceneStore {
         if (reason) throw new Error(reason)
         const operands = this.state.selection.map(id => this.state.elements[id] as VectorElement).sort((a, b) => a.zIndex - b.zIndex)
         const result = computeBoolean(operands, operation)
-        node = createElement('path', { id: 'boolean-preview', parentId: operands[0].parentId, ...result.bounds, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule })
+        const base = operands[0]
+        node = createElement('path', { id: 'boolean-preview', parentId: operands[0].parentId, ...result.bounds, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule, style: base.style })
       }
       preview = Object.freeze({ operation, node, sourceIds: this.state.selection })
       this.booleanPreviewCache.set(operation, preview)
@@ -1346,6 +1362,46 @@ export class SceneStore {
     this.refreshCompound(node, { ...node.boolean, operation }, `Change boolean to ${operation}`)
   }
 
+  setNestedBooleanOperation(id: string, nestedOperandId: string, operation: BooleanOperation): void {
+    const node = this.requireCompound(id)
+    const nested = node.boolean.operands.find(source => source.id === nestedOperandId)
+    if (!nested || nested.type !== 'path' || !nested.boolean) {
+      throw new Error('Nested compound source not found')
+    }
+    if (nested.boolean.operation === operation) return
+
+    const subResult = computeBoolean(nested.boolean.operands, operation)
+    const updatedNested: VectorElement = {
+      ...nested,
+      d: subResult.d,
+      viewBox: subResult.viewBox,
+      fillRule: subResult.fillRule,
+      boolean: {
+        ...nested.boolean,
+        operation,
+      },
+    }
+    validateElement(updatedNested)
+
+    const nextOperands = node.boolean.operands.map(source => source.id === nestedOperandId ? updatedNested : source)
+    this.refreshCompound(node, { ...node.boolean, operands: nextOperands }, `Change nested boolean to ${operation}`)
+  }
+
+  unwrapNestedBoolean(id: string, nestedOperandId: string): void {
+    const node = this.requireCompound(id)
+    const nestedIndex = node.boolean.operands.findIndex(source => source.id === nestedOperandId)
+    if (nestedIndex === -1) throw new Error('Nested compound source not found')
+    const nested = node.boolean.operands[nestedIndex]
+    if (nested.type !== 'path' || !nested.boolean) throw new Error('Target is not a compound shape')
+
+    const nextOperands = [
+      ...node.boolean.operands.slice(0, nestedIndex),
+      ...nested.boolean.operands,
+      ...node.boolean.operands.slice(nestedIndex + 1),
+    ]
+    this.refreshCompound(node, { ...node.boolean, operands: nextOperands }, `Unwrap nested ${nested.name}`)
+  }
+
   /** Source order defines the base of subtraction and the stack when released. */
   reorderBooleanOperands(id: string, operandIds: readonly string[]): void {
     const node = this.requireCompound(id), sources = new Map(node.boolean.operands.map(source => [source.id, source]))
@@ -1403,7 +1459,17 @@ export class SceneStore {
         }
       } else {
         const shape = transformedSource(operand, node)
-        restored = createElement('path', { id: sourceId, name: operand.name, parentId: node.parentId, ...shape.bounds, d: shape.d, viewBox: shape.viewBox, fillRule: operand.type === 'path' ? operand.fillRule : 'nonzero', style: operand.style })
+        restored = createElement('path', {
+          id: sourceId,
+          name: operand.name,
+          parentId: node.parentId,
+          ...shape.bounds,
+          d: shape.d,
+          viewBox: shape.viewBox,
+          fillRule: operand.type === 'path' ? operand.fillRule : 'nonzero',
+          style: operand.style,
+          ...(operand.type === 'path' && operand.boolean ? { boolean: operand.boolean } : {}),
+        })
       }
       // Primitive strokes are in element pixels; paths scale their strokes
       // through the viewBox instead. Keep the fill boundary aligned on release.
