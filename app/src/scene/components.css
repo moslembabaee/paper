@@ -62,3 +62,60 @@
 .component-variant-capture > div > span { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 9px; }
 .component-property-form { display: grid; gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid var(--paper-border-strong); border-radius: 4px; }
 .component-properties input:focus-visible, .component-properties select:focus-visible { outline: 1px solid var(--paper-accent-text); outline-offset: 2px; }
+
+/* Component State Machine & Micro-Interactions */
+.component-state-machine-section { border-top: 1px solid var(--paper-border); margin-top: 16px; padding-top: 14px; display: grid; gap: 12px; }
+.state-machine-empty { padding: 16px 12px; border: 1px dashed var(--paper-border-strong); border-radius: 6px; text-align: center; display: grid; gap: 10px; place-items: center; background: var(--paper-surface); }
+.state-machine-empty-icon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--paper-accent-soft); color: var(--paper-accent-text); }
+.state-machine-empty-text { font-size: 10px; line-height: 1.5; color: var(--paper-text-muted); margin: 0; }
+.state-machine-content { display: grid; gap: 14px; }
+.state-machine-states-bar { display: grid; gap: 6px; }
+.state-bar-label { font: 9px var(--font-mono); color: var(--paper-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.state-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.state-chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-family: var(--font-mono); border: 1px solid var(--paper-border); background: var(--paper-surface); color: var(--paper-text-secondary); cursor: pointer; transition: all 120ms; }
+.state-chip:hover { border-color: var(--paper-accent-text); color: var(--paper-accent-text); }
+.state-chip.is-active { background: var(--paper-accent-soft); border-color: var(--paper-accent-text); color: var(--paper-accent-text); font-weight: 500; }
+.initial-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--paper-accent-text); }
+
+/* Sandbox Testbed */
+.state-machine-sandbox { border: 1px solid var(--paper-border); border-radius: 6px; overflow: hidden; background: var(--paper-surface); }
+.sandbox-header { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-bottom: 1px solid var(--paper-border); font-size: 9px; font-family: var(--font-mono); color: var(--paper-text-muted); background: var(--paper-hover); }
+.sandbox-badge { display: flex; align-items: center; gap: 5px; color: var(--paper-accent-text); font-weight: 500; }
+.sandbox-live-dot { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e; animation: pulse-live 2s infinite ease-in-out; }
+@keyframes pulse-live { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.5; transform: scale(0.85); } }
+.sandbox-stage { padding: 16px 12px; display: grid; place-items: center; cursor: pointer; user-select: none; transition: background 120ms; }
+.sandbox-stage:hover { background: var(--paper-hover); }
+.sandbox-card { display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--paper-text-secondary); pointer-events: none; }
+
+/* Transitions List */
+.state-machine-transitions { display: grid; gap: 8px; }
+.no-transitions-hint { font-size: 9px; color: var(--paper-text-muted); font-style: italic; margin: 4px 0 0; }
+.transition-card { border: 1px solid var(--paper-border); border-radius: 5px; padding: 8px 10px; background: var(--paper-surface); display: grid; gap: 6px; }
+.transition-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.transition-flow { display: flex; align-items: center; gap: 6px; font: 10px var(--font-mono); color: var(--paper-text); }
+.transition-state { padding: 2px 5px; border-radius: 3px; background: var(--paper-hover); }
+.transition-state.from { color: var(--paper-text-secondary); }
+.transition-state.target { color: var(--paper-accent-text); font-weight: 500; }
+.transition-trigger-pill { display: inline-flex; align-items: center; gap: 3px; font-size: 8px; color: var(--paper-text-muted); text-transform: uppercase; }
+.transition-actions { display: flex; align-items: center; gap: 4px; }
+.transition-spring-pill { font: 8px var(--font-mono); color: var(--paper-text-muted); }
+.transition-spring-editor { border-top: 1px solid var(--paper-border); margin-top: 6px; padding-top: 8px; }
+
+/* Add Transition Form */
+.add-transition-form { border: 1px solid var(--paper-border-strong); border-radius: 6px; padding: 10px; display: grid; gap: 8px; background: var(--paper-hover); }
+.add-transition-row { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 6px; }
+.add-transition-actions { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+
+/* Canvas Live Interactive Preview Status */
+.interactive-canvas-status { position: absolute; left: 32px; top: 76px; display: flex; align-items: center; gap: 8px; padding: 6px 12px; background: #080808ee; border: 1px solid #81adec88; border-radius: 6px; color: #81adec; font: 10px var(--font-mono); z-index: 60; box-shadow: 0 4px 16px rgba(0,0,0,0.3); backdrop-filter: blur(8px); }
+.interactive-preview-hint { color: #edebe1aa; font-family: var(--font-sans); font-size: 10px; }
+.interactive-preview-exit { margin-left: 8px; font-size: 9px; padding: 3px 6px; border: 1px solid #edebe133; border-radius: 3px; color: #edebe1; cursor: pointer; }
+.interactive-preview-exit:hover { background: #edebe122; border-color: #81adec; }
+
+/* Interactive Hover Pill on Canvas */
+.interactive-instance-pill { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #080808dd; border: 1px solid #81adec; border-radius: 20px; font: 10px var(--font-mono); color: #edebe1; z-index: 60; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+.interactive-instance-pill .pill-dot { width: 5px; height: 5px; border-radius: 50%; background: #81adec; }
+.interactive-instance-pill .pill-name { color: #edebe1; font-weight: 500; }
+.interactive-instance-pill .pill-arrow { color: #edebe166; }
+.interactive-instance-pill .pill-state { color: #81adec; font-weight: 600; }
+

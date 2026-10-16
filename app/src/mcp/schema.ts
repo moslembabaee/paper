@@ -125,14 +125,34 @@ const componentOverridesSchema = object({
   sharedStyleBindings: object({ color: nullable(str()), typography: nullable(str()), effects: nullable(str()) }),
 })
 const propertyIdentity = { id: { ...str(), maxLength: 200 }, name: { ...str(), maxLength: 100 } }
+const springSchema = object({
+  stiffness: num,
+  damping: num,
+  mass: num,
+}, ['stiffness', 'damping', 'mass'])
+
+const componentStateTransitionSchema = object({
+  id: str(),
+  fromState: str(),
+  trigger: { type: 'string', enum: ['on-click', 'on-hover', 'while-pressed'] },
+  targetState: str(),
+  spring: springSchema,
+}, ['id', 'fromState', 'trigger', 'targetState', 'spring'])
+
+export const componentStateMachineSchema = object({
+  initial: str(),
+  states: list(str()),
+  transitions: list(componentStateTransitionSchema),
+}, ['initial', 'states', 'transitions'])
+
 export const componentPropertySchema: JsonSchema = { anyOf: [
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['text'] }, sourceId: str(), defaultValue: { type: 'string' } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['boolean'] }, sourceId: str(), defaultValue: flag }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
-  object({ ...propertyIdentity, kind: { type: 'string', enum: ['variant'] }, defaultValue: str(), options: { ...list(object({ value: { ...str(), maxLength: 100 }, layers: { type: 'object', additionalProperties: componentOverridesSchema } }, ['value', 'layers'])), minItems: 1, maxItems: 100 } }, ['id', 'name', 'kind', 'defaultValue', 'options']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['variant'] }, defaultValue: str(), options: { ...list(object({ value: { ...str(), maxLength: 100 }, layers: { type: 'object', additionalProperties: componentOverridesSchema } }, ['value', 'layers'])), minItems: 1, maxItems: 100 }, stateMachine: componentStateMachineSchema }, ['id', 'name', 'kind', 'defaultValue', 'options']),
 ] }
 export const componentSchema: JsonSchema = { anyOf: [
-  object({ kind: { type: 'string', enum: ['master'] }, properties: { ...list(componentPropertySchema), maxItems: 100 } }, ['kind']),
-  object({ kind: { type: 'string', enum: ['instance'] }, masterId: str(), sourceId: str(), instanceId: str(), overrides: componentOverridesSchema, propertyValues: { type: 'object', additionalProperties: { anyOf: [{ type: 'string' }, flag] } } }, ['kind', 'masterId', 'sourceId', 'instanceId', 'overrides']),
+  object({ kind: { type: 'string', enum: ['master'] }, properties: { ...list(componentPropertySchema), maxItems: 100 }, stateMachine: componentStateMachineSchema }, ['kind']),
+  object({ kind: { type: 'string', enum: ['instance'] }, masterId: str(), sourceId: str(), instanceId: str(), overrides: componentOverridesSchema, propertyValues: { type: 'object', additionalProperties: { anyOf: [{ type: 'string' }, flag] } }, activeState: str() }, ['kind', 'masterId', 'sourceId', 'instanceId', 'overrides']),
 ] }
 export const elementSchema: JsonSchema = {
   anyOf: Object.entries(specific).map(([type, fields]) => {

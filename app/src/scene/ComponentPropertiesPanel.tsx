@@ -3,6 +3,8 @@ import { Plus, RotateCcw, Trash2 } from 'lucide-react'
 import type { SceneStore } from './store'
 import type { ComponentOverrides, ComponentProperty, SceneElement } from './types'
 import { subtree } from './components'
+import { ComponentStateMachineEditor } from './ComponentStateMachineEditor'
+import { getEffectiveStateMachine, DEFAULT_INTERACTIVE_STATES } from './stateMachine'
 
 /** Capture visual channels, preserving token/style links for future theme changes. */
 function capture(node: SceneElement): ComponentOverrides {
@@ -28,6 +30,9 @@ export function ComponentPropertiesPanel({ store, master, root, disabled }: { st
   if (master.component?.kind !== 'master') return null
   const properties = master.component.properties ?? []
   const instance = root.component?.kind === 'instance' ? root.component : undefined
+  const machine = getEffectiveStateMachine(master)
+  const variantProp = properties.find(p => p.kind === 'variant')
+  const availableStates = machine?.states ?? (variantProp && variantProp.kind === 'variant' ? variantProp.options.map(o => o.value) : DEFAULT_INTERACTIVE_STATES)
   const layers = subtree(store.getSnapshot().elements, master.id)
   const perform = (action: () => void) => { try { action(); setError('') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to edit property') } }
   const replace = (next: ComponentProperty) => store.setComponentProperties(master.id, properties.map(property => property.id === next.id ? next : property))
@@ -47,6 +52,12 @@ export function ComponentPropertiesPanel({ store, master, root, disabled }: { st
   return <div className="component-properties" data-testid="component-properties">
     <div className="component-section-heading"><span className="section-caption">PROPERTIES</span>{!instance && <button className="quiet-button" title="Add component property" aria-label="Add component property" disabled={disabled} onClick={() => setAdding(value => !value)}><Plus size={13} /></button>}</div>
     {!properties.length && <p>{instance ? 'This master has no configurable properties.' : 'Expose variants, visibility switches and text slots.'}</p>}
+    {instance && (machine || (variantProp && variantProp.options.length > 1)) && <div className={`component-property ${instance.activeState ? 'is-local' : ''}`}>
+      <div className="component-property-heading"><span>Interactive State<small>Micro-interaction</small></span>{instance.activeState && <button className="quiet-button" disabled={disabled} aria-label="Reset interactive state" title="Use default state" onClick={() => perform(() => store.setComponentActiveState(root.id, null))}><RotateCcw size={11} /></button>}</div>
+      <select className="property-input" aria-label="Interactive State" disabled={disabled} value={instance.activeState ?? 'default'} onChange={event => perform(() => store.setComponentActiveState(root.id, event.currentTarget.value === 'default' ? null : event.currentTarget.value))}>
+        {availableStates.map(stateName => <option key={stateName} value={stateName}>{stateName} {stateName === (machine?.initial ?? 'default') ? '(Default)' : ''}</option>)}
+      </select>
+    </div>}
     {properties.map(property => {
       const value = instance?.propertyValues?.[property.id] ?? property.defaultValue
       const local = instance && Object.hasOwn(instance.propertyValues ?? {}, property.id)
@@ -58,6 +69,7 @@ export function ComponentPropertiesPanel({ store, master, root, disabled }: { st
       </div>
     })}
     {!instance && properties.some(property => property.kind === 'variant') && <p>Edit the master, then capture an option. Captured tokens stay linked; uncaptured options inherit the master.</p>}
+    {!instance && <ComponentStateMachineEditor store={store} master={master} disabled={disabled} />}
     {adding && !instance && <form className="component-property-form" onSubmit={event => { event.preventDefault(); add() }}>
       <input className="property-input" autoFocus aria-label="Property name" placeholder="Property name" required maxLength={100} value={name} onChange={event => setName(event.currentTarget.value)} />
       <select className="property-input" aria-label="Property kind" value={kind} onChange={event => { const next = event.currentTarget.value as ComponentProperty['kind']; setKind(next); if (next === 'text') setTarget(layers.find(layer => layer.type === 'text')?.id ?? master.id) }}><option value="variant">Variant switch</option><option value="boolean">Visibility switch</option><option value="text">Text slot</option></select>

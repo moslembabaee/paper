@@ -3,7 +3,7 @@ import type { DesignToken, LayerEffect, SharedStyleBindings, StyleLibrary, Token
 import type { ShaderPaint } from '../shaders/types.ts'
 import type { PathNodes } from './pathGeometry.ts'
 import type { CommentDocument } from '../comments/types.ts'
-import type { PrototypeDocument } from '../prototype/types.ts'
+import type { PrototypeDocument, SpringParameters } from '../prototype/types.ts'
 
 /** Coordinates are relative to the parent frame. Rotation is in degrees. */
 export interface ElementGeometry {
@@ -264,17 +264,38 @@ export interface ComponentOverrides {
   readonly tokenBindings?: Readonly<Partial<Record<TokenProperty, string | null>>>
 }
 export type ComponentPropertyValue = string | boolean
+export type ComponentStateTrigger = 'on-click' | 'on-hover' | 'while-pressed'
+export type InteractiveStateType = 'default' | 'hover' | 'pressed' | 'active'
+
+export interface ComponentStateTransition {
+  readonly id: string
+  readonly fromState: string
+  readonly trigger: ComponentStateTrigger
+  readonly targetState: string
+  readonly spring: SpringParameters
+}
+
+export interface ComponentStateMachine {
+  readonly initial: string
+  readonly states: readonly string[]
+  readonly transitions: readonly ComponentStateTransition[]
+}
+
 export type ComponentProperty = Readonly<{ id: string; name: string }> & (
   | { readonly kind: 'text'; readonly sourceId: string; readonly defaultValue: string }
   | { readonly kind: 'boolean'; readonly sourceId: string; readonly defaultValue: boolean }
-  | { readonly kind: 'variant'; readonly defaultValue: string; readonly options: readonly ComponentVariant[] }
+  | { readonly kind: 'variant'; readonly defaultValue: string; readonly options: readonly ComponentVariant[]; readonly stateMachine?: ComponentStateMachine }
 )
 export interface ComponentVariant {
   readonly value: string
   /** Patches use master layer IDs; instance IDs never leak into definitions. */
   readonly layers: Readonly<Record<string, ComponentOverrides>>
 }
-export type ComponentLink = { readonly kind: 'master'; readonly properties?: readonly ComponentProperty[] } | {
+export type ComponentLink = {
+  readonly kind: 'master'
+  readonly properties?: readonly ComponentProperty[]
+  readonly stateMachine?: ComponentStateMachine
+} | {
   readonly kind: 'instance'
   readonly masterId: string
   readonly sourceId: string
@@ -282,6 +303,8 @@ export type ComponentLink = { readonly kind: 'master'; readonly properties?: rea
   readonly overrides: ComponentOverrides
   /** Stored on the instance root only. Absent entries inherit the current default. */
   readonly propertyValues?: Readonly<Record<string, ComponentPropertyValue>>
+  /** Active interactive state for live preview or runtime display */
+  readonly activeState?: string
 }
 
 export interface SceneDocument {

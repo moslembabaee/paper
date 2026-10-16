@@ -2,6 +2,7 @@ import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, Sce
 import type { DesignToken, StyleLibrary } from '../tokens/types.ts'
 import { applyComponentOverrides, subtree, validateComponent } from './components.ts'
 import { validateElement } from './elements.ts'
+import { validateStateMachine } from './stateMachine.ts'
 
 const safeId = (id: unknown): id is string => typeof id === 'string' && !!id && id.length <= 200 && !['__proto__', 'constructor', 'prototype'].includes(id)
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
@@ -24,6 +25,9 @@ export function validateComponentProperties(properties: readonly ComponentProper
         }
       }
       if (!values.has(property.defaultValue)) throw new Error('Choose a valid default variant')
+      if (property.stateMachine !== undefined) {
+        validateStateMachine(property.stateMachine, Array.from(values))
+      }
     } else if ((property.kind !== 'boolean' && property.kind !== 'text') || !safeId(property.sourceId) || typeof property.defaultValue !== (property.kind === 'boolean' ? 'boolean' : 'string')) throw new Error('Invalid component property')
   }
 }
@@ -33,14 +37,17 @@ export function validPropertyValue(property: ComponentProperty, value: Component
 }
 
 /** Variants compose first; slots then win over variants, and local layer edits win last. */
-export function resolveComponentProperties(source: SceneElement, properties: readonly ComponentProperty[], values: Readonly<Record<string, ComponentPropertyValue>>, tokens: readonly DesignToken[], library: StyleLibrary): SceneElement {
+export function resolveComponentProperties(source: SceneElement, properties: readonly ComponentProperty[], values: Readonly<Record<string, ComponentPropertyValue>>, tokens: readonly DesignToken[], library: StyleLibrary, activeState?: string): SceneElement {
   let next = source
   const apply = (overrides: ComponentOverrides) => {
     next = applyComponentOverrides(next, { kind: 'instance', masterId: source.id, sourceId: source.id, instanceId: source.id, overrides }, tokens, library)
   }
   for (const property of properties) {
     if (property.kind !== 'variant') continue
-    const value = values[property.id] ?? property.defaultValue
+    let value = values[property.id] ?? property.defaultValue
+    if (activeState && (property.options.some(option => option.value === activeState) || property.stateMachine?.states.includes(activeState))) {
+      value = activeState
+    }
     const overrides = property.options.find(option => option.value === value)?.layers[source.id]
     if (overrides) apply(overrides)
   }

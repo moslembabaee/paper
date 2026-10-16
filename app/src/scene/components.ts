@@ -1,4 +1,5 @@
 import { pruneComponentProperties, resolveComponentProperties, validPropertyValue, validateComponentProperties, validatePropertyTargets } from './componentProperties.ts'
+import { validateStateMachine } from './stateMachine.ts'
 import { EMPTY_LIBRARY, detachEditedSharedStyles, resolveSharedStyles } from '../tokens/library.ts'
 import type { ComponentLink, ComponentOverrides, ElementPatch, ElementType, SceneElement } from './types.ts'
 import { freezeElement, validateElement } from './elements.ts'
@@ -29,8 +30,14 @@ function checkKeys(value: unknown, keys: ReadonlySet<string>): void {
 }
 export function validateComponent(link: ComponentLink): void {
   if (!record(link) || !['master', 'instance'].includes(link.kind)) throw new Error('Invalid component link')
-  if (link.kind === 'master') { if (Object.keys(link).some(key => !['kind', 'properties'].includes(key))) throw new Error('Invalid master component'); if (link.properties !== undefined) validateComponentProperties(link.properties); return }
-  if (Object.keys(link).some(key => !['kind', 'masterId', 'sourceId', 'instanceId', 'overrides', 'propertyValues'].includes(key)) || ![link.masterId, link.sourceId, link.instanceId].every(id => typeof id === 'string' && id.length > 0 && !['__proto__', 'constructor', 'prototype'].includes(id))) throw new Error('Invalid component reference')
+  if (link.kind === 'master') {
+    if (Object.keys(link).some(key => !['kind', 'properties', 'stateMachine'].includes(key))) throw new Error('Invalid master component')
+    if (link.properties !== undefined) validateComponentProperties(link.properties)
+    if (link.stateMachine !== undefined) validateStateMachine(link.stateMachine)
+    return
+  }
+  if (Object.keys(link).some(key => !['kind', 'masterId', 'sourceId', 'instanceId', 'overrides', 'propertyValues', 'activeState'].includes(key)) || ![link.masterId, link.sourceId, link.instanceId].every(id => typeof id === 'string' && id.length > 0 && !['__proto__', 'constructor', 'prototype'].includes(id))) throw new Error('Invalid component reference')
+  if (link.activeState !== undefined && (typeof link.activeState !== 'string' || !link.activeState.trim())) throw new Error('Invalid active component state')
   if (link.propertyValues !== undefined && (!record(link.propertyValues) || Object.entries(link.propertyValues).some(([id, value]) => !id || ['__proto__', 'constructor', 'prototype'].includes(id) || !['string', 'boolean'].includes(typeof value)))) throw new Error('Invalid component property values')
   checkKeys(link.overrides, OVERRIDE_KEYS)
   if (link.overrides.properties !== undefined) checkKeys(link.overrides.properties, PROPERTY_KEYS)
@@ -180,7 +187,8 @@ export function synchronizeComponents(input: Readonly<Record<string, SceneElemen
       const id = ids.get(source.id)!
       let component: Extract<ComponentLink, { kind: 'instance' }> = old?.component?.kind === 'instance' ? old.component : { kind: 'instance', masterId: master.id, instanceId: root.id, sourceId: source.id, overrides: {} }
       if (source.id === master.id && link.propertyValues !== undefined) component = { ...component, propertyValues }
-      const configured = resolveComponentProperties(source, definitions, propertyValues, tokens, library)
+      if (source.id === master.id && link.activeState !== undefined) component = { ...component, activeState: link.activeState }
+      const configured = resolveComponentProperties(source, definitions, propertyValues, tokens, library, link.activeState)
       let node = applyComponentOverrides(configured, component, tokens, library)
       node = { ...node, id, parentId: source.id === master.id ? root.parentId : ids.get(source.parentId!)!, zIndex: source.id === master.id ? root.zIndex : source.zIndex,
         ...(source.id === master.id ? { x: root.x, y: root.y, rotation: root.rotation } : {}),
@@ -219,7 +227,7 @@ export function validateComponentGraph(elements: Readonly<Record<string, SceneEl
         const property = definitions.find(property => property.id === id)
         if (!property || !validPropertyValue(property, value)) throw new Error('Unknown or incompatible component property value')
       }
-      const configured = resolveComponentProperties(source, definitions, root.component.propertyValues ?? {}, tokens, library)
+      const configured = resolveComponentProperties(source, definitions, root.component.propertyValues ?? {}, tokens, library, root.component.activeState)
       const resolved = applyComponentOverrides(configured, link, tokens, library)
       for (const key of Object.keys(link.overrides.properties ?? {})) if (!(key in source) && key !== 'sizing' && !(source.type === 'frame' && key === 'layout') && !(source.type === 'path' && key === 'nodes')) throw new Error('Unsupported component override')
       validateElement(resolved)

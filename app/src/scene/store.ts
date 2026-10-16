@@ -1,7 +1,8 @@
 import { EMPTY_MOTION, pruneMotion, validateMotion } from '../motion/model.ts'
 import type { MotionDocument } from '../motion/types.ts'
-import type { ComponentProperty, ComponentPropertyValue } from './types.ts'
+import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, ComponentStateMachine, ComponentVariant } from './types.ts'
 import { releaseComponentResources, validPropertyValue, validatePropertyTargets } from './componentProperties.ts'
+import { createDefaultStateMachine, validateStateMachine } from './stateMachine.ts'
 import { EMPTY_COMMENTS, validateComments } from '../comments/model.ts'
 import type { CommentDocument } from '../comments/types.ts'
 import { EMPTY_LIBRARY, detachEditedSharedStyles, resolveSharedStyles, resolveTokens, validateLibrary } from '../tokens/library.ts'
@@ -361,6 +362,125 @@ export class SceneStore {
     if (equalValue(propertyValues, root.component.propertyValues ?? {})) return
     const next = freezeElement({ ...root, component: { ...root.component, propertyValues } })
     this.commit({ ...this.state.elements, [root.id]: next }, this.state.rootIds, this.state.selection, `Change ${property.name}`)
+  }
+
+  setComponentStateMachine(masterId: string, stateMachine: ComponentStateMachine | null): void {
+    const master = this.require(masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const validated = stateMachine === null ? undefined : validateStateMachine(stateMachine)
+    if (equalValue(master.component.stateMachine, validated)) return
+    const next = freezeElement({ ...master, component: { ...master.component, stateMachine: validated } })
+    this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, 'Edit component state machine')
+  }
+
+  setComponentActiveState(id: string, activeState: string | null, recordHistory = true): void {
+    const root = componentRoot(this.state.elements, id)
+    if (root?.component?.kind !== 'instance') throw new Error('Choose a component instance')
+    if (this.isLocked(root.id) || (recordHistory && this.history.getSnapshot().active)) throw new Error('Unlock the instance and finish the active edit first')
+    if (activeState !== null && (typeof activeState !== 'string' || !activeState.trim())) throw new Error('Invalid active component state')
+    const current = root.component.activeState ?? null
+    if (current === activeState) return
+    const nextComponent = { ...root.component }
+    if (activeState === null) {
+      delete (nextComponent as { activeState?: string }).activeState
+    } else {
+      nextComponent.activeState = activeState
+    }
+    const next = freezeElement({ ...root, component: nextComponent })
+    if (recordHistory) {
+      this.commit({ ...this.state.elements, [root.id]: next }, this.state.rootIds, this.state.selection, `Set state to ${activeState ?? 'default'}`)
+    } else {
+      let elements = synchronizeComponents({ ...this.state.elements, [root.id]: next }, resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), this.state.elements, this.state.styleLibrary)
+      this.state = Object.freeze({ ...this.state, elements: Object.freeze(elements) })
+      this.emit()
+    }
+  }
+
+  generateInteractiveStates(masterId: string): void {
+    const master = this.require(masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const properties = [...(master.component.properties ?? [])]
+    const existingVariant = properties.find(p => p.kind === 'variant' && (p.name.toLowerCase() === 'state' || p.options.some(o => ['default', 'hover', 'pressed', 'active'].includes(o.value))))
+    const layers = subtree(this.state.elements, master.id)
+    const baseCapture: Record<string, ComponentOverrides> = {}
+    for (const layer of layers) {
+      baseCapture[layer.id] = {
+        style: { ...layer.style },
+        properties: {
+          width: layer.width,
+          height: layer.height,
+          ...('cornerRadius' in layer ? { cornerRadius: layer.cornerRadius } : {}),
+          ...(layer.type === 'text' ? { text: layer.text, fontFamily: layer.fontFamily, fontSize: layer.fontSize, fontWeight: layer.fontWeight, lineHeight: layer.lineHeight, letterSpacing: layer.letterSpacing, textAlign: layer.textAlign } : {}),
+        },
+        ...(layer.tokenBindings ? { tokenBindings: layer.tokenBindings } : {}),
+        ...(layer.sharedStyleBindings ? { sharedStyleBindings: layer.sharedStyleBindings } : {}),
+      }
+    }
+
+    const hoverCapture: Record<string, ComponentOverrides> = { ...baseCapture }
+    if (master.style.fill && typeof master.style.fill === 'string') {
+      hoverCapture[master.id] = {
+        ...hoverCapture[master.id],
+        style: { ...hoverCapture[master.id]?.style, opacity: Math.max(0.7, (master.style.opacity ?? 1) * 0.9) }
+      }
+    }
+    const pressedCapture: Record<string, ComponentOverrides> = { ...baseCapture }
+    pressedCapture[master.id] = {
+      ...pressedCapture[master.id],
+      style: { ...pressedCapture[master.id]?.style, opacity: Math.max(0.5, (master.style.opacity ?? 1) * 0.75) }
+    }
+    const activeCapture: Record<string, ComponentOverrides> = { ...baseCapture }
+    activeCapture[master.id] = {
+      ...activeCapture[master.id],
+      style: {
+        ...activeCapture[master.id]?.style,
+        stroke: { color: '#81adec', width: 2, dash: [] }
+      }
+    }
+
+    const stateMachine = createDefaultStateMachine(['default', 'hover', 'pressed', 'active'])
+    let nextProperties: ComponentProperty[]
+    if (existingVariant && existingVariant.kind === 'variant') {
+      const existingOptions = new Map(existingVariant.options.map(o => [o.value, o]))
+      const options: ComponentVariant[] = ['default', 'hover', 'pressed', 'active'].map(val => {
+        if (existingOptions.has(val)) return existingOptions.get(val)!
+        if (val === 'default') return { value: val, layers: baseCapture }
+        if (val === 'hover') return { value: val, layers: hoverCapture }
+        if (val === 'pressed') return { value: val, layers: pressedCapture }
+        return { value: val, layers: activeCapture }
+      })
+      for (const opt of existingVariant.options) {
+        if (!options.some(o => o.value === opt.value)) options.push(opt)
+      }
+      nextProperties = properties.map(p => p.id === existingVariant.id ? { ...existingVariant, options, stateMachine } : p)
+    } else {
+      const stateProperty: ComponentProperty = {
+        id: crypto.randomUUID(),
+        name: 'State',
+        kind: 'variant',
+        defaultValue: 'default',
+        options: [
+          { value: 'default', layers: baseCapture },
+          { value: 'hover', layers: hoverCapture },
+          { value: 'pressed', layers: pressedCapture },
+          { value: 'active', layers: activeCapture },
+        ],
+        stateMachine,
+      }
+      nextProperties = [...properties, stateProperty]
+    }
+
+    const next = freezeElement({
+      ...master,
+      component: {
+        ...master.component,
+        properties: nextProperties,
+        stateMachine,
+      }
+    })
+    this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, 'Generate interactive states')
   }
 
   createComponentInstance(masterId: string, placement: { x?: number; y?: number; parentId?: string | null } = {}): SceneElement {

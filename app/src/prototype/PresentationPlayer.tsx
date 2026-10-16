@@ -7,6 +7,10 @@ import type { SceneStore } from '../scene/store'
 import { useScene } from '../scene/useScene'
 import { easingCSS, EMPTY_PROTOTYPE, isDescendant, isVisible, matchedLayers, presentationExtent, smartKeyframes, transitionDuration, transitionFrames, transitionProgress } from './model'
 import type { PrototypeInteraction, PrototypeTransition } from './types'
+import { componentRoot } from '../scene/components'
+import { getEffectiveStateMachine, resolveNextState } from '../scene/stateMachine'
+import { springCSS as componentSpringCSS, springDuration as componentSpringDuration } from './spring'
+import type { ComponentStateTrigger } from '../scene/types'
 
 interface Playback { frameId: string; overlayId: string | null }
 interface Motion { fromId: string | null; toId: string; overlay: boolean; transition: PrototypeTransition; scrollTop: number; scrollLeft: number }
@@ -190,6 +194,31 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
     gesture.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, interaction }
     if (interaction) { event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault() }
   }
+  const triggerComponentTransition = (target: EventTarget | null, trigger: ComponentStateTrigger) => {
+    const element = target instanceof Element ? target.closest<HTMLElement>('[data-element-id]') : null
+    const id = element?.dataset.elementId
+    if (!id) return false
+    const snapshot = store.getSnapshot()
+    const root = componentRoot(snapshot.elements, id)
+    if (root?.component?.kind !== 'instance') return false
+    const master = snapshot.elements[root.component.masterId]
+    const machine = getEffectiveStateMachine(master)
+    if (!machine) return false
+    const currentState = root.component.activeState ?? machine.initial
+    const next = resolveNextState(machine, currentState, trigger)
+    if (next) {
+      const dom = element.closest<HTMLElement>(`[data-element-id="${root.id}"]`)
+      if (dom) {
+        const duration = componentSpringDuration(next.transition.spring)
+        const easing = componentSpringCSS(next.transition.spring, duration)
+        dom.style.transition = `all ${duration}ms ${easing}`
+        window.setTimeout(() => { dom.style.transition = '' }, duration + 50)
+      }
+      store.setComponentActiveState(root.id, next.targetState, false)
+      return true
+    }
+    return false
+  }
   const overlaySize = (id: string) => { const node = state.elements[id]; return { width: Math.min(node.width, size.width * .9), height: Math.min(node.height, size.height * .9) } }
 
   return <Dialog className="prototype-player" labelledBy="prototype-player-title" onClose={onClose}>
@@ -201,12 +230,17 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
         <div className={`prototype-display ${hotspots ? 'show-hotspots' : ''}`} data-testid="prototype-display" data-frame-id={playback.frameId} data-overlay-id={playback.overlayId ?? ''} data-playing={playing} style={{ width: size.width, height: size.height }} onClick={event => {
           if (suppressClick.current) { suppressClick.current = false; return }
           const interaction = lookup(event.target, 'click'); if (interaction) execute(interaction)
+          else triggerComponentTransition(event.target, 'on-click')
         }} onPointerOver={event => {
           if (event.pointerType === 'touch') return
           const interaction = lookup(event.target, 'hover')
           const source = interaction && [...event.currentTarget.querySelectorAll<HTMLElement>('[data-element-id]')].find(node => node.dataset.elementId === interaction.sourceId)
           if (interaction && !(event.relatedTarget instanceof Node && source?.contains(event.relatedTarget))) execute(interaction)
-        }} onPointerDown={pointerDown} onPointerUp={event => {
+          else triggerComponentTransition(event.target, 'on-hover')
+        }} onPointerDown={event => {
+          pointerDown(event)
+          triggerComponentTransition(event.target, 'while-pressed')
+        }} onPointerUp={event => {
           const drag = gesture.current; gesture.current = null
           if (drag?.pointerId === event.pointerId && drag.interaction && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= 24) { suppressClick.current = true; execute(drag.interaction) }
           if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
