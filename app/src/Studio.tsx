@@ -1,7 +1,7 @@
 import { Activity, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, MessageSquare, MousePointer2, PenTool, Play, SlidersHorizontal, Sparkles, Square, Type, Waves, X } from 'lucide-react'
+import { Circle, Code2, Frame, GitBranch, Grid2X2, Hand, Image, Layers, MessageSquare, MousePointer2, PenTool, Play, Shuffle, SlidersHorizontal, Sparkles, Square, Type, Waves, X } from 'lucide-react'
 import type { AppSceneReference } from './make/types'
-import type { ElementType } from './scene/types'
+import type { ElementType, PathElement } from './scene/types'
 import { componentRoot } from './scene/components'
 import { SceneCanvas } from './scene/SceneCanvas'
 import { DocumentSidebar } from './tokens/DocumentSidebar'
@@ -9,6 +9,7 @@ import { ElementInspector } from './scene/ElementInspector'
 import { DevModeInspector } from './scene/DevModeInspector'
 import { ShaderBrowser } from './shaders/ShaderBrowser'
 import { MotionDrawer } from './motion/MotionDrawer'
+import type { MorphTarget } from './morph/types'
 import { togglePixelSnap } from './scene/pixelSnap'
 import { HistoryControls } from './scene/HistoryControls'
 import { useProjectIO } from './io/useProjectIO'
@@ -39,6 +40,7 @@ import './App.css'
 import './workspace/workspace.css'
 import './make/make.css'
 
+const MorphDrawer = lazy(() => import('./morph/MorphDrawer').then(module => ({ default: module.MorphDrawer })))
 const MakeWorkspace = lazy(() => import('./make/MakeWorkspace'))
 
 const creationTools = [
@@ -81,6 +83,22 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
   const [shadersOpen, setShadersOpen] = useState(false)
   const [motionOpen, setMotionOpen] = useState(false)
   const [physicsOpen, setPhysicsOpen] = useState(false)
+  const [morphOpen, setMorphOpen] = useState(false)
+  const [morphInitialA, setMorphInitialA] = useState<MorphTarget | undefined>(undefined)
+  const [morphInitialB, setMorphInitialB] = useState<MorphTarget | undefined>(undefined)
+  const openMorph = useCallback((target?: MorphTarget) => {
+    const snapshot = store.getSnapshot()
+    const paths = snapshot.selection.map(id => snapshot.elements[id]).filter((node): node is PathElement => node?.type === 'path')
+    const asTarget = (node?: PathElement): MorphTarget | undefined => node ? {
+      id: `canvas-${node.id}`, name: node.name, d: node.d, viewBox: node.viewBox,
+      fillRule: node.fillRule, color: node.style.fill ?? '#81adec',
+    } : undefined
+    setMorphInitialA(target ?? asTarget(paths[0]))
+    setMorphInitialB(asTarget(paths[1]))
+    setTool('select')
+    setMotionOpen(false)
+    setMorphOpen(true)
+  }, [store])
   const stageRef = useRef<HTMLElement>(null)
   const [grid, setGrid] = useState(workspace.project?.grid ?? true)
   const [layersVisible, setLayersVisible] = useState(true)
@@ -92,8 +110,8 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
   const [projectsOpen, setProjectsOpen] = useState(false)
   const [changing, setChanging] = useState(false)
   useEffect(() => {
-    if (prototypeMode || interactiveMode || devMode || motionOpen || presenting || tool === 'pen' || tool === 'comment') setPhysicsOpen(false)
-  }, [prototypeMode, interactiveMode, devMode, motionOpen, presenting, tool])
+    if (prototypeMode || interactiveMode || devMode || motionOpen || morphOpen || presenting || tool === 'pen' || tool === 'comment') setPhysicsOpen(false)
+  }, [prototypeMode, interactiveMode, devMode, motionOpen, morphOpen, presenting, tool])
   const transition = useRef(false)
   const saveLocalProject = manager.save
   const onPersist = useCallback((project: Parameters<typeof saveLocalProject>[1]) => saveLocalProject(workspace.record.id, project), [saveLocalProject, workspace.record.id])
@@ -177,6 +195,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
       }
       if (event.key === 'Escape' && physicsOpen) { event.preventDefault(); setPhysicsOpen(false); return }
       if (event.key === 'Escape' && motionOpen) { event.preventDefault(); setMotionOpen(false); return }
+      if (event.key === 'Escape' && morphOpen) { event.preventDefault(); setMorphOpen(false); return }
       if (event.key === 'Escape' && interactiveMode) { event.preventDefault(); setInteractiveMode(false); return }
       if (event.key === 'Escape' && tool === 'comment') { event.preventDefault(); setTool('select'); return }
       if (event.ctrlKey || event.metaKey || event.altKey) return
@@ -194,6 +213,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
       if (key === 'h') { event.preventDefault(); setTool('hand') }
       if (key === 's') { event.preventDefault(); setTool('select'); setShadersOpen(true) }
       if (key === 'k') { event.preventDefault(); setMotionOpen(open => !open); return }
+      if (key === 'y') { event.preventDefault(); openMorph(); return }
       if (key === 'f') { event.preventDefault(); addElement('frame') }
       if (key === 'r') { event.preventDefault(); addElement('rectangle') }
       if (key === 'o') { event.preventDefault(); addElement('ellipse') }
@@ -201,7 +221,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
     }
     document.addEventListener('keydown', keydown)
     return () => document.removeEventListener('keydown', keydown)
-  }, [prototypeMode, presenting, addElement, tool, startComment, interactiveMode, physicsOpen, motionOpen])
+  }, [prototypeMode, presenting, addElement, tool, startComment, interactiveMode, physicsOpen, motionOpen, morphOpen, openMorph])
 
   return <div className="paper-app">
     <header className="app-header">
@@ -229,6 +249,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
           <span className="toolbar-divider" />
           {!prototypeMode && <button className="tool-button" data-testid="tool-shaders" aria-label="Browse shaders" title="Shaders (S)" onClick={() => { setTool('select'); setShadersOpen(true) }}><Sparkles size={16} /></button>}
           {!prototypeMode && <button className={`tool-button ${motionOpen ? 'active' : ''}`} data-testid="tool-motion" aria-label="Motion timeline" aria-pressed={motionOpen} title="Motion timeline (K)" onClick={() => setMotionOpen(!motionOpen)}><SlidersHorizontal size={16} /></button>}
+          {!prototypeMode && <button className={`tool-button ${morphOpen ? 'active' : ''}`} data-testid="tool-morph" aria-label="Path morphing engine" aria-pressed={morphOpen} title="Path morphing engine (Y)" onClick={() => openMorph()}><Shuffle size={16} /></button>}
           {!prototypeMode && <button className={`tool-button ${physicsOpen ? 'active' : ''}`} data-testid="tool-physics" aria-label="Spring dynamics simulation" aria-pressed={physicsOpen} title="Spring dynamics · Drag, throw, and explore motion" onClick={() => { setPhysicsOpen(value => !value); setMotionOpen(false); setInteractiveMode(false); setDevMode(false); comments.setOpen(false); setTool('select') }}><Waves size={16} /></button>}
           <button className={`tool-button comment-tool ${comments.open ? 'active' : ''}`} data-testid="tool-comments" aria-label="Toggle comments" aria-pressed={comments.open} aria-expanded={comments.open} aria-controls={comments.open ? "paper-comments" : undefined} title="Comments · Place a pin with C" onClick={() => comments.open ? closeComments() : comments.setOpen(true)}><MessageSquare size={16} />{!!comments.unread.size && <span className="comment-tool-unread">{comments.unread.size}</span>}</button>
           <HistoryControls store={store} />
@@ -238,11 +259,12 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
         {prototypeMode && <div className="prototype-canvas-status"><GitBranch size={12} /><span>PROTOTYPE</span><span>Select a layer · Drag a connection</span></div>}
         {motionOpen && <MotionDrawer store={store} stage={stageRef} onClose={() => setMotionOpen(false)} />}
       </main>
-      {prototypeMode ? <PrototypeInspector store={store} selectedId={interactionId} onSelect={setInteractionId} onPresent={() => setPresenting(true)} /> : devMode ? <DevModeInspector store={store} name={name.trim() || 'Untitled'} onSave={io.saveProject} onMessage={io.setMessage} onExit={() => setDevMode(false)} /> : <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} onOpenShaders={() => { setTool('select'); setShadersOpen(true) }} />}
+      {prototypeMode ? <PrototypeInspector store={store} selectedId={interactionId} onSelect={setInteractionId} onPresent={() => setPresenting(true)} /> : devMode ? <DevModeInspector store={store} name={name.trim() || 'Untitled'} onSave={io.saveProject} onMessage={io.setMessage} onExit={() => setDevMode(false)} /> : <ElementInspector store={store} controller={controller} grid={grid} onGridChange={() => setGrid(!grid)} onOpenShaders={() => { setTool('select'); setShadersOpen(true) }} onOpenMorph={openMorph} />}
     </div>
     <footer className="app-footer"><span><span className="footer-dot" />Paper / Infinite canvas</span><span>120 px grid<span className="footer-separator">/</span>Made to be yours.</span></footer>
     {presenting && <PresentationPlayer store={store} onClose={() => setPresenting(false)} />}
     {shadersOpen && <ShaderBrowser store={store} onClose={() => setShadersOpen(false)} />}
+    {morphOpen && <Suspense fallback={<div className="io-notice" role="status">Opening path morph engine…</div>}><MorphDrawer store={store} controller={controller} initialTargetA={morphInitialA} initialTargetB={morphInitialB} onClose={() => setMorphOpen(false)} /></Suspense>}
     {io.message && <div className="io-notice" role="status"><span>{io.message}</span><button className="quiet-button" aria-label="Dismiss notification" onClick={() => io.setMessage('')}><X size={14} /></button></div>}
   </div>
 }
