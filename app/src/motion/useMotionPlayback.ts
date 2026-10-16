@@ -1,8 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import type { SceneElement } from '../scene/types.ts'
+import type { SceneElement, TextElement } from '../scene/types.ts'
+import { calculateStaggerDelay, evaluateWaveform } from '../scene/glyphDecomposition.ts'
 import { findAdjacentKeyframeTimes, isShaderProperty, isTypographyProperty, sampleTimes, trackValue } from './model.ts'
 import type { MotionDocument, MotionProperty } from './types.ts'
+
+interface GlyphRecord {
+  readonly element: HTMLElement | SVGElement
+  readonly originalTransform: string
+  readonly originalFontVariationSettings?: string
+  readonly originalAnimation: string
+}
 
 interface ModifiedNodeRecord {
   readonly node: HTMLElement
@@ -19,6 +27,7 @@ interface ModifiedNodeRecord {
   readonly originalLineHeight?: string
   readonly textPathElement?: SVGTextPathElement | null
   readonly originalStartOffset?: string
+  glyphRecords?: GlyphRecord[]
 }
 
 /** Native paused animations and WebGL shader modulations isolate preview from scene edits, history and autosave. */
@@ -91,9 +100,22 @@ export function useMotionPlayback(
       if (record.textPathElement && record.originalStartOffset !== undefined) {
         record.textPathElement.setAttribute('startOffset', record.originalStartOffset)
       }
+      if (record.glyphRecords) {
+        for (const g of record.glyphRecords) {
+          g.element.style.transform = g.originalTransform
+          if (g.originalFontVariationSettings !== undefined && 'fontVariationSettings' in g.element.style) {
+            (g.element as HTMLElement).style.fontVariationSettings = g.originalFontVariationSettings
+          }
+          g.element.style.animation = g.originalAnimation
+        }
+      }
       record.node.style.removeProperty('--kinetic-phase')
       record.node.style.removeProperty('--cascade-amplitude')
       record.node.style.removeProperty('--cascade-rotation')
+      record.node.style.removeProperty('--kinetic-stagger')
+      record.node.style.removeProperty('--kinetic-weight-mod')
+      record.node.style.removeProperty('--kinetic-slant-mod')
+      record.node.style.removeProperty('--kinetic-scale-mod')
     }
     modifiedElements.current = []
   }, [])
@@ -175,8 +197,14 @@ export function useMotionPlayback(
 
       // Update variable font axes and kinetic typography properties directly on canvas elements
       const typoTracks = motion.tracks.filter(t => t.enabled && isTypographyProperty(t.property))
-      if (applyPreview && typoTracks.length > 0 && stage.current) {
-        const typoElementIds = new Set(typoTracks.map(t => t.elementId))
+      if (applyPreview && stage.current) {
+        const typoElementIds = new Set([
+          ...typoTracks.map(t => t.elementId),
+          ...Object.keys(elements).filter(id => {
+            const e = elements[id]
+            return e?.type === 'text' && (e as TextElement).kinetic?.enabled
+          }),
+        ])
         for (const id of typoElementIds) {
           const elem = elements[id]
           if (elem?.type !== 'text') continue
@@ -254,14 +282,98 @@ export function useMotionPlayback(
             textPathElement.setAttribute('startOffset', `${values.textPathOffset}%`)
           }
 
-          if (values.kineticPhase !== undefined) {
-            node.style.setProperty('--kinetic-phase', String(values.kineticPhase))
-          }
-          if (values.kineticAmplitude !== undefined) {
-            node.style.setProperty('--cascade-amplitude', `${values.kineticAmplitude}px`)
-          }
-          if (values.kineticRotation !== undefined) {
-            node.style.setProperty('--cascade-rotation', `${values.kineticRotation}deg`)
+          const k = elem.kinetic
+          const hasKineticTracks = elemTracks.some(t => t.property.startsWith('kinetic'))
+          const isKinetic = !!(k?.enabled || hasKineticTracks)
+
+          if (isKinetic) {
+            const durationMs = Math.max(100, (k?.duration ?? 2.4) * 1000)
+            const effectivePhase = values.kineticPhase !== undefined
+              ? values.kineticPhase
+              : k?.playing
+                ? (((k?.phase ?? 0) + time.current / durationMs) % 1 + 1) % 1
+                : (k?.phase ?? 0)
+
+            const amplitude = values.kineticAmplitude ?? k?.amplitude ?? 18
+            const rotation = values.kineticRotation ?? k?.rotation ?? 8
+            const stagger = values.kineticStagger ?? k?.stagger ?? 70
+            const weightMod = values.kineticWeightModulation ?? k?.weightModulation ?? 0
+            const slantMod = values.kineticSlantModulation ?? k?.slantModulation ?? 0
+            const scaleMod = values.kineticScaleModulation ?? k?.scaleModulation ?? 0
+            const horizAmp = k?.horizontalAmplitude ?? 0
+            const widthMod = k?.widthModulation ?? 0
+            const opticalMod = k?.opticalSizeModulation ?? 0
+            const staggerMode = k?.staggerMode ?? 'cascade'
+            const waveShape = k?.waveShape ?? 'triangle'
+
+            const charElements = Array.from(node.querySelectorAll<HTMLElement>('.kinetic-glyph-char'))
+            const svgGlyphElements = Array.from(node.querySelectorAll<SVGElement>('.kinetic-glyph'))
+
+            if (!record.glyphRecords) {
+              record.glyphRecords = [
+                ...charElements.map(el => ({
+                  element: el,
+                  originalTransform: el.style.transform,
+                  originalFontVariationSettings: el.style.fontVariationSettings,
+                  originalAnimation: el.style.animation,
+                })),
+                ...svgGlyphElements.map(el => ({
+                  element: el,
+                  originalTransform: el.style.transform,
+                  originalAnimation: el.style.animation,
+                })),
+              ]
+            }
+
+            if (charElements.length > 0) {
+              charElements.forEach((charEl, idx) => {
+                const delay = calculateStaggerDelay(staggerMode, idx, charElements.length, stagger)
+                const cycle = ((effectivePhase + delay / durationMs) % 1 + 1) % 1
+                const wave = evaluateWaveform(cycle, waveShape)
+
+                const dx = wave * horizAmp
+                const dy = wave * amplitude
+                const rot = wave * rotation
+                const scale = scaleMod ? Math.max(0.05, 1 + wave * scaleMod) : 1
+
+                charEl.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg)${scale !== 1 ? ` scale(${scale})` : ''}`
+                charEl.style.animation = 'none'
+
+                if (weightMod !== 0 || slantMod !== 0 || widthMod !== 0 || opticalMod !== 0) {
+                  const glyphWght = Math.max(1, Math.min(1000, (wght ?? 400) + wave * weightMod))
+                  const glyphWdth = Math.max(25, Math.min(200, (wdth ?? 100) + wave * widthMod))
+                  const glyphSlnt = Math.max(-90, Math.min(90, (slnt ?? 0) + wave * slantMod))
+                  const glyphOpsz = Math.max(6, Math.min(144, (opsz ?? elem.fontSize) + wave * opticalMod))
+                  charEl.style.fontVariationSettings = `'wght' ${glyphWght.toFixed(1)}, 'wdth' ${glyphWdth.toFixed(1)}, 'slnt' ${glyphSlnt.toFixed(1)}, 'opsz' ${glyphOpsz.toFixed(1)}`
+                } else if (variationParts.length > 0) {
+                  charEl.style.fontVariationSettings = variationParts.join(', ')
+                }
+              })
+            }
+
+            if (svgGlyphElements.length > 0) {
+              svgGlyphElements.forEach((svgEl, idx) => {
+                const delay = calculateStaggerDelay(staggerMode, idx, svgGlyphElements.length, stagger)
+                const cycle = ((effectivePhase + delay / durationMs) % 1 + 1) % 1
+                const wave = evaluateWaveform(cycle, waveShape)
+
+                const dx = wave * horizAmp
+                const dy = wave * amplitude
+                const rot = wave * rotation
+                const scale = scaleMod ? Math.max(0.05, 1 + wave * scaleMod) : 1
+
+                svgEl.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg)${scale !== 1 ? ` scale(${scale})` : ''}`
+                svgEl.style.animation = 'none'
+              })
+            }
+
+            node.style.setProperty('--kinetic-phase', String(effectivePhase))
+            node.style.setProperty('--cascade-amplitude', `${amplitude}px`)
+            node.style.setProperty('--cascade-rotation', `${rotation}deg`)
+            node.style.setProperty('--kinetic-stagger', `${stagger}ms`)
+            if (weightMod !== 0) node.style.setProperty('--kinetic-weight-mod', String(weightMod))
+            if (slantMod !== 0) node.style.setProperty('--kinetic-slant-mod', `${slantMod}deg`)
+            if (scaleMod !== 0) node.style.setProperty('--kinetic-scale-mod', String(scaleMod))
           }
         }
       }

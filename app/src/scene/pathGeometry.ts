@@ -8,11 +8,12 @@ export interface PathAnchor extends Point {
   handleType?: HandleType
   cornerRadius?: number
   curveMode?: CurveMode
+  quadApex?: Point
 }
 export interface PathContour { anchors: PathAnchor[]; closed: boolean }
 export interface PathNodes { readonly anchors: readonly PathAnchor[]; readonly closed: boolean }
 export interface AnchorSelection { contour: number; anchor: number }
-export const copyContours = (contours: readonly PathNodes[]): PathContour[] => contours.map(c => ({ ...c, anchors: c.anchors.map(a => ({ ...a, ...(a.in ? { in: { ...a.in } } : {}), ...(a.out ? { out: { ...a.out } } : {}) })) }))
+export const copyContours = (contours: readonly PathNodes[]): PathContour[] => contours.map(c => ({ ...c, anchors: c.anchors.map(a => ({ ...a, ...(a.in ? { in: { ...a.in } } : {}), ...(a.out ? { out: { ...a.out } } : {}), ...(a.quadApex ? { quadApex: { ...a.quadApex } } : {}) })) }))
 const point = (x: number, y: number): Point => ({ x, y })
 const reflect = (handle: Point, anchor: Point): Point => point(2 * anchor.x - handle.x, 2 * anchor.y - handle.y)
 const format = (n: number) => Number(n.toFixed(4))
@@ -64,9 +65,24 @@ export function serializePath(contours: readonly PathNodes[]): string {
   return roundPathContours(contours).map(({ anchors, closed }) => {
     if (!anchors.length) return ''
     let d = `M ${pair(anchors[0])}`
-    const segment = (a: PathAnchor, b: PathAnchor) => a.out || b.in ? ` C ${pair(a.out ?? a)} ${pair(b.in ?? b)} ${pair(b)}` : ` L ${pair(b)}`
+    const segment = (a: PathAnchor, b: PathAnchor) => {
+      if (a.curveMode === 'quadratic' && (a.quadApex || a.out)) {
+        const q = a.quadApex ?? (b.in ? cubicHandlesToQuadApex(a, a.out!, b.in, b) : a.out!)
+        return ` Q ${pair(q)} ${pair(b)}`
+      }
+      return a.out || b.in ? ` C ${pair(a.out ?? a)} ${pair(b.in ?? b)} ${pair(b)}` : ` L ${pair(b)}`
+    }
     for (let i = 1; i < anchors.length; i++) d += segment(anchors[i - 1], anchors[i])
-    if (closed) { if (anchors.at(-1)!.out || anchors[0].in) d += segment(anchors.at(-1)!, anchors[0]); d += ' Z' }
+    if (closed) {
+      const last = anchors.at(-1)!
+      if (last.curveMode === 'quadratic' && (last.quadApex || last.out)) {
+        const q = last.quadApex ?? (anchors[0].in ? cubicHandlesToQuadApex(last, last.out!, anchors[0].in, anchors[0]) : last.out!)
+        d += ` Q ${pair(q)} ${pair(anchors[0])} Z`
+      } else {
+        if (last.out || anchors[0].in) d += segment(last, anchors[0])
+        d += ' Z'
+      }
+    }
     return d
   }).filter(Boolean).join(' ')
 }
@@ -148,7 +164,7 @@ export function pathBounds(contours: readonly PathContour[], padding = 1) {
 export function moveAnchor(anchor: PathAnchor, next: Point): PathAnchor {
   const delta = point(next.x - anchor.x, next.y - anchor.y)
   const shift = (handle: Point) => point(handle.x + delta.x, handle.y + delta.y)
-  return { ...anchor, ...next, ...(anchor.in ? { in: shift(anchor.in) } : {}), ...(anchor.out ? { out: shift(anchor.out) } : {}) }
+  return { ...anchor, ...next, ...(anchor.in ? { in: shift(anchor.in) } : {}), ...(anchor.out ? { out: shift(anchor.out) } : {}), ...(anchor.quadApex ? { quadApex: shift(anchor.quadApex) } : {}) }
 }
 export function snapPathPoint(p: Point, enabled: boolean): Point { return enabled ? point(Math.round(p.x * 2) / 2, Math.round(p.y * 2) / 2) : p }
 
@@ -177,17 +193,25 @@ export function setHandleType(contour: PathNodes, index: number, type: HandleTyp
 
 export function moveHandle(anchor: PathAnchor, handle: 'in' | 'out', target: Point, breakHandle = false): PathAnchor {
   const type = breakHandle ? 'disconnected' : getHandleType(anchor), other = handle === 'in' ? 'out' : 'in'
-  const result = { ...anchor, [handle]: target, handleType: type, cornerRadius: 0 }
+  const result: PathAnchor = { ...anchor, [handle]: target, handleType: type, cornerRadius: 0 }
   const distance = Math.hypot(target.x - anchor.x, target.y - anchor.y)
   if (type !== 'disconnected' && distance > 1e-8) {
     const length = type === 'mirrored' ? distance : anchor[other] ? Math.hypot(anchor[other]!.x - anchor.x, anchor[other]!.y - anchor.y) : distance
     result[other] = point(anchor.x - (target.x - anchor.x) * length / distance, anchor.y - (target.y - anchor.y) * length / distance)
   } else if (type === 'mirrored') result[other] = { x: anchor.x, y: anchor.y }
+  if (result.curveMode === 'quadratic' && result.out) {
+    result.quadApex = point(result.x + 1.5 * (result.out.x - result.x), result.y + 1.5 * (result.out.y - result.y))
+  }
   return result
 }
 
 const lerp = (a: Point, b: Point, t: number): Point => point(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
 export function segmentPoint(a: PathAnchor, b: PathAnchor, t: number): Point {
+  if (a.curveMode === 'quadratic' && (a.quadApex || (a.out && !b.in))) {
+    const q = a.quadApex ?? a.out!
+    const u = 1 - t
+    return point(u * u * a.x + 2 * u * t * q.x + t * t * b.x, u * u * a.y + 2 * u * t * q.y + t * t * b.y)
+  }
   if (!a.out && !b.in) return lerp(a, b, t)
   return lerp(lerp(lerp(a, a.out ?? a, t), lerp(a.out ?? a, b.in ?? b, t), t), lerp(lerp(a.out ?? a, b.in ?? b, t), lerp(b.in ?? b, b, t), t), t)
 }
@@ -219,7 +243,13 @@ export function nearestPathSegment(contours: readonly PathNodes[], target: Point
     for (let i = 0; i < count; i++) {
       const sourceA = c.anchors[i], sourceB = c.anchors[(i + 1) % c.anchors.length]
       if (sourceA.cornerRadius || sourceB.cornerRadius) continue
-      const a: PathAnchor = { ...map(sourceA), ...(sourceA.out ? { out: map(sourceA.out) } : {}) }, b: PathAnchor = { ...map(sourceB), ...(sourceB.in ? { in: map(sourceB.in) } : {}) }
+      const a: PathAnchor = {
+        ...map(sourceA),
+        ...(sourceA.out ? { out: map(sourceA.out) } : {}),
+        ...(sourceA.quadApex ? { quadApex: map(sourceA.quadApex) } : {}),
+        curveMode: sourceA.curveMode,
+      }
+      const b: PathAnchor = { ...map(sourceB), ...(sourceB.in ? { in: map(sourceB.in) } : {}) }
       const hull = [a, b, a.out ?? a, b.in ?? b]
       if (target.x < Math.min(...hull.map(p => p.x)) - tolerance || target.x > Math.max(...hull.map(p => p.x)) + tolerance || target.y < Math.min(...hull.map(p => p.y)) - tolerance || target.y > Math.max(...hull.map(p => p.y)) + tolerance) continue
       const sample = (t: number) => { const p = segmentPoint(a, b, t); return (p.x - target.x) ** 2 + (p.y - target.y) ** 2 }
@@ -267,27 +297,95 @@ export function bendSegment(
   t: number,
   dragPoint: Point,
   mode: CurveMode = 'cubic'
-): { out: Point; in: Point; quadApex?: Point } {
+): { out: Point; in: Point; quadApex?: Point; mode: CurveMode } {
   const clampedT = Math.max(0.05, Math.min(0.95, t))
-  if (mode === 'quadratic' || (!a.out && !b.in)) {
+  if (mode === 'quadratic') {
     // Solve for quadratic control point Q: P(t) = (1-t)^2*P0 + 2*(1-t)*t*Q + t^2*P1
     const denom = 2 * (1 - clampedT) * clampedT
     const qx = (dragPoint.x - (1 - clampedT) ** 2 * a.x - clampedT ** 2 * b.x) / denom
     const qy = (dragPoint.y - (1 - clampedT) ** 2 * a.y - clampedT ** 2 * b.y) / denom
     const quadApex = point(qx, qy)
     const { out, in: in_ } = quadToCubicHandles(a, quadApex, b)
-    return { out, in: in_, quadApex }
+    return { out, in: in_, quadApex, mode: 'quadratic' }
   } else {
     // Cubic Bézier curvature distribution:
-    const current = segmentPoint(a, b, clampedT)
+    const initOut = a.out ?? point(a.x + (b.x - a.x) / 3, a.y + (b.y - a.y) / 3)
+    const initIn = b.in ?? point(b.x - (b.x - a.x) / 3, b.y - (b.y - a.y) / 3)
+    const tempA: PathAnchor = { ...a, out: initOut }
+    const tempB: PathAnchor = { ...b, in: initIn }
+    const current = segmentPoint(tempA, tempB, clampedT)
     const delta = point(dragPoint.x - current.x, dragPoint.y - current.y)
-    const factor = 4 / 3
-    const w1 = factor * 2 * (1 - clampedT)
-    const w2 = factor * 2 * clampedT
-    const out = point((a.out?.x ?? a.x) + delta.x * w1, (a.out?.y ?? a.y) + delta.y * w1)
-    const in_ = point((b.in?.x ?? b.x) + delta.x * w2, (b.in?.y ?? b.y) + delta.y * w2)
-    return { out, in: in_ }
+    const w1 = 3 * (1 - clampedT) ** 2 * clampedT
+    const w2 = 3 * (1 - clampedT) * clampedT ** 2
+    const sumSq = w1 * w1 + w2 * w2 || 1
+    const k1 = w1 / sumSq
+    const k2 = w2 / sumSq
+    const out = point(initOut.x + delta.x * k1, initOut.y + delta.y * k1)
+    const in_ = point(initIn.x + delta.x * k2, initIn.y + delta.y * k2)
+    return { out, in: in_, mode: 'cubic' }
   }
+}
+
+/** Switches a path segment between cubic and quadratic Bézier curve mode. */
+export function convertSegmentCurveMode(
+  contour: PathContour,
+  segmentIndex: number,
+  targetMode: CurveMode
+): void {
+  const a = contour.anchors[segmentIndex]
+  const nextIdx = (segmentIndex + 1) % contour.anchors.length
+  const b = contour.anchors[nextIdx]
+  if (!a || !b) return
+
+  if (targetMode === 'quadratic') {
+    const apex = cubicHandlesToQuadApex(a, a.out ?? a, b.in ?? b, b)
+    a.curveMode = 'quadratic'
+    a.quadApex = apex
+    const handles = quadToCubicHandles(a, apex, b)
+    a.out = handles.out
+    b.in = handles.in
+  } else {
+    a.curveMode = 'cubic'
+    a.quadApex = undefined
+    if (!a.out && !b.in) {
+      a.out = point(a.x + (b.x - a.x) / 3, a.y + (b.y - a.y) / 3)
+      b.in = point(b.x - (b.x - a.x) / 3, b.y - (b.y - a.y) / 3)
+    }
+  }
+}
+
+/** Sets the curve mode ('cubic' | 'quadratic') for a specific anchor node. */
+export function setNodeCurveMode(anchor: PathAnchor, mode: CurveMode): PathAnchor {
+  return { ...anchor, curveMode: mode }
+}
+
+/** Computes curvature metrics (curvature kappa and curvature radius) at parameter t on a segment. */
+export function evaluateSegmentCurvature(
+  a: PathAnchor,
+  b: PathAnchor,
+  t = 0.5
+): { curvature: number; radius: number; normal: Point; tangent: Point } {
+  const clampedT = Math.max(0.001, Math.min(0.999, t))
+  const handles = a.curveMode === 'quadratic' && a.quadApex
+    ? quadToCubicHandles(a, a.quadApex, b)
+    : { out: a.out ?? a, in: b.in ?? b }
+  const p0 = a
+  const p1 = handles.out
+  const p2 = handles.in
+  const p3 = b
+  const dt = 1 - clampedT
+  const dx = 3 * dt * dt * (p1.x - p0.x) + 6 * dt * clampedT * (p2.x - p1.x) + 3 * clampedT * clampedT * (p3.x - p2.x)
+  const dy = 3 * dt * dt * (p1.y - p0.y) + 6 * dt * clampedT * (p2.y - p1.y) + 3 * clampedT * clampedT * (p3.y - p2.y)
+  const speed = Math.hypot(dx, dy)
+  const ddx = 6 * dt * (p2.x - 2 * p1.x + p0.x) + 6 * clampedT * (p3.x - 2 * p2.x + p1.x)
+  const ddy = 6 * dt * (p2.y - 2 * p1.y + p0.y) + 6 * clampedT * (p3.y - 2 * p2.y + p1.y)
+  const cross = Math.abs(dx * ddy - dy * ddx)
+  const denom = speed * speed * speed
+  const curvature = denom > 1e-10 ? cross / denom : 0
+  const radius = curvature > 1e-8 ? 1 / curvature : Infinity
+  const tangent = speed > 1e-8 ? point(dx / speed, dy / speed) : point(1, 0)
+  const normal = point(-tangent.y, tangent.x)
+  return { curvature, radius, normal, tangent }
 }
 
 /** Toggles an anchor between sharp corner (no handles) and smooth continuous curvature (mirrored handles). */
@@ -298,6 +396,7 @@ export function toggleNodeCornerSmooth(anchor: PathAnchor, contour: PathNodes, i
       y: anchor.y,
       cornerRadius: anchor.cornerRadius ?? 0,
       handleType: 'disconnected',
+      curveMode: anchor.curveMode,
     }
   } else {
     return setHandleType(contour, index, 'mirrored')

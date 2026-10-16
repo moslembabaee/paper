@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
-import { getHandleType } from './pathGeometry'
-import type { AnchorSelection, HandleType, PathContour } from './pathGeometry'
+import { Plus, Trash2, Spline } from 'lucide-react'
+import { getHandleType, isSmoothNode, evaluateSegmentCurvature } from './pathGeometry'
+import type { AnchorSelection, CurveMode, HandleType, PathContour } from './pathGeometry'
 
-export type NodeAction = 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete' | 'toggle-closed'
+export type NodeAction = 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete' | 'toggle-closed' | 'toggle-smooth' | 'curve-mode'
 interface Props { contours: PathContour[]; selection: AnchorSelection[]; onEdit: (action: NodeAction, value?: number) => void }
 
 function NodeNumber({ label, value, disabled, min, onCommit }: { label: string; value: number | undefined; disabled?: boolean; min?: number; onCommit: (value: number) => void }) {
@@ -36,11 +36,25 @@ export function PathNodeInspector({ contours, selection, onEdit }: Props) {
   const common = (key: 'x' | 'y' | 'cornerRadius') => anchors.length && anchors.every(a => (a[key] ?? 0) === (first[key] ?? 0)) ? first[key] ?? 0 : undefined
   const mode = first ? first.in || first.out ? getHandleType(first) : 'corner' : null
   const sameMode = anchors.every(a => (a.in || a.out ? getHandleType(a) : 'corner') === mode)
+  const hasSmooth = anchors.some(a => isSmoothNode(a))
+  const currentCurveMode: CurveMode = anchors.some(a => a.curveMode === 'quadratic') ? 'quadratic' : 'cubic'
   const single = selection.length === 1 ? selection[0] : undefined, contour = single ? contours[single.contour] : undefined
   const selectedContour = selection.length && selection.every(p => p.contour === selection[0].contour) ? contours[selection[0].contour] : undefined
   const canInsert = single && contour && (contour.closed || single.anchor < contour.anchors.length - 1) && !contour.anchors.some(a => a.cornerRadius)
+
+  let curvatureMetric: { radius: number; curvature: number } | null = null
+  if (single && contour && first && (contour.closed || single.anchor < contour.anchors.length - 1)) {
+    const nextAnchor = contour.anchors[(single.anchor + 1) % contour.anchors.length]
+    if (first.out || nextAnchor?.in) {
+      curvatureMetric = evaluateSegmentCurvature(first, nextAnchor, 0.5)
+    }
+  }
+
   return <aside className="node-inspector viewport-ui" aria-label="Vector node properties" data-testid="node-inspector">
     <div className="node-inspector-heading"><span className="pen-tool-label">VECTOR NODES</span><span className="node-selection-count">{anchors.length ? `${anchors.length} selected` : `${contours.length} subpath${contours.length === 1 ? '' : 's'}`}</span></div>
+    <button type="button" className="node-toggle-smooth" disabled={!anchors.length} aria-label="Toggle Corner vs Smooth" title="Toggle between sharp corner and smooth Bézier curvature (Hotkey: S)" onClick={() => onEdit('toggle-smooth')}>
+      <Spline size={12} /><span>{hasSmooth ? 'Convert to Corner (S)' : 'Convert to Smooth (S)'}</span>
+    </button>
     <div className="node-mode-group" role="group" aria-label="Handle type">
       {modes.map(({ type, name, hint }) => <button key={type} type="button" aria-label={name} aria-pressed={sameMode && mode === type} disabled={!anchors.length} title={hint} onClick={() => onEdit(type)}>
         <svg viewBox="0 0 32 24" aria-hidden="true">
@@ -51,6 +65,19 @@ export function PathNodeInspector({ contours, selection, onEdit }: Props) {
       </button>)}
     </div>
     {anchors.length ? <>
+      <div className="node-section-block">
+        <div className="node-section-title"><span>BÉZIER CURVATURE</span><span className="node-curve-mode-badge">{currentCurveMode.toUpperCase()}</span></div>
+        <div className="node-curve-mode-group" role="group" aria-label="Curvature Mode">
+          <button type="button" aria-pressed={currentCurveMode === 'cubic'} disabled={!anchors.length} title="Cubic Bézier: 2 handles, full tangent control (Hotkey: Q)" onClick={() => onEdit('curve-mode', 0)}>Cubic (2 Handles)</button>
+          <button type="button" aria-pressed={currentCurveMode === 'quadratic'} disabled={!anchors.length} title="Quadratic Bézier: single apex curvature control (Hotkey: Q)" onClick={() => onEdit('curve-mode', 1)}>Quadratic (Apex)</button>
+        </div>
+      </div>
+      {curvatureMetric && Number.isFinite(curvatureMetric.radius) && curvatureMetric.radius < 5000 && (
+        <div className="node-curvature-info" title="Estimated curve radius at segment midpoint">
+          <span>Curvature Radius</span>
+          <span>{Math.round(curvatureMetric.radius)} px</span>
+        </div>
+      )}
       <div className="node-coordinates"><NodeNumber label="X" value={common('x')} onCommit={value => onEdit('x', value)} /><NodeNumber label="Y" value={common('y')} onCommit={value => onEdit('y', value)} /></div>
       <NodeNumber label="Corner radius" value={common('cornerRadius')} min={0} disabled={selection.some(p => { const c = contours[p.contour]; return (!c.closed && (p.anchor === 0 || p.anchor === c.anchors.length - 1)) || !!c.anchors[(p.anchor + c.anchors.length - 1) % c.anchors.length].out || !!c.anchors[(p.anchor + 1) % c.anchors.length].in })} onCommit={value => onEdit('radius', value)} />
       <p className="node-inspector-note">{anchors.some(a => a.in || a.out) ? 'A radius converts the node to a corner.' : 'Radius is clamped to fit adjacent edges.'}</p>

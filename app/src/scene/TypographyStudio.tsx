@@ -20,11 +20,12 @@ import type { SceneStore } from './store.ts'
 import type {
   FontKerningMode,
   OpenTypeFeatures,
-  SceneElement,
   TextElement,
   TextPathPreset,
   VariableFontAxes,
+  VectorElement,
 } from './types.ts'
+import { isVector } from './booleanGeometry.ts'
 import {
   OPENTYPE_CATALOG,
   VARIABLE_AXES_META,
@@ -40,6 +41,7 @@ import { TextPathEditor } from './TextPathEditor'
 import { KineticInspector } from './KineticInspector'
 import { useOutlineFont } from './useOutlineFont'
 import { useRangeHistory } from './useRangeHistory'
+import { useScene } from './useScene'
 import './typography.css'
 
 interface TypographyStudioProps {
@@ -117,6 +119,49 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
     })
   }
 
+  const handleScrubHeader = (
+    event: React.PointerEvent<HTMLDivElement>,
+    axis: string,
+    currentVal: number,
+    min: number,
+    max: number,
+    step: number
+  ) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const target = event.currentTarget
+    target.setPointerCapture(event.pointerId)
+    const startX = event.clientX
+    const initialVal = currentVal
+    store.beginTransaction(`Scrub variable font ${axis.toUpperCase()}`)
+
+    const onPointerMove = (e: PointerEvent) => {
+      const deltaX = e.clientX - startX
+      const speed = e.shiftKey ? 0.2 : e.altKey ? 3.5 : 1
+      const factor = step < 0.1 ? 0.008 : step < 1 ? 0.05 : max - min > 500 ? 1.5 : 0.6
+      const nextVal = Math.max(min, Math.min(max, initialVal + deltaX * factor * speed))
+      const rounded = step < 1 ? Number(nextVal.toFixed(2)) : Math.round(nextVal)
+      updateAxis(axis, rounded)
+    }
+
+    const onPointerUp = (e: PointerEvent) => {
+      try {
+        target.releasePointerCapture(e.pointerId)
+      } catch {
+        // ignore
+      }
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', onPointerUp)
+      window.removeEventListener('pointercancel', onPointerUp)
+      store.endTransaction()
+    }
+
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', onPointerUp)
+    window.addEventListener('pointercancel', onPointerUp)
+  }
+
   const removeAxis = (axis: string) => {
     const nextAxes = { ...node.variableAxes }
     delete nextAxes[axis]
@@ -149,10 +194,11 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
     spacing: 0,
   }
 
-  // Available vector path layers on canvas for linking
-  const snapshot = store.getSnapshot()
-  const canvasPathLayers = Object.values(snapshot.elements).filter(
-    (el): el is Extract<SceneElement, { type: 'path' }> => el.type === 'path' && el.id !== node.id
+  // Available vector layers on canvas for linking (path, rectangle, ellipse)
+  const canvasVectorLayers = useScene(store, state =>
+    Object.values(state.elements).filter(
+      (el): el is VectorElement => isVector(el) && el.id !== node.id
+    )
   )
 
   return (
@@ -505,7 +551,17 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
             const meta = { ...VARIABLE_AXES_META[tag], ...supported }
             const value = axes[tag] ?? meta.default
             return <div className="axis-slider-row" key={tag}>
-              <div className="axis-slider-header"><span className="axis-label-name">{meta.label}{disabled ? ' · unavailable' : ''}</span><span className="axis-tag-badge">{meta.tag}</span></div>
+              <div
+                className={`axis-slider-header ${disabled ? '' : 'is-scrubbable'}`}
+                onPointerDown={disabled ? undefined : e => handleScrubHeader(e, tag, value, meta.min, meta.max, meta.step)}
+                title={disabled ? undefined : `Drag horizontally to scrub ${meta.label} (${meta.min}..${meta.max}${meta.unit ?? ''}). Shift for fine, Alt for coarse.`}
+              >
+                <span className="axis-label-name">{meta.label}{disabled ? ' · unavailable' : ''}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="axis-tag-badge">{meta.tag}</span>
+                  <span className="axis-val-display">{meta.step < 1 ? Number(value.toFixed(2)) : Math.round(value)}{meta.unit ?? ''}</span>
+                </div>
+              </div>
               <div className="axis-slider-track">
                 <input type="range" className="axis-slider-input" disabled={disabled} aria-label={`Variable ${meta.label.toLowerCase()} axis`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
                 <input type="number" className="axis-num-input" disabled={disabled} aria-label={`${meta.label} value`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
@@ -516,7 +572,20 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
               </div>}
             </div>
           })}
-          <div className="opentype-preview-box"><span className="opentype-preview-label">Live specimen</span><div className="opentype-preview-text" style={{ fontFamily: node.fontFamily, fontVariationSettings: compileFontVariationSettings(node.variableAxes, node.fontWeight), fontOpticalSizing: node.variableAxes?.opsz === undefined ? 'auto' : 'none' }}>{node.text || 'Aa / 012345'}</div></div>
+          <div className="opentype-preview-box">
+            <span className="opentype-preview-label">Live specimen</span>
+            <div
+              className="opentype-preview-text"
+              style={{
+                fontFamily: node.fontFamily,
+                fontVariationSettings: compileFontVariationSettings(node.variableAxes, node.fontWeight),
+                fontOpticalSizing: node.variableAxes?.opsz === undefined ? 'auto' : 'none',
+                fontStretch: node.variableAxes?.wdth && node.variableAxes.wdth !== 100 ? `${node.variableAxes.wdth}%` : undefined,
+              }}
+            >
+              {node.text || 'Aa / 012345'}
+            </div>
+          </div>
 
           {/* Extended & Custom Variable Axes */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
@@ -526,163 +595,111 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
               style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}
               onClick={() => setShowExtendedAxes(!showExtendedAxes)}
             >
-              <span>{showExtendedAxes ? 'Hide Extended & Custom Axes' : 'Show Extended & Custom Axes (GRAD, CASL, CRSV)'}</span>
+              <span>{showExtendedAxes ? 'Hide Extended & Custom Axes' : 'Show Extended & Custom Axes (GRAD, CASL, CRSV, etc.)'}</span>
             </button>
           </div>
 
           {showExtendedAxes && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-              {/* Grade axis (GRAD) */}
-              <div className="axis-slider-row">
-                <div className="axis-slider-header">
-                  <span className="axis-label-name">Grade</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="axis-tag-badge">GRAD</span>
-                    <span className="axis-val-display">{Math.round(axes.grad ?? 0)}</span>
-                  </div>
-                </div>
-                <div className="axis-slider-track">
-                  <input
-                    type="range"
-                    className="axis-slider-input"
-                    aria-label="Variable grade axis"
-                    min={VARIABLE_AXES_META.grad.min}
-                    max={VARIABLE_AXES_META.grad.max}
-                    step={VARIABLE_AXES_META.grad.step}
-                    value={axes.grad ?? 0}
-                    onChange={event => updateAxis('grad', event.currentTarget.valueAsNumber)}
-                  />
-                  <input
-                    type="number"
-                    className="axis-num-input"
-                    aria-label="Grade value"
-                    value={Math.round(axes.grad ?? 0)}
-                    min={-200}
-                    max={200}
-                    onChange={event => {
-                      const val = event.currentTarget.valueAsNumber
-                      if (Number.isFinite(val)) updateAxis('grad', val)
-                    }}
-                  />
-                </div>
+              {/* Quick Add registered axes chips */}
+              <div className="typo-chips-scroll" role="toolbar" aria-label="Quick add registered axes">
+                {[
+                  { tag: 'grad', label: '+ Grade' },
+                  { tag: 'casl', label: '+ Casual' },
+                  { tag: 'crsv', label: '+ Cursive' },
+                  { tag: 'ital', label: '+ Italic' },
+                  { tag: 'soft', label: '+ Softness' },
+                  { tag: 'fill', label: '+ Fill' },
+                  { tag: 'xtra', label: '+ Counter' },
+                ].map(item => {
+                  const isActive = node.variableAxes && (node.variableAxes[item.tag] !== undefined || node.variableAxes[item.tag.toUpperCase()] !== undefined)
+                  return (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      disabled={isActive}
+                      className={`typo-chip ${isActive ? 'is-active' : ''}`}
+                      onClick={() => {
+                        const meta = VARIABLE_AXES_META[item.tag]
+                        if (meta) updateAxis(item.tag, meta.default)
+                      }}
+                      title={isActive ? `${item.label} is already active` : `Add ${item.label} axis`}
+                    >
+                      {item.label}
+                    </button>
+                  )
+                })}
               </div>
 
-              {/* Casual axis (CASL) */}
-              <div className="axis-slider-row">
-                <div className="axis-slider-header">
-                  <span className="axis-label-name">Casual</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="axis-tag-badge">CASL</span>
-                    <span className="axis-val-display">{(axes.casl ?? 0).toFixed(2)}</span>
-                  </div>
-                </div>
-                <div className="axis-slider-track">
-                  <input
-                    type="range"
-                    className="axis-slider-input"
-                    aria-label="Variable casual axis"
-                    min={VARIABLE_AXES_META.casl.min}
-                    max={VARIABLE_AXES_META.casl.max}
-                    step={VARIABLE_AXES_META.casl.step}
-                    value={axes.casl ?? 0}
-                    onChange={event => updateAxis('casl', event.currentTarget.valueAsNumber)}
-                  />
-                  <input
-                    type="number"
-                    className="axis-num-input"
-                    aria-label="Casual value"
-                    value={Number((axes.casl ?? 0).toFixed(2))}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    onChange={event => {
-                      const val = event.currentTarget.valueAsNumber
-                      if (Number.isFinite(val)) updateAxis('casl', val)
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Cursive axis (CRSV) */}
-              <div className="axis-slider-row">
-                <div className="axis-slider-header">
-                  <span className="axis-label-name">Cursive</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span className="axis-tag-badge">CRSV</span>
-                    <span className="axis-val-display">{(axes.crsv ?? 0).toFixed(2)}</span>
-                  </div>
-                </div>
-                <div className="axis-slider-track">
-                  <input
-                    type="range"
-                    className="axis-slider-input"
-                    aria-label="Variable cursive axis"
-                    min={VARIABLE_AXES_META.crsv.min}
-                    max={VARIABLE_AXES_META.crsv.max}
-                    step={VARIABLE_AXES_META.crsv.step}
-                    value={axes.crsv ?? 0}
-                    onChange={event => updateAxis('crsv', event.currentTarget.valueAsNumber)}
-                  />
-                  <input
-                    type="number"
-                    className="axis-num-input"
-                    aria-label="Cursive value"
-                    value={Number((axes.crsv ?? 0).toFixed(2))}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    onChange={event => {
-                      const val = event.currentTarget.valueAsNumber
-                      if (Number.isFinite(val)) updateAxis('crsv', val)
-                    }}
-                  />
-                </div>
-              </div>
-
-              {/* Any additional custom axes */}
+              {/* Render all active non-core axes dynamically */}
               {Object.entries(axes)
-                .filter(([tag]) => !['wght', 'wdth', 'slnt', 'opsz', 'grad', 'casl', 'crsv'].includes(tag))
-                .map(([tag, val]) => (
-                  <div key={tag} className="axis-slider-row">
-                    <div className="axis-slider-header">
-                      <span className="axis-label-name">Custom Axis</span>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span className="axis-tag-badge">{tag}</span>
-                        <span className="axis-val-display">{(val ?? 0).toFixed(1)}</span>
-                        <button
-                          type="button"
-                          className="quiet-button"
-                          onClick={() => removeAxis(tag)}
-                          title={`Remove axis ${tag}`}
-                        >
-                          <Trash2 size={10} />
-                        </button>
+                .filter(([tag]) => !['wght', 'wdth', 'slnt', 'opsz'].includes(tag.toLowerCase()))
+                .map(([tag, val]) => {
+                  const meta = VARIABLE_AXES_META[tag] ?? VARIABLE_AXES_META[tag.toLowerCase()] ?? {
+                    tag: tag.toUpperCase(),
+                    label: tag.toUpperCase(),
+                    min: 0,
+                    max: 1000,
+                    step: 1,
+                    default: 0,
+                    unit: '',
+                  }
+                  const numVal = val ?? meta.default
+                  return (
+                    <div key={tag} className="axis-slider-row">
+                      <div
+                        className="axis-slider-header is-scrubbable"
+                        onPointerDown={e => handleScrubHeader(e, tag, numVal, meta.min, meta.max, meta.step)}
+                        title={`Drag horizontally to scrub ${meta.label} (${meta.min}..${meta.max}${meta.unit ?? ''}). Shift for fine, Alt for coarse.`}
+                      >
+                        <span className="axis-label-name">{meta.label}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span className="axis-tag-badge">{meta.tag}</span>
+                          <span className="axis-val-display">
+                            {meta.step < 1 ? Number(numVal.toFixed(2)) : Math.round(numVal)}{meta.unit ?? ''}
+                          </span>
+                          <button
+                            type="button"
+                            className="quiet-button"
+                            onClick={e => {
+                              e.stopPropagation()
+                              removeAxis(tag)
+                            }}
+                            title={`Remove axis ${tag}`}
+                            aria-label={`Remove axis ${tag}`}
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="axis-slider-track">
+                        <input
+                          type="range"
+                          className="axis-slider-input"
+                          aria-label={`Variable ${meta.label.toLowerCase()} axis`}
+                          min={meta.min}
+                          max={meta.max}
+                          step={meta.step}
+                          value={numVal}
+                          onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)}
+                        />
+                        <input
+                          type="number"
+                          className="axis-num-input"
+                          aria-label={`${meta.label} value`}
+                          value={meta.step < 1 ? Number(numVal.toFixed(2)) : Math.round(numVal)}
+                          min={meta.min}
+                          max={meta.max}
+                          step={meta.step}
+                          onChange={event => {
+                            const val = event.currentTarget.valueAsNumber
+                            if (Number.isFinite(val)) updateAxis(tag, val)
+                          }}
+                        />
                       </div>
                     </div>
-                    <div className="axis-slider-track">
-                      <input
-                        type="range"
-                        className="axis-slider-input"
-                        aria-label={`Custom axis ${tag}`}
-                        min={0}
-                        max={1000}
-                        step={1}
-                        value={val ?? 0}
-                        onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)}
-                      />
-                      <input
-                        type="number"
-                        className="axis-num-input"
-                        aria-label={`Custom axis ${tag} value`}
-                        value={Number((val ?? 0).toFixed(1))}
-                        onChange={event => {
-                          const numVal = event.currentTarget.valueAsNumber
-                          if (Number.isFinite(numVal)) updateAxis(tag, numVal)
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
 
               {/* Add Custom Axis Input */}
               <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
@@ -708,9 +725,9 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                 <button
                   type="button"
                   className="quiet-button"
-                  disabled={!/^[A-Z0-9]{4}$/.test(newAxisTag)}
+                  disabled={!/^[A-Z0-9_ ]{4}$/.test(newAxisTag)}
                   onClick={() => {
-                    if (/^[A-Z0-9]{4}$/.test(newAxisTag)) {
+                    if (/^[A-Z0-9_ ]{4}$/.test(newAxisTag)) {
                       updateAxis(newAxisTag, newAxisVal)
                       setNewAxisTag('')
                       setNewAxisVal(0)
@@ -932,14 +949,14 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                 </div>
               </label>
 
-              {/* Attach to Canvas Path layer */}
-              {(canvasPathLayers.length > 0 || top.pathId) && (
+              {/* Attach to Canvas Vector layer (Path, Rectangle, Ellipse) */}
+              {(canvasVectorLayers.length > 0 || top.pathId) && (
                 <label className="property-label">
-                  Link Canvas Path Layer
+                  Link Canvas Vector Node
                   <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                     <select
                       className="property-input"
-                      aria-label="Target canvas vector path"
+                      aria-label="Target canvas vector node"
                       value={top.pathId ?? ''}
                       onChange={event => {
                         const targetId = event.currentTarget.value || null
@@ -952,8 +969,10 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                       }}
                     >
                       <option value="">None (Use Preset Curve)</option>
-                      {canvasPathLayers.map(path => (
-                        <option key={path.id} value={path.id}>{path.name}</option>
+                      {canvasVectorLayers.map(layer => (
+                        <option key={layer.id} value={layer.id}>
+                          {layer.type === 'rectangle' ? '▭' : layer.type === 'ellipse' ? '○' : '◇'} {layer.name} ({layer.type})
+                        </option>
                       ))}
                     </select>
                     {top.pathId && (
@@ -988,25 +1007,82 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                 }} />
               </label>}
               {pathError && <p className="typo-hint" role="alert">{pathError}</p>}
-              {top.pathId && !canvasPathLayers.some(path => path.id === top.pathId) && <p className="typo-hint">Linked path is unavailable. Showing the fallback curve.</p>}
-              <label className="property-label">Path tracking
-                <input type="number" className="property-input" aria-label="Path letter spacing" value={top.spacing ?? 0} step={0.5} onChange={event => { const spacing = event.currentTarget.valueAsNumber; if (Number.isFinite(spacing)) update({ textOnPath: { ...top, spacing } }) }} />
-              </label>
-              {/* Start Offset Slider */}
+              {top.pathId && !canvasVectorLayers.some(layer => layer.id === top.pathId) && <p className="typo-hint">Linked vector node is unavailable. Showing the fallback curve.</p>}
+              {/* Path Tracking */}
               <div className="axis-slider-row">
                 <div className="axis-slider-header">
-                  <span className="axis-label-name">Start Offset</span>
-                  <span className="axis-val-display">{Math.round(textPathOffset(node))}%</span>
+                  <span className="axis-label-name">Path Tracking</span>
+                  <span className="axis-val-display">{(top.spacing ?? 0).toFixed(1)}px</span>
+                </div>
+                <div className="axis-slider-track">
+                  <input
+                    type="range"
+                    className="axis-slider-input"
+                    aria-label="Path letter spacing slider"
+                    min={-10}
+                    max={40}
+                    step={0.5}
+                    value={top.spacing ?? 0}
+                    onChange={event => {
+                      const spacing = event.currentTarget.valueAsNumber
+                      if (Number.isFinite(spacing)) update({ textOnPath: { ...top, spacing } })
+                    }}
+                  />
+                  <input
+                    type="number"
+                    className="axis-num-input"
+                    aria-label="Path letter spacing value"
+                    value={top.spacing ?? 0}
+                    step={0.5}
+                    onChange={event => {
+                      const spacing = event.currentTarget.valueAsNumber
+                      if (Number.isFinite(spacing)) update({ textOnPath: { ...top, spacing } })
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Start Offset Slider & Mode Selector */}
+              <div className="axis-slider-row">
+                <div className="axis-slider-header">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="axis-label-name">Start Offset</span>
+                    <div className="kerning-mode-group" style={{ height: 18 }}>
+                      <button
+                        type="button"
+                        className={`kerning-mode-btn ${(top.offsetMode ?? 'percent') === 'percent' ? 'is-active' : ''}`}
+                        style={{ padding: '0 4px', fontSize: 9 }}
+                        onClick={() => update({ textOnPath: { ...top, offsetMode: 'percent' } })}
+                        title="Offset in percentage"
+                      >
+                        %
+                      </button>
+                      <button
+                        type="button"
+                        className={`kerning-mode-btn ${top.offsetMode === 'pixels' ? 'is-active' : ''}`}
+                        style={{ padding: '0 4px', fontSize: 9 }}
+                        onClick={() => update({ textOnPath: { ...top, offsetMode: 'pixels' } })}
+                        title="Offset in pixels"
+                      >
+                        px
+                      </button>
+                    </div>
+                  </div>
+                  <span className="axis-val-display">
+                    {top.offsetMode === 'pixels'
+                      ? `${Math.round(top.offset ?? 0)}px`
+                      : `${Math.round(textPathOffset(node))}%`}
+                  </span>
                 </div>
                 <div className="axis-slider-track">
                   <input
                     type="range"
                     className="axis-slider-input"
                     aria-label="Text on path start offset"
-                    min={0}
-                    max={100}
+                    min={top.offsetMode === 'pixels' ? -200 : 0}
+                    max={top.offsetMode === 'pixels' ? 800 : 100}
                     step={1}
-                    value={textPathOffset(node)}
+                    value={top.offsetMode === 'pixels' ? (top.offset ?? 0) : textPathOffset(node)}
                     onChange={event => {
                       update({
                         textOnPath: {
@@ -1014,6 +1090,71 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                           offset: event.currentTarget.valueAsNumber,
                         },
                       })
+                    }}
+                  />
+                  <input
+                    type="number"
+                    className="axis-num-input"
+                    aria-label="Start offset value"
+                    value={top.offsetMode === 'pixels' ? Math.round(top.offset ?? 0) : Math.round(textPathOffset(node))}
+                    step={1}
+                    onChange={event => {
+                      const val = event.currentTarget.valueAsNumber
+                      if (Number.isFinite(val)) {
+                        update({
+                          textOnPath: {
+                            ...top,
+                            offset: val,
+                          },
+                        })
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Baseline Shift Slider (Normal Offset) */}
+              <div className="axis-slider-row">
+                <div className="axis-slider-header">
+                  <span className="axis-label-name">Baseline Shift (Normal)</span>
+                  <span className="axis-val-display">{Math.round(top.baselineShift ?? 0)}px</span>
+                </div>
+                <div className="axis-slider-track">
+                  <input
+                    type="range"
+                    className="axis-slider-input"
+                    aria-label="Text on path baseline shift"
+                    min={-60}
+                    max={60}
+                    step={1}
+                    value={top.baselineShift ?? 0}
+                    onChange={event => {
+                      update({
+                        textOnPath: {
+                          ...top,
+                          baselineShift: event.currentTarget.valueAsNumber,
+                        },
+                      })
+                    }}
+                  />
+                  <input
+                    type="number"
+                    className="axis-num-input"
+                    aria-label="Baseline shift value"
+                    value={Math.round(top.baselineShift ?? 0)}
+                    min={-100}
+                    max={100}
+                    step={1}
+                    onChange={event => {
+                      const val = event.currentTarget.valueAsNumber
+                      if (Number.isFinite(val)) {
+                        update({
+                          textOnPath: {
+                            ...top,
+                            baselineShift: val,
+                          },
+                        })
+                      }
                     }}
                   />
                 </div>
@@ -1058,21 +1199,28 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                   className={`kerning-mode-btn ${(top.align ?? 'start') === 'start' ? 'is-active' : ''}`}
                   onClick={() => update({ textOnPath: { ...top, align: 'start', offset: 0 } })}
                 >
-                  Start Align
+                  Start
                 </button>
                 <button
                   type="button"
                   className={`kerning-mode-btn ${top.align === 'center' ? 'is-active' : ''}`}
                   onClick={() => update({ textOnPath: { ...top, align: 'center', offset: 50 } })}
                 >
-                  Center Align
+                  Center
                 </button>
                 <button
                   type="button"
                   className={`kerning-mode-btn ${top.align === 'end' ? 'is-active' : ''}`}
                   onClick={() => update({ textOnPath: { ...top, align: 'end', offset: 100 } })}
                 >
-                  End Align
+                  End
+                </button>
+                <button
+                  type="button"
+                  className={`kerning-mode-btn ${top.align === 'justify' ? 'is-active' : ''}`}
+                  onClick={() => update({ textOnPath: { ...top, align: 'justify', offset: 0 } })}
+                >
+                  Justify
                 </button>
               </div>
             </>

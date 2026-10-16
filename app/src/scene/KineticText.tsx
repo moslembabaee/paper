@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import type { TextElement } from './types'
 import { shapeText } from './fontEngine'
 import { cascadeOffset, placeGlyphs } from './kineticGeometry'
+import { calculateStaggerDelay } from './glyphDecomposition'
 import { useOutlineFont } from './useOutlineFont'
 import { compileTypographyStyles } from './typography'
 import { ShapeShader } from '../shaders/ShapeShader'
@@ -54,14 +55,22 @@ export function KineticText({ node, pathD }: { node: TextElement; pathD: string 
             const scale = offset.scale ?? 1
             const wghtDelta = offset.weightDelta ?? 0
             const slntDelta = offset.slantDelta ?? 0
+            const wdthDelta = offset.widthDelta ?? 0
+            const opszDelta = offset.opticalSizeDelta ?? 0
+            const delay = calculateStaggerDelay(k.staggerMode, index, charCount, k.stagger)
 
             let charVariation = baseStyles.fontVariationSettings
-            if (wghtDelta !== 0 || slntDelta !== 0) {
+            if (wghtDelta !== 0 || slntDelta !== 0 || wdthDelta !== 0 || opszDelta !== 0) {
               const effWght = Math.max(1, Math.min(1000, baseWght + wghtDelta))
-              const effSlnt = Math.max(-20, Math.min(20, baseSlnt + slntDelta))
-              const parts = [`'wght' ${Number(effWght.toFixed(1))}`, `'slnt' ${Number(effSlnt.toFixed(1))}`]
-              if (baseAxes.wdth) parts.push(`'wdth' ${baseAxes.wdth}`)
-              if (baseAxes.opsz) parts.push(`'opsz' ${baseAxes.opsz}`)
+              const effSlnt = Math.max(-90, Math.min(90, baseSlnt + slntDelta))
+              const effWdth = Math.max(25, Math.min(200, (baseAxes.wdth ?? 100) + wdthDelta))
+              const effOpsz = Math.max(6, Math.min(144, (baseAxes.opsz ?? node.fontSize) + opszDelta))
+              const parts = [
+                `'wght' ${Number(effWght.toFixed(1))}`,
+                `'wdth' ${Number(effWdth.toFixed(1))}`,
+                `'slnt' ${Number(effSlnt.toFixed(1))}`,
+                `'opsz' ${Number(effOpsz.toFixed(1))}`,
+              ]
               charVariation = parts.join(', ')
             }
 
@@ -72,8 +81,8 @@ export function KineticText({ node, pathD }: { node: TextElement; pathD: string 
               '--cascade-amplitude': `${k.amplitude}px`,
               '--cascade-rotation': `${k.rotation}deg`,
               animationDuration: `${k.duration}s`,
-              animationDelay: `${-(k.phase * k.duration + (index * k.stagger) / 1000)}s`,
-              transform: `translateY(${offset.y}px) rotate(${offset.angle}deg)${scale !== 1 ? ` scale(${scale})` : ''}`,
+              animationDelay: `${-(k.phase * k.duration + delay / 1000)}s`,
+              transform: `translate(${offset.x ?? 0}px, ${offset.y}px) rotate(${offset.angle}deg)${scale !== 1 ? ` scale(${scale})` : ''}`,
               ...(charVariation ? { fontVariationSettings: charVariation } : {}),
             } as CSSProperties
 
@@ -92,12 +101,13 @@ export function KineticText({ node, pathD }: { node: TextElement; pathD: string 
   const glyphStyle = (index: number): CSSProperties => {
     const offset = cascadeOffset(k, index, glyphCount)
     const scale = offset.scale ?? 1
+    const delay = calculateStaggerDelay(k.staggerMode, index, glyphCount, k.stagger)
     return {
       '--cascade-amplitude': `${k.amplitude}px`,
       '--cascade-rotation': `${k.rotation}deg`,
       animationDuration: `${k.duration}s`,
-      animationDelay: `${-(k.phase * k.duration + (index * k.stagger) / 1000)}s`,
-      transform: `translateY(${offset.y}px) rotate(${offset.angle}deg)${scale !== 1 ? ` scale(${scale})` : ''}`,
+      animationDelay: `${-(k.phase * k.duration + delay / 1000)}s`,
+      transform: `translate(${offset.x ?? 0}px, ${offset.y}px) rotate(${offset.angle}deg)${scale !== 1 ? ` scale(${scale})` : ''}`,
     } as CSSProperties
   }
   return <svg className="scene-text-on-path scene-kinetic-text" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" role="img" aria-label={node.text}

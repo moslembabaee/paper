@@ -5,6 +5,48 @@
   "current_task_id": null,
   "tasks": [
     {
+      "id": "T-ISSUE-55-3",
+      "phase": "Community & Issues",
+      "title": "[T-ISSUE-55 #3/3] Glyph-Level Kinetic Motion Staggering & Spring Timeline Integration",
+      "description": "Implement glyph decomposition and kinetic staggering generators (left-to-right, center-out, wave, random delay). Connect variable font axes and per-glyph transforms (position, rotation, scale) to the spring physics motion timeline and MotionDrawer to enable real-time playback and keyframed typography dynamics. Verify with 'cd /root/projects/paper/app && npm run build'.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "parent_id": "T-ISSUE-55",
+      "subtask_index": 3,
+      "total_subtasks": 3,
+      "github_issue_number": 55
+    },
+    {
+      "id": "T-ISSUE-55-2",
+      "phase": "Community & Issues",
+      "title": "[T-ISSUE-55 #2/3] B\u00e9zier Text-on-Path Layout Engine",
+      "description": "Build curve arc-length parameterization and tangent/normal evaluation utilities to position text along arbitrary B\u00e9zier paths and Vector nodes. Support start offset, letter spacing, alignment modes, and SVG/Canvas text-on-path rendering with interactive curve binding. Verify with 'cd /root/projects/paper/app && npm run build'.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "parent_id": "T-ISSUE-55",
+      "subtask_index": 2,
+      "total_subtasks": 3,
+      "github_issue_number": 55
+    },
+    {
+      "id": "T-ISSUE-55-1",
+      "phase": "Community & Issues",
+      "title": "[T-ISSUE-55 #1/3] Variable Font Axis Schema & Interactive Modulation Controls",
+      "description": "Extend typography data models, scene store, and text node rendering to support OpenType variable font axes (weight, width, slant, optical size, and custom variation axes). Implement real-time font-variation-settings compilation and add an axis scrubbing inspector with presets and responsive canvas updates. Verify with 'cd /root/projects/paper/app && npm run build'.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "parent_id": "T-ISSUE-55",
+      "subtask_index": 1,
+      "total_subtasks": 3,
+      "github_issue_number": 55
+    },
+    {
       "id": "T-ISSUE-56",
       "phase": "Community & Issues",
       "title": "Issue #56: feat: Interactive Vector Pen Tool with B\u00e9zier Anchor and Curvature Controls",
@@ -13,7 +55,8 @@
       "status": "failed",
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 56
+      "github_issue_number": 56,
+      "active_attempt": null
     },
     {
       "id": "T-ISSUE-57",
@@ -21,10 +64,11 @@
       "title": "Issue #57: feat: Procedural Noise and Grain Displacement Shader Material Engine",
       "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792163349-2`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nDevelop a procedural texture and displacement shader engine supporting multi-octave Simplex, Perlin, and Worley noise generators with controls for frequency, lacunarity, turbulence, and normal-map surface perturbation within the ShaderBrowser and MeshInspector.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #57",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "blocked",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 57
+      "github_issue_number": 57,
+      "active_attempt": null
     },
     {
       "id": "T-ISSUE-58",
@@ -43,10 +87,11 @@
       "title": "Issue #53: feat: Multi-Stop Mesh Gradient and Procedural Color Field Synthesizer",
       "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792151007-1`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nImplement a 2D mesh gradient engine with draggable control vertices, smooth bicubic interpolation, and GPU fragment shader acceleration. Include interactive vertex color pickers, warp distortion modulation, noise blending controls, and direct binding to scene canvas nodes.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #53",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 3,
+      "status": "completed",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 53
+      "github_issue_number": 53,
+      "completed_at": "2026-10-16T22:41:08.218281+00:00"
     },
     {
       "id": "T-ISSUE-54",
@@ -66,10 +111,15 @@
       "title": "Issue #55: feat: Kinetic Typography and Variable Font Dynamics Engine",
       "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792151007-3`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nBuild an interactive typography tool supporting OpenType variable font axis modulation (weight, width, slant, optical size) with real-time canvas scrubbing. Add text-on-path layout along arbitrary B\u00e9zier curves, glyph-level motion staggering, and integration with the spring physics animation timeline.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #55",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "decomposed",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 55
+      "github_issue_number": 55,
+      "children": [
+        "T-ISSUE-55-1",
+        "T-ISSUE-55-2",
+        "T-ISSUE-55-3"
+      ]
     },
     {
       "id": "T-ISSUE-5",
@@ -1103,8 +1153,8 @@
       "title": "Issue #35: feat(make 18): Agent build/runtime/visual validation loop",
       "description": "Scope: Feed bounded compiler/runtime diagnostics and desktop/mobile screenshots back into a limited repair attempt; show failures and stop at fixed retry budget.\nAcceptance: Fixture with runtime error is repaired or reports blocker; no silent infinite loop, secret/screenshot leakage or false green.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 2,
+      "status": "approved",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 35,
       "failed_at": "2026-10-16T08:59:37.301763+00:00",
@@ -1347,8 +1397,8 @@
       "title": "Multi-Stop Mesh Gradient and Procedural Color Field Synthesizer",
       "description": "Implement a 2D mesh gradient engine with draggable control vertices, smooth bicubic interpolation, and GPU fragment shader acceleration. Include interactive vertex color pickers, warp distortion modulation, noise blending controls, and direct binding to scene canvas nodes.",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "approved",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 53
     },
@@ -1358,8 +1408,8 @@
       "title": "Non-Destructive Vector Boolean Operations and Path Geometry Engine",
       "description": "Implement constructive area geometry (CAG) vector boolean operations supporting Union, Difference, Intersection, and Exclusion across overlapping vector shapes. Support a non-destructive compound shape hierarchy that preserves source paths, provides live preview on hover, and exports clean SVG path geometry.",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "approved",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 54
     },
@@ -1369,8 +1419,8 @@
       "title": "Kinetic Typography and Variable Font Dynamics Engine",
       "description": "Build an interactive typography tool supporting OpenType variable font axis modulation (weight, width, slant, optical size) with real-time canvas scrubbing. Add text-on-path layout along arbitrary B\u00e9zier curves, glyph-level motion staggering, and integration with the spring physics animation timeline.",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "approved",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 55
     },
@@ -1410,8 +1460,8 @@
       "title": "Interactive Vector Pen Tool with B\u00e9zier Anchor and Curvature Controls",
       "description": "Implement an on-canvas vector Pen Tool supporting precise anchor point placement, interactive cubic and quadratic B\u00e9zier curve dragging, corner vs. smooth node toggling, path closing, and seamless integration with existing vector selection and CAG boolean engines.",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "approved",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 56
     },
@@ -1421,8 +1471,8 @@
       "title": "Procedural Noise and Grain Displacement Shader Material Engine",
       "description": "Develop a procedural texture and displacement shader engine supporting multi-octave Simplex, Perlin, and Worley noise generators with controls for frequency, lacunarity, turbulence, and normal-map surface perturbation within the ShaderBrowser and MeshInspector.",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "approved",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 57
     },
@@ -1432,8 +1482,8 @@
       "title": "Reusable Component Architecture with Dynamic Property Overrides",
       "description": "Build a component master and instance system allowing canvas elements, kinetic typography, and shader setups to be saved as master symbols, instantiated across the scene graph, updated reactively, and configured with local visual and parameter overrides.",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "approved",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 58
     },
@@ -1523,6 +1573,36 @@
       "phase": "Continuous Polish & Evolution",
       "title": "Production Lottie and Optimized Animated SVG Vector Export Pipeline",
       "description": "Develop an export pipeline compiling vector shapes, path morphs, spring physics motion timelines, and kinetic text animations into standalone production-ready Lottie JSON files and self-contained animated SVG markup.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 3,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T-EVOLVE-1792180241-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Procedural Mesh Gradient and Fluid Distortion Engine",
+      "description": "Implement an interactive multi-point WebGL mesh gradient generator featuring bi-cubic color interpolation, draggable control anchor points, real-time simplex noise modulation, and seamless infinite canvas layer rendering.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 3,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T-EVOLVE-1792180241-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Variable Typography and Text-on-Path Layout Engine",
+      "description": "Build an advanced typographic styling system with support for variable font design axes (wght, wdth, slnt, opsz), OpenType feature toggles, and parametric text alignment along arbitrary vector B\u00e9zier curves.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T-EVOLVE-1792180241-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Visual Node-Based Shader and Material Compositor",
+      "description": "Develop a visual node graph editor for procedural WebGL shader composition, enabling users to visually link UV coordinates, math operations, noise generators (Voronoi/Perlin), and color blend modes with instant canvas updates.",
       "assigned_agent": "claude",
       "status": "approved",
       "retry_count": 0,

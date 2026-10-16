@@ -1,6 +1,7 @@
-import type { MeshAnchor, MeshGridConfig, MeshGridVertex, MeshInterpolationMode, MeshMaterial, NoiseGenerator, ShaderPaint } from './types.ts'
-import { grainBlendModes, meshInterpolationModes, meshTopologies, noiseGenerators } from './types.ts'
-export { meshInterpolationModes, meshTopologies, noiseGenerators }
+import type { MeshAnchor, MeshDistortionMode, MeshGridConfig, MeshGridVertex, MeshInterpolationMode, MeshMaterial, NoiseGenerator, ShaderPaint } from './types.ts'
+import { grainBlendModes, meshDistortionModes, meshInterpolationModes, meshTopologies, noiseGenerators } from './types.ts'
+export { grainBlendModes, meshDistortionModes, meshInterpolationModes, meshTopologies, noiseGenerators }
+export type { MeshDistortionMode }
 
 export const clampUnit = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0
 
@@ -10,8 +11,12 @@ export function defaultMeshAnchor(index: number): MeshAnchor {
 }
 
 export function createMeshMaterial(
-  count: number,
+  count: number | readonly unknown[],
   options?: {
+    turbulence?: number
+    frequency?: number
+    chromaticAberration?: number
+    grainBlend?: (typeof grainBlendModes)[number]
     interpolation?: MeshInterpolationMode
     warpModulation?: number
     noiseType?: NoiseGenerator
@@ -19,14 +24,18 @@ export function createMeshMaterial(
     octaves?: number
     normalPerturbation?: number
     grainDisplacement?: number
+    fluidAdvection?: number
+    fluidViscosity?: number
+    distortionMode?: MeshDistortionMode
   }
 ): MeshMaterial {
+  const length = typeof count === 'number' ? count : count.length
   return {
-    anchors: Array.from({ length: count }, (_, index) => defaultMeshAnchor(index)),
-    turbulence: .15,
-    frequency: 3,
-    chromaticAberration: 0,
-    grainBlend: 'overlay',
+    anchors: Array.from({ length }, (_, index) => defaultMeshAnchor(index)),
+    turbulence: options?.turbulence ?? .15,
+    frequency: options?.frequency ?? 3,
+    chromaticAberration: options?.chromaticAberration ?? 0,
+    grainBlend: options?.grainBlend ?? 'overlay',
     interpolation: options?.interpolation ?? 'bicubic',
     warpModulation: options?.warpModulation ?? 0.25,
     noiseType: options?.noiseType ?? 'simplex',
@@ -34,6 +43,9 @@ export function createMeshMaterial(
     octaves: options?.octaves ?? 3,
     normalPerturbation: options?.normalPerturbation ?? 0.2,
     grainDisplacement: options?.grainDisplacement ?? 0.15,
+    fluidAdvection: options?.fluidAdvection ?? 0.35,
+    fluidViscosity: options?.fluidViscosity ?? 0.5,
+    distortionMode: options?.distortionMode ?? 'curl-fluid',
   }
 }
 
@@ -50,6 +62,9 @@ const allowedMeshKeys = new Set([
   'octaves',
   'normalPerturbation',
   'grainDisplacement',
+  'fluidAdvection',
+  'fluidViscosity',
+  'distortionMode',
   'grid',
 ])
 
@@ -105,6 +120,15 @@ export function validateMeshMaterial(mesh: MeshMaterial, paint: ShaderPaint) {
   if (mesh.grainDisplacement !== undefined && !within(mesh.grainDisplacement, 0, 1)) {
     throw new Error('Invalid shader mesh material')
   }
+  if (mesh.fluidAdvection !== undefined && !within(mesh.fluidAdvection, 0, 1)) {
+    throw new Error('Invalid shader mesh material')
+  }
+  if (mesh.fluidViscosity !== undefined && !within(mesh.fluidViscosity, 0, 1)) {
+    throw new Error('Invalid shader mesh material')
+  }
+  if (mesh.distortionMode !== undefined && !meshDistortionModes.includes(mesh.distortionMode)) {
+    throw new Error('Invalid shader mesh material')
+  }
   if (mesh.grid !== undefined) {
     validateMeshGrid(mesh.grid)
   }
@@ -139,6 +163,10 @@ export function meshUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradient'
   const octaves = mesh.octaves ?? 3
   const normalPerturbation = mesh.normalPerturbation ?? 0.2
   const grainDisplacement = mesh.grainDisplacement ?? 0.15
+  const fluidAdvection = mesh.fluidAdvection ?? 0.35
+  const fluidViscosity = mesh.fluidViscosity ?? 0.5
+  const distortionMode = mesh.distortionMode ?? 'curl-fluid'
+  const distortionModeValue = distortionMode === 'curl-fluid' ? 0 : distortionMode === 'domain-warp' ? 1 : distortionMode === 'turbulent-swirl' ? 2 : 3
 
   const gridUniforms = grid ? {
     u_gridMode: 1.0,
@@ -175,6 +203,9 @@ export function meshUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradient'
     u_octaves: octaves,
     u_normalPerturbation: normalPerturbation,
     u_grainDisplacement: grainDisplacement,
+    u_fluidAdvection: fluidAdvection,
+    u_fluidViscosity: fluidViscosity,
+    u_distortionMode: distortionModeValue,
     u_turbulence: mesh.turbulence,
     u_frequency: mesh.frequency,
     u_chromatic: mesh.chromaticAberration,
@@ -720,6 +751,9 @@ export function meshGridUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradi
     u_octaves: mesh.octaves ?? 3,
     u_normalPerturbation: mesh.normalPerturbation ?? 0.2,
     u_grainDisplacement: mesh.grainDisplacement ?? 0.15,
+    u_fluidAdvection: mesh.fluidAdvection ?? 0.35,
+    u_fluidViscosity: mesh.fluidViscosity ?? 0.5,
+    u_distortionMode: (mesh.distortionMode ?? 'curl-fluid') === 'curl-fluid' ? 0 : (mesh.distortionMode ?? 'curl-fluid') === 'domain-warp' ? 1 : (mesh.distortionMode ?? 'curl-fluid') === 'turbulent-swirl' ? 2 : 3,
     u_distortion: paint.params.distortion,
     u_swirl: paint.params.swirl,
     u_grainMixer: paint.params.grainMixer,

@@ -135,6 +135,9 @@ export function recordComponentEdit(node: SceneElement, updated: SceneElement, p
       if (updated.style.shader.postProcessing && !equalValue(node.style.shader.postProcessing, updated.style.shader.postProcessing)) {
         shaderPatch.postProcessing = updated.style.shader.postProcessing
       }
+      if (updated.style.shader.pipeline && !equalValue(node.style.shader.pipeline, updated.style.shader.pipeline)) {
+        shaderPatch.pipeline = updated.style.shader.pipeline
+      }
       style.shader = shaderPatch as unknown as typeof style.shader
     } else Object.assign(style, { [key]: value })
   }
@@ -179,6 +182,7 @@ export function applyComponentOverrides(source: SceneElement, link: Extract<Comp
             ...(source.style.shader.mesh || (style.shader as any).mesh ? { mesh: { ...source.style.shader.mesh, ...((style.shader as any).mesh ?? {}) } } : {}),
             ...(source.style.shader.composite || (style.shader as any).composite ? { composite: { ...source.style.shader.composite, ...((style.shader as any).composite ?? {}) } } : {}),
             ...(source.style.shader.postProcessing || (style.shader as any).postProcessing ? { postProcessing: { ...source.style.shader.postProcessing, ...((style.shader as any).postProcessing ?? {}) } } : {}),
+            ...(source.style.shader.pipeline || (style.shader as any).pipeline ? { pipeline: { ...source.style.shader.pipeline, ...((style.shader as any).pipeline ?? {}) } } : {}),
           }
         : style.shader))
     : source.style.shader
@@ -211,11 +215,27 @@ export function applyComponentOverrides(source: SceneElement, link: Extract<Comp
     }
   }
 
+  let variableAxes = source.type === 'text' ? source.variableAxes : undefined
+  if (source.type === 'text' && Object.hasOwn(propRecord, 'variableAxes')) {
+    variableAxes = propRecord.variableAxes ? { ...source.variableAxes, ...(propRecord.variableAxes as any) } : undefined
+  }
+  let openTypeFeatures = source.type === 'text' ? source.openTypeFeatures : undefined
+  if (source.type === 'text' && Object.hasOwn(propRecord, 'openTypeFeatures')) {
+    openTypeFeatures = propRecord.openTypeFeatures ? { ...source.openTypeFeatures, ...(propRecord.openTypeFeatures as any) } : undefined
+  }
+  let textOnPath = source.type === 'text' ? source.textOnPath : undefined
+  if (source.type === 'text' && Object.hasOwn(propRecord, 'textOnPath')) {
+    textOnPath = propRecord.textOnPath ? { ...source.textOnPath, ...(propRecord.textOnPath as any) } : undefined
+  }
+
   const node = {
     ...source,
     ...(source.sharedStyleBindings || Object.keys(sharedStyleBindings).length ? { sharedStyleBindings } : {}),
     ...properties,
     ...(source.type === 'text' && (Object.hasOwn(propRecord, 'kinetic') || source.kinetic) ? { kinetic } : {}) as any,
+    ...(source.type === 'text' && (Object.hasOwn(propRecord, 'variableAxes') || source.variableAxes) ? { variableAxes } : {}) as any,
+    ...(source.type === 'text' && (Object.hasOwn(propRecord, 'openTypeFeatures') || source.openTypeFeatures) ? { openTypeFeatures } : {}) as any,
+    ...(source.type === 'text' && (Object.hasOwn(propRecord, 'textOnPath') || source.textOnPath) ? { textOnPath } : {}) as any,
     component: link,
     tokenBindings,
     style: { ...source.style, ...style, stroke, ...(Object.hasOwn(style, 'shader') || source.style.shader ? { shader } : {}) }

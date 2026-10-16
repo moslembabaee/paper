@@ -4,6 +4,7 @@ import type { PathContour } from './pathGeometry.ts'
 import type { ShapedText } from './fontEngine.ts'
 import type { KineticTypography, TextElement } from './types.ts'
 import { textAnchorForPath, textPathOffset } from './typography.ts'
+import { calculateStaggerDelay, evaluateWaveform } from './glyphDecomposition.ts'
 
 export const DEFAULT_KINETIC: KineticTypography = Object.freeze({
   enabled: true,
@@ -18,6 +19,9 @@ export const DEFAULT_KINETIC: KineticTypography = Object.freeze({
   weightModulation: 0,
   slantModulation: 0,
   scaleModulation: 0,
+  widthModulation: 0,
+  horizontalAmplitude: 0,
+  opticalSizeModulation: 0,
 })
 interface Sample extends Point { distance: number }
 
@@ -88,54 +92,55 @@ export function placeGlyphs(node: TextElement, shaped: ShapedText, unitsPerEm: n
 }
 
 export interface CascadeOffsetResult {
+  readonly x?: number
   readonly y: number
   readonly angle: number
   readonly scale?: number
   readonly weightDelta?: number
   readonly slantDelta?: number
+  readonly widthDelta?: number
+  readonly opticalSizeDelta?: number
 }
 
 /** Matches the quarter-cycle CSS keyframes, with selectable stagger modes, waveforms, and axis dynamics. */
 export function cascadeOffset(kinetic: KineticTypography | undefined, index: number, totalGlyphs = 1): CascadeOffsetResult {
   if (!kinetic?.enabled) return { y: 0, angle: 0 }
   const total = Math.max(1, totalGlyphs)
-  let delay = index * kinetic.stagger
-  if (kinetic.staggerMode === 'wave') {
-    delay = Math.sin((index / Math.max(1, total - 1)) * Math.PI) * kinetic.stagger * 1.5
-  } else if (kinetic.staggerMode === 'center-out') {
-    delay = Math.abs(index - (total - 1) / 2) * kinetic.stagger
-  } else if (kinetic.staggerMode === 'random') {
-    delay = ((((index + 1) * 9301 + 49297) % 233280) / 233280) * kinetic.stagger * Math.max(1, total / 2)
-  } else if (kinetic.staggerMode === 'elastic') {
-    const norm = index / Math.max(1, total - 1)
-    delay = Math.abs(Math.cos(norm * Math.PI * 2.5)) * kinetic.stagger * 2
-  }
+  const delay = calculateStaggerDelay(kinetic.staggerMode, index, total, kinetic.stagger)
+  const durationMs = Math.max(200, (kinetic.duration || 2.4) * 1000)
+  const cycle = ((kinetic.phase + delay / durationMs) % 1 + 1) % 1
+  const wave = evaluateWaveform(cycle, kinetic.waveShape ?? 'triangle')
 
-  const cycle = ((kinetic.phase + delay / (kinetic.duration * 1000)) % 1 + 1) % 1
-  let wave: number
-  if (kinetic.waveShape === 'sine') {
-    wave = -Math.sin(cycle * Math.PI * 2)
-  } else if (kinetic.waveShape === 'bounce') {
-    wave = Math.abs(Math.sin(cycle * Math.PI * 2)) * 2 - 1
-  } else if (kinetic.waveShape === 'spring') {
-    wave = -Math.sin(cycle * Math.PI * 3) * (1 - cycle * 0.7)
-  } else {
-    // Default 'triangle' matching Paper quarter-cycle keyframes
-    wave = cycle < .25 ? -4 * cycle : cycle < .75 ? 4 * cycle - 2 : 4 - 4 * cycle
-  }
-
-  const result: { y: number; angle: number; scale?: number; weightDelta?: number; slantDelta?: number } = {
+  const result: {
+    x?: number
+    y: number
+    angle: number
+    scale?: number
+    weightDelta?: number
+    slantDelta?: number
+    widthDelta?: number
+    opticalSizeDelta?: number
+  } = {
     y: wave * kinetic.amplitude,
     angle: wave * kinetic.rotation,
   }
+  if (kinetic.horizontalAmplitude && kinetic.horizontalAmplitude !== 0) {
+    result.x = wave * kinetic.horizontalAmplitude
+  }
   if (kinetic.scaleModulation && kinetic.scaleModulation > 0) {
-    result.scale = Math.max(0.1, 1 + wave * kinetic.scaleModulation)
+    result.scale = Math.max(0.05, 1 + wave * kinetic.scaleModulation)
   }
   if (kinetic.weightModulation && kinetic.weightModulation !== 0) {
     result.weightDelta = wave * kinetic.weightModulation
   }
   if (kinetic.slantModulation && kinetic.slantModulation !== 0) {
     result.slantDelta = wave * kinetic.slantModulation
+  }
+  if (kinetic.widthModulation && kinetic.widthModulation !== 0) {
+    result.widthDelta = wave * kinetic.widthModulation
+  }
+  if (kinetic.opticalSizeModulation && kinetic.opticalSizeModulation !== 0) {
+    result.opticalSizeDelta = wave * kinetic.opticalSizeModulation
   }
   return result
 }
@@ -150,7 +155,7 @@ export function glyphOutlines(glyphs: readonly GlyphPlacement[], kinetic?: Kinet
     const effectiveScale = glyph.scale * (offset.scale ?? 1)
     const transform = (point: Point): Point => {
       const gx = point.x * effectiveScale + glyph.origin + glyph.dx, gy = -point.y * effectiveScale + glyph.dy
-      const x = gx * sc - gy * ss, y = gx * ss + gy * sc + offset.y
+      const x = gx * sc - gy * ss + (offset.x ?? 0), y = gx * ss + gy * sc + offset.y
       return { x: glyph.x + x * cos - y * sin, y: glyph.y + x * sin + y * cos }
     }
     for (const contour of parsePath(glyph.d)) contours.push({ closed: contour.closed, anchors: contour.anchors.map(anchor => ({ ...transform(anchor), ...(anchor.in ? { in: transform(anchor.in) } : {}), ...(anchor.out ? { out: transform(anchor.out) } : {}) })) })

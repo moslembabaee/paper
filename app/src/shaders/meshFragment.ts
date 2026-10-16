@@ -14,6 +14,9 @@ uniform float u_lacunarity;
 uniform float u_octaves;
 uniform float u_normalPerturbation;
 uniform float u_grainDisplacement;
+uniform float u_fluidAdvection;
+uniform float u_fluidViscosity;
+uniform float u_distortionMode; // 0.0 = curl-fluid, 1.0 = domain-warp, 2.0 = turbulent-swirl, 3.0 = simplex-flow
 uniform float u_turbulence, u_frequency, u_chromatic, u_distortion, u_swirl;
 uniform float u_grainMixer, u_grainOverlay, u_scale, u_rotation;
 uniform float u_grainBlend;
@@ -148,6 +151,18 @@ float sampleMultiOctave(vec2 p, float t) {
   return maxAmp > 0.0 ? total / maxAmp : 0.0;
 }
 
+// Incompressible 2D Curl-Noise formulation: nabla x psi
+vec2 curlNoise(vec2 p, float t) {
+  const float e = 0.005;
+  float n1 = sampleMultiOctave(p + vec2(0.0, e), t);
+  float n2 = sampleMultiOctave(p - vec2(0.0, e), t);
+  float n3 = sampleMultiOctave(p + vec2(e, 0.0), t);
+  float n4 = sampleMultiOctave(p - vec2(e, 0.0), t);
+  float dy = (n1 - n2) / (2.0 * e);
+  float dx = (n3 - n4) / (2.0 * e);
+  return vec2(dy, -dx);
+}
+
 // NxM Grid Bicubic Patch Evaluator with per-vertex tangent control
 vec4 gridField(vec2 uv) {
   int rows = int(u_gridRows);
@@ -246,14 +261,36 @@ void main() {
   float t = u_time * 0.18;
   float turbulence = u_turbulence + u_distortion * 0.3;
 
-  // Multi-octave Simplex / Perlin / Worley domain warping flow calculation
-  if (turbulence > 0.0 || warpMod > 0.0) {
-    vec2 flow1 = vec2(sampleMultiOctave(p + vec2(t, 0.0), t),
-                      sampleMultiOctave(p + vec2(7.3, t * 1.15), t));
-    vec2 flow2 = vec2(sampleMultiOctave(p * 1.5 + flow1 * (1.0 + warpMod * 2.0) + vec2(3.1, t * 0.8), t),
-                      sampleMultiOctave(p * 1.5 + flow1 * (1.0 + warpMod * 2.0) + vec2(9.4, t * 0.9), t));
-    vec2 blendedFlow = mix(flow1, flow2, warpMod);
-    p += blendedFlow * (turbulence + warpMod * 0.35) * 0.4;
+  // Fluid dynamics, advection & multi-octave domain warping
+  float advection = clamp(u_fluidAdvection, 0.0, 1.0);
+  float viscosityDamp = 1.0 - clamp(u_fluidViscosity, 0.0, 1.0) * 0.7;
+
+  if (advection > 0.0 || turbulence > 0.0 || warpMod > 0.0) {
+    if (u_distortionMode < 0.5) {
+      // Incompressible curl-noise fluid advection
+      vec2 curl = curlNoise(p * 1.2 + vec2(t * 0.15, t * 0.12), t);
+      p += curl * advection * viscosityDamp * (1.0 + turbulence * 1.5) * 0.35;
+    } else if (u_distortionMode < 1.5) {
+      // Multi-octave nested domain warping flow
+      vec2 flow1 = vec2(sampleMultiOctave(p + vec2(t, 0.0), t),
+                        sampleMultiOctave(p + vec2(7.3, t * 1.15), t));
+      vec2 flow2 = vec2(sampleMultiOctave(p * 1.5 + flow1 * (1.0 + warpMod * 2.0) + vec2(3.1, t * 0.8), t),
+                        sampleMultiOctave(p * 1.5 + flow1 * (1.0 + warpMod * 2.0) + vec2(9.4, t * 0.9), t));
+      vec2 blendedFlow = mix(flow1, flow2, warpMod);
+      p += blendedFlow * (turbulence + warpMod * 0.35) * viscosityDamp * 0.4;
+    } else if (u_distortionMode < 2.5) {
+      // Turbulent vortex swirl flow
+      float distToCenter = length(p);
+      float swirlF = sin(distToCenter * 6.0 - t * 2.0) * exp(-distToCenter * 2.0);
+      vec2 rotVec = vec2(-p.y, p.x) * swirlF * (1.0 + warpMod * 1.5);
+      vec2 turbFlow = vec2(sampleMultiOctave(p + rotVec, t), sampleMultiOctave(p.yx + rotVec, t));
+      p += (rotVec * 0.4 + turbFlow * 0.25) * (turbulence + advection) * viscosityDamp;
+    } else {
+      // Simplex directional flow
+      float angle = sampleMultiOctave(p * 1.5, t) * 6.2831853;
+      vec2 dirFlow = vec2(cos(angle), sin(angle));
+      p += dirFlow * (turbulence + warpMod * 0.4 + advection * 0.3) * viscosityDamp * 0.3;
+    }
   }
 
   // High-frequency grain dithering & displacement

@@ -17,6 +17,16 @@ if [ "$FREE_MEM" -lt 350 ]; then
     sync && echo 3 > /proc/sys/vm/drop_caches
 fi
 
+# 1b. Check disk space and prune if low (< 3500 MB)
+FREE_DISK=$(df -m / | awk 'NR==2 {print $4}')
+if [ "$FREE_DISK" -lt 3500 ]; then
+    echo "[$NOW] [WATCHDOG] Low disk space ($FREE_DISK MB). Pruning Docker cache and old transcripts..." >> "$LOG_FILE"
+    docker builder prune -f --keep-storage 1GB >> "$LOG_FILE" 2>&1
+    docker image prune -f >> "$LOG_FILE" 2>&1
+    find /root/.claude/projects -type f -name "*.jsonl" -mtime +2 -delete 2>/dev/null
+    journalctl --vacuum-size=50M >> "$LOG_FILE" 2>&1
+fi
+
 # 2. Check if orchestrator is alive; if not, restart it
 if ! tmux has-session -t paper-orchestrator 2>/dev/null; then
     echo "[$NOW] [WATCHDOG] ⚠️ Orchestrator process NOT FOUND! Reviving in tmux..." >> "$LOG_FILE"

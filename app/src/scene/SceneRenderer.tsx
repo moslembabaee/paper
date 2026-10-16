@@ -6,7 +6,8 @@ import type { SceneElement } from './types'
 import { useScene } from './useScene'
 import { ShapeShader } from '../shaders/ShapeShader'
 import { frameMask, maskPathData, maskFillRule } from './maskGeometry'
-import { compileTypographyStyles, embeddedFontCSS, resolveTextPathD } from './typography'
+import { compileTypographyStyles, embeddedFontCSS, resolveTextPathD, textPathOffset } from './typography'
+import { createCurvePath } from './textOnPath'
 import { textMarkup } from './textMarkup'
 import { KineticText } from './KineticText'
 import './scene.css'
@@ -91,7 +92,21 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
       {node.type === 'text' && node.fontSource && <style>{embeddedFontCSS(node)}</style>}
       {node.style.shader && !(node.type === 'text' && node.kinetic?.enabled) && <ShapeShader node={node} textPathD={pathD} />}
       <Paint node={node} pathD={pathD} paintId={`${effectId}-text`} />
-      {selected && !presentation && node.type === 'text' && node.textOnPath?.enabled && <svg className="scene-text-path-guide" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true"><path d={pathD} fill="none" stroke="#81adec" strokeWidth="1" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" /></svg>}
+      {selected && !presentation && node.type === 'text' && node.textOnPath?.enabled && (() => {
+        const curve = pathD ? createCurvePath(pathD) : null
+        const offsetPx = node.textOnPath?.offsetMode === 'pixels'
+          ? (node.textOnPath.offset ?? 0)
+          : curve ? curve.length * (textPathOffset(node) / 100) : 0
+        const offsetPt = curve && curve.length > 0 ? curve.at(offsetPx) : null
+        return (
+          <svg className="scene-text-path-guide" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true">
+            <path d={pathD} fill="none" stroke="#81adec" strokeWidth="1" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+            {offsetPt && (
+              <circle cx={offsetPt.x} cy={offsetPt.y} r="3.5" fill="#81adec" stroke="#080808" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+            )}
+          </svg>
+        )
+      })()}
       {isFrame && mask && <svg width="0" height="0" className="scene-mask-defs" aria-hidden="true"><defs><clipPath id={`${effectId}-mask`} clipPathUnits="userSpaceOnUse"><path d={maskPathData(mask)} clipRule={maskFillRule(mask)} /></clipPath></defs></svg>}
       {isFrame && <div className="scene-children" data-mask-source={mask?.id} style={{ clipPath: mask ? `url(#${effectId}-mask)` : undefined }}>{node.children.filter(childId => childId !== mask?.id).map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} presentation={presentation} />)}{!presentation && <BooleanCanvasPreview store={store} parentId={id} />}</div>}
       {isFrame && mask && !presentation && (mask.mask?.showOutline || maskSelected) && <svg className="scene-mask-outline" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true"><path d={maskPathData(mask)} fill="none" stroke="#81adec" strokeWidth="1" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" /></svg>}

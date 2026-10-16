@@ -7,6 +7,7 @@ import './shaders.css'
 import { MeshInspector } from './MeshInspector'
 import { MaterialComposer } from './pipeline/MaterialComposer'
 import { PostProcessingInspector } from '../canvas/postprocessing/PostProcessingInspector'
+import { NoiseInspector } from './noise/NoiseInspector'
 
 function Slider({ control, value, onChange }: { control: Extract<ShaderControl, { type: 'number' }>; value: number; onChange: (value: number) => void }) {
   const inputId = useId()
@@ -39,8 +40,10 @@ export function ShaderInspector({ paint, onChange, target, image, showPicker = t
       {paint.kind === 'glass-refraction' && <p className="shader-image-note">Glass refracts the source image. Animated mode gently shifts the texture.</p>}
       {paint.kind === 'mesh-gradient' && <MeshInspector paint={paint} onChange={onChange} onGestureStart={onGestureStart} onGestureEnd={onGestureEnd} target={target} onBindTarget={onBindTarget} />}
       {paint.kind === 'multi-pass' && <MaterialComposer paint={paint} onChange={onChange} />}
+      {paint.kind === 'procedural-noise' && <NoiseInspector paint={paint} onChange={onChange} target={target} onBindTarget={onBindTarget} />}
       {definition.controls.map(control => {
         if (paint.kind === 'multi-pass') return null
+        if (paint.kind === 'procedural-noise') return null
         if (paint.kind === 'mesh-gradient' && paint.mesh && control.type === 'palette') return null
         if (paint.kind === 'mesh-gradient' && paint.mesh && (control.key === 'grainMixer' || control.key === 'grainOverlay')) return null
         const value = params[control.key]

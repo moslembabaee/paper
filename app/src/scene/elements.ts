@@ -126,18 +126,21 @@ export function validateElement(element: SceneElement, depth = 0): void {
     if (element.kinetic !== undefined) {
       const k = element.kinetic
       if (!k || typeof k.enabled !== 'boolean' || typeof k.playing !== 'boolean' || ![k.amplitude, k.rotation, k.duration, k.stagger, k.phase].every(Number.isFinite) || k.amplitude < 0 || k.amplitude > 240 || Math.abs(k.rotation) > 180 || k.duration < .2 || k.duration > 30 || k.stagger < 0 || k.stagger > 1000 || k.phase < 0 || k.phase > 1) throw new Error('Invalid kinetic typography')
-      if (k.staggerMode !== undefined && !['cascade', 'wave', 'center-out', 'random', 'elastic'].includes(k.staggerMode)) throw new Error('Invalid kinetic stagger mode')
+      if (k.staggerMode !== undefined && !['cascade', 'left-to-right', 'right-to-left', 'wave', 'center-out', 'random', 'elastic'].includes(k.staggerMode)) throw new Error('Invalid kinetic stagger mode')
       if (k.waveShape !== undefined && !['triangle', 'sine', 'bounce', 'spring'].includes(k.waveShape)) throw new Error('Invalid kinetic wave shape')
       if (k.weightModulation !== undefined && (!Number.isFinite(k.weightModulation) || Math.abs(k.weightModulation) > 500)) throw new Error('Invalid kinetic weight modulation')
       if (k.slantModulation !== undefined && (!Number.isFinite(k.slantModulation) || Math.abs(k.slantModulation) > 30)) throw new Error('Invalid kinetic slant modulation')
       if (k.scaleModulation !== undefined && (!Number.isFinite(k.scaleModulation) || k.scaleModulation < 0 || k.scaleModulation > 1)) throw new Error('Invalid kinetic scale modulation')
+      if (k.widthModulation !== undefined && (!Number.isFinite(k.widthModulation) || Math.abs(k.widthModulation) > 200)) throw new Error('Invalid kinetic width modulation')
+      if (k.horizontalAmplitude !== undefined && (!Number.isFinite(k.horizontalAmplitude) || Math.abs(k.horizontalAmplitude) > 500)) throw new Error('Invalid kinetic horizontal amplitude')
+      if (k.opticalSizeModulation !== undefined && (!Number.isFinite(k.opticalSizeModulation) || Math.abs(k.opticalSizeModulation) > 100)) throw new Error('Invalid kinetic optical size modulation')
     }
     if (typeof element.text !== 'string' || typeof element.fontFamily !== 'string' || ![element.fontSize, element.fontWeight, element.lineHeight, element.letterSpacing].every(Number.isFinite) || element.fontSize <= 0 || element.lineHeight <= 0 || element.fontWeight < 1 || element.fontWeight > 1000 || !['left', 'center', 'right'].includes(element.textAlign)) throw new Error('Invalid text')
     if (element.fontSource !== undefined && (typeof element.fontSource !== 'string' || !/^data:font\/(woff2?|ttf|otf);base64,[A-Za-z0-9+/=]+$/.test(element.fontSource) || element.fontSource.length > 4_200_000)) throw new Error('Invalid embedded font')
     if (element.variableAxes !== undefined) {
       if (!element.variableAxes || typeof element.variableAxes !== 'object' || Array.isArray(element.variableAxes)) throw new Error('Invalid variable axes')
       for (const [tag, val] of Object.entries(element.variableAxes)) {
-        if (!/^[a-zA-Z0-9 ]{4}$/.test(tag) || (val !== undefined && !Number.isFinite(val))) throw new Error(`Invalid variable axis ${tag}`)
+        if (!/^[a-zA-Z0-9_ ]{4}$/.test(tag) || (val !== undefined && !Number.isFinite(val))) throw new Error(`Invalid variable axis ${tag}`)
       }
     }
     if (element.openTypeFeatures !== undefined) {
@@ -157,11 +160,13 @@ export function validateElement(element: SceneElement, depth = 0): void {
         if (!parsePath(element.textOnPath.pathData).some(contour => contour.anchors.length > 1)) throw new Error('Invalid text on path data')
       }
       if (element.textOnPath.offset !== undefined && !Number.isFinite(element.textOnPath.offset)) throw new Error('Invalid text on path offset')
+      if (element.textOnPath.offsetMode !== undefined && !['percent', 'pixels'].includes(element.textOnPath.offsetMode)) throw new Error('Invalid text on path offset mode')
       if (element.textOnPath.side !== undefined && !['left', 'right'].includes(element.textOnPath.side)) throw new Error('Invalid text on path side')
-      if (element.textOnPath.align !== undefined && !['start', 'center', 'end'].includes(element.textOnPath.align)) throw new Error('Invalid text on path align')
+      if (element.textOnPath.align !== undefined && !['start', 'center', 'end', 'justify'].includes(element.textOnPath.align)) throw new Error('Invalid text on path align')
       if (element.textOnPath.spacing !== undefined && !Number.isFinite(element.textOnPath.spacing)) throw new Error('Invalid text on path spacing')
       if (element.textOnPath.reverse !== undefined && typeof element.textOnPath.reverse !== 'boolean') throw new Error('Invalid text on path reverse')
       if (element.textOnPath.preset !== undefined && !['custom', 'wave', 'arc', 'circle', 'scurve', 'spiral', 'banner', 'zigzag'].includes(element.textOnPath.preset)) throw new Error('Invalid text on path preset')
+      if (element.textOnPath.baselineShift !== undefined && !Number.isFinite(element.textOnPath.baselineShift)) throw new Error('Invalid text on path baseline shift')
     }
   }
   if (element.type === 'image' && (typeof element.src !== 'string' || typeof element.alt !== 'string' || !['cover', 'contain', 'fill'].includes(element.fit))) throw new Error('Invalid image')

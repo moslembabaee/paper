@@ -1,7 +1,7 @@
 import { TOKEN_META } from '../tokens/model.ts'
 import { motionControls, shaderCatalog, shaderKinds } from '../shaders/catalog.ts'
 import type { ShaderControl } from '../shaders/types.ts'
-import { grainBlendModes, meshInterpolationModes, noiseGenerators, shaderBlendModes } from '../shaders/types.ts'
+import { grainBlendModes, meshDistortionModes, meshInterpolationModes, noiseGenerators, shaderBlendModes } from '../shaders/types.ts'
 import { modulatorWaveforms, pipelinePassTypes } from '../shaders/pipeline/types.ts'
 import { audioSignals } from '../shaders/audio/types.ts'
 import { postProcessDefinitions, MAX_POST_PROCESS_PASSES } from '../canvas/postprocessing/model.ts'
@@ -62,6 +62,9 @@ const meshProperties = {
   octaves: { type: 'integer', minimum: 1, maximum: 6 } as JsonSchema,
   normalPerturbation: unitInterval,
   grainDisplacement: unitInterval,
+  fluidAdvection: unitInterval,
+  fluidViscosity: unitInterval,
+  distortionMode: { type: 'string', enum: meshDistortionModes } as JsonSchema,
 }
 const pipelinePassProperties = {
   id: str(),

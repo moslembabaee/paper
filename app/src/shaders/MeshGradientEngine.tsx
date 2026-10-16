@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react'
-import { Grid, Minus, Plus, RotateCcw, Sparkles, Wand2 } from 'lucide-react'
+import { Grid, Layers, Minus, Plus, RotateCcw, Sparkles, Wand2 } from 'lucide-react'
 import { ShaderSurface } from './ShaderSurface'
 import { freezeShader, validateShader } from './catalog'
 import {
@@ -11,6 +11,7 @@ import {
   synthesizeProceduralColorField,
 } from './mesh'
 import type { MeshHarmonyMode } from './mesh'
+import { useMeshActiveGridVertex, setMeshActiveGridVertex } from './meshState'
 import type { MeshGridConfig, MeshMaterial, ShaderPaint } from './types'
 
 type MeshPaint = Extract<ShaderPaint, { kind: 'mesh-gradient' }>
@@ -20,17 +21,31 @@ export function MeshGradientEngine({
   onChange,
   onGestureStart,
   onGestureEnd,
+  target,
+  onBindTarget,
 }: {
   paint: MeshPaint
   onChange: (paint: ShaderPaint) => void
   onGestureStart?: () => boolean | void
   onGestureEnd?: (cancel: boolean) => void
+  target?: string
+  onBindTarget?: (mode: 'selection' | 'background' | 'new-card') => void
 }) {
   const mesh = paint.mesh ?? createMeshMaterial(paint.params.colors.length)
   const grid = mesh.grid
   const preview = useRef<HTMLDivElement>(null)
   const before = useRef<MeshPaint | null>(null)
-  const [activeVertex, setActiveVertex] = useState(0)
+  const dragRef = useRef<{
+    pointerId: number
+    vertexIndex: number
+    startX: number
+    startY: number
+    origTx: number
+    origTy: number
+  } | null>(null)
+  const colorInputRef = useRef<HTMLInputElement>(null)
+  const activeGridVertex = useMeshActiveGridVertex()
+  const setActiveVertex = (idx: number) => setMeshActiveGridVertex(idx)
   const [synthHarmony, setSynthHarmony] = useState<MeshHarmonyMode>('harmonic')
 
   const start = () => {
@@ -88,7 +103,7 @@ export function MeshGradientEngine({
 
   const synthesizeGridField = (harmony: MeshHarmonyMode = synthHarmony) => {
     if (!grid) return
-    const baseColor = grid.vertices[activeVertex]?.color ?? '#81adec'
+    const baseColor = grid.vertices[active]?.color ?? '#81adec'
     const synthesized = synthesizeProceduralColorField(baseColor, grid.vertices.length, harmony)
     const vertices = grid.vertices.map((v, i) => ({
       ...v,
@@ -101,6 +116,42 @@ export function MeshGradientEngine({
     if (!grid) return
     const vertices = grid.vertices.map(v => ({ ...v, tx: 0, ty: 0 }))
     updateGrid({ vertices })
+  }
+
+  const handleVertexPointerDown = (index: number, e: React.PointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0 || !grid) return
+    e.preventDefault()
+    e.stopPropagation()
+    start()
+    setActiveVertex(index)
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const v = grid.vertices[index]
+    dragRef.current = {
+      pointerId: e.pointerId,
+      vertexIndex: index,
+      startX: e.clientX,
+      startY: e.clientY,
+      origTx: v?.tx ?? 0,
+      origTy: v?.ty ?? 0,
+    }
+  }
+
+  const handleVertexPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId || !preview.current || !grid) return
+    const rect = preview.current.getBoundingClientRect()
+    const dx = (e.clientX - drag.startX) / (rect.width * 0.3)
+    const dy = (e.clientY - drag.startY) / (rect.height * 0.3)
+    const nextTx = Math.max(-1, Math.min(1, drag.origTx + dx))
+    const nextTy = Math.max(-1, Math.min(1, drag.origTy + dy))
+    updateVertexTangent(drag.vertexIndex, nextTx, nextTy)
+  }
+
+  const handleVertexPointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
+    if (dragRef.current?.pointerId === e.pointerId) {
+      dragRef.current = null
+      end(false)
+    }
   }
 
   if (!grid) {
@@ -118,7 +169,7 @@ export function MeshGradientEngine({
   }
 
   const { rows, cols, vertices } = grid
-  const active = Math.min(activeVertex, vertices.length - 1)
+  const active = Math.min(activeGridVertex, vertices.length - 1)
   const activeV = vertices[active]
 
   return (
@@ -151,7 +202,32 @@ export function MeshGradientEngine({
               return <line key={`v${r}-${c}`} x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#81adec44" strokeWidth="0.003" />
             })
           )}
+          {/* Active vertex tangent control stick */}
+          {activeV && (
+            (() => {
+              const r = Math.floor(active / cols)
+              const c = active % cols
+              const pos = gridVertexPosition(r, c, rows, cols)
+              const tEnd = { x: pos.x + activeV.tx * 0.12, y: pos.y + activeV.ty * 0.12 }
+              return (
+                <g key={`tangent-${active}`}>
+                  <line x1={pos.x} y1={pos.y} x2={tEnd.x} y2={tEnd.y} stroke="#81adec" strokeWidth="0.005" strokeDasharray="0.008 0.004" />
+                  <circle cx={tEnd.x} cy={tEnd.y} r="0.012" fill="#81adec" stroke="#080808" strokeWidth="0.003" />
+                </g>
+              )
+            })()
+          )}
         </svg>
+        <input
+          ref={colorInputRef}
+          type="color"
+          value={activeV?.color.slice(0, 7) ?? '#81adec'}
+          style={{ display: 'none' }}
+          aria-label="Grid vertex quick color picker"
+          onChange={e => {
+            if (activeV) updateVertexColor(active, e.currentTarget.value + activeV.color.slice(7))
+          }}
+        />
         {/* Vertex Handles */}
         {vertices.map((vertex, index) => {
           const r = Math.floor(index / cols)
@@ -170,14 +246,15 @@ export function MeshGradientEngine({
               aria-pressed={index === active}
               aria-label={`Grid vertex ${r + 1},${c + 1}`}
               onClick={e => { e.stopPropagation(); setActiveVertex(index) }}
-              onPointerDown={e => {
-                if (e.button !== 0) return
-                e.preventDefault()
+              onDoubleClick={e => {
                 e.stopPropagation()
-                start()
                 setActiveVertex(index)
+                colorInputRef.current?.click()
               }}
-              onPointerUp={() => end(false)}
+              onPointerDown={e => handleVertexPointerDown(index, e)}
+              onPointerMove={handleVertexPointerMove}
+              onPointerUp={handleVertexPointerUp}
+              onPointerCancel={handleVertexPointerUp}
             >
               <span>{index + 1}</span>
             </button>
@@ -386,6 +463,51 @@ export function MeshGradientEngine({
           ))}
         </div>
       </div>
+
+      {/* Direct Scene Canvas Binding */}
+      {(target || onBindTarget) && (
+        <div className="mesh-binding-section" role="region" aria-label="Grid canvas binding">
+          <div className="mesh-binding-row">
+            <span className="section-caption">CANVAS BINDING</span>
+            <span className="mesh-binding-target-badge">{target ?? 'Canvas layer'}</span>
+          </div>
+          {onBindTarget && (
+            <div className="mesh-binding-actions">
+              {target !== 'Canvas background' && (
+                <button
+                  type="button"
+                  className="mesh-binding-btn"
+                  title="Apply grid mesh gradient to canvas background"
+                  onClick={() => onBindTarget('background')}
+                >
+                  <Layers size={11} />
+                  <span>Apply to Background</span>
+                </button>
+              )}
+              {target === 'Canvas background' && (
+                <button
+                  type="button"
+                  className="mesh-binding-btn"
+                  title="Bind grid mesh gradient to selected canvas layers"
+                  onClick={() => onBindTarget('selection')}
+                >
+                  <Layers size={11} />
+                  <span>Bind to Selection</span>
+                </button>
+              )}
+              <button
+                type="button"
+                className="mesh-binding-btn"
+                title="Create a new canvas card with this grid mesh gradient"
+                onClick={() => onBindTarget('new-card')}
+              >
+                <Plus size={11} />
+                <span>Create Mesh Card</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

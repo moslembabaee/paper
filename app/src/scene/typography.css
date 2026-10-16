@@ -73,6 +73,23 @@
   align-items: center;
 }
 
+.axis-slider-header.is-scrubbable {
+  cursor: ew-resize;
+  user-select: none;
+  border-radius: var(--paper-radius-sm, 2px);
+  padding: 1px 2px;
+  margin: -1px -2px;
+  transition: background 120ms ease;
+}
+
+.axis-slider-header.is-scrubbable:hover {
+  background: rgba(129, 173, 236, 0.08);
+}
+
+.axis-slider-header.is-scrubbable:hover .axis-label-name {
+  color: var(--paper-accent-text, #81adec);
+}
+
 .axis-tag-badge {
   font-family: var(--font-mono);
   font-size: 10px;

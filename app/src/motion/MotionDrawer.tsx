@@ -1034,6 +1034,8 @@ export function MotionDrawer({
               value={format}
               onChange={event => setFormat(event.target.value as ExportFormat)}
             >
+              <option value="lottie">Lottie Animation (Bodymovin .json)</option>
+              <option value="animated-svg">Animated Vector SVG (.svg)</option>
               <option value="framer">Framer Motion (React)</option>
               <option value="css">CSS Keyframes (@keyframes)</option>
               <option value="waapi">Web Animations API (WAAPI)</option>
@@ -1056,8 +1058,8 @@ export function MotionDrawer({
             <button
               type="button"
               onClick={() => {
-                const ext = format === 'framer' ? 'tsx' : format === 'css' ? 'css' : format === 'waapi' ? 'ts' : 'json'
-                const mime = format === 'json' ? 'application/json' : 'text/plain'
+                const ext = format === 'lottie' || format === 'json' ? 'json' : format === 'animated-svg' ? 'svg' : format === 'framer' ? 'tsx' : format === 'css' ? 'css' : 'ts'
+                const mime = format === 'lottie' || format === 'json' ? 'application/json' : format === 'animated-svg' ? 'image/svg+xml' : 'text/plain'
                 downloadFile(new Blob([code], { type: mime }), `paper-motion.${ext}`)
               }}
             >

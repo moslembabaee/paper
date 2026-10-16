@@ -30,7 +30,7 @@ LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "orchestrator.log"
 
-AGENT_CHAIN = ["codex", "claude", "antigravity"]
+AGENT_CHAIN = ["claude"]
 
 def log(msg: str):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -119,9 +119,10 @@ def reconcile_issue_before_dispatch(roadmap: dict, task: dict) -> bool:
 
 def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple[int, str]:
     log(f"Dispatching task to agent [{agent.upper()}] (retry={is_retry})...")
-    # Run Claude Code in non-interactive print mode
+    # Claude-only mode (owner decision 2026-10-16): every task runs through Claude with
+    # a 40-minute wall-clock ceiling so long coding sessions are not cut mid-work.
     cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 80'
-    return run_cmd(cmd, timeout=600)
+    return run_cmd(cmd, timeout=2400)
 
 def build_prompt(task: dict, error_feedback: str = None) -> str:
     prompt = f"""
@@ -163,9 +164,10 @@ def decompose_task(roadmap: dict, task: dict) -> bool:
     as a verification checkpoint, and link every child to the parent. Returns True only
     when decomposition actually happened (>=2 children)."""
     try:
-        from issue_bot import decompose_issue_into_subtasks
+        from issue_bot import decompose_issue_into_subtasks as _decompose
     except Exception:
-        decompose_issue_into_subtasks = None
+        _decompose = None
+    decompose_issue_into_subtasks = _decompose  # module-level for testability
 
     subtasks = None
     if decompose_issue_into_subtasks is not None:

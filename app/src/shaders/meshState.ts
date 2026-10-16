@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react'
 type MeshStateListener = () => void
 
 let activeAnchorIndex = 0
+let activeGridVertexIndex = 0
 let placementModeActive = false
 const listeners = new Set<MeshStateListener>()
 
@@ -13,6 +14,17 @@ export function getMeshActiveAnchor(): number {
 export function setMeshActiveAnchor(index: number): void {
   if (activeAnchorIndex !== index) {
     activeAnchorIndex = Math.max(0, index)
+    notifyMeshState()
+  }
+}
+
+export function getMeshActiveGridVertex(): number {
+  return activeGridVertexIndex
+}
+
+export function setMeshActiveGridVertex(index: number): void {
+  if (activeGridVertexIndex !== index) {
+    activeGridVertexIndex = Math.max(0, index)
     notifyMeshState()
   }
 }
@@ -37,6 +49,10 @@ export function subscribeMeshState(listener: MeshStateListener): () => void {
 
 export function useMeshActiveAnchor(): number {
   return useSyncExternalStore(subscribeMeshState, getMeshActiveAnchor, getMeshActiveAnchor)
+}
+
+export function useMeshActiveGridVertex(): number {
+  return useSyncExternalStore(subscribeMeshState, getMeshActiveGridVertex, getMeshActiveGridVertex)
 }
 
 export function useMeshPlacementMode(): boolean {

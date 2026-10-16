@@ -51,6 +51,9 @@ export type MeshInterpolationMode = typeof meshInterpolationModes[number]
 export const noiseGenerators = ['simplex', 'perlin', 'worley'] as const
 export type NoiseGenerator = typeof noiseGenerators[number]
 
+export const meshDistortionModes = ['curl-fluid', 'domain-warp', 'turbulent-swirl', 'simplex-flow'] as const
+export type MeshDistortionMode = typeof meshDistortionModes[number]
+
 export const grainBlendModes = ['overlay', 'soft-light', 'multiply', 'screen', 'linear-dodge', 'color-dodge'] as const
 export const meshTopologies = ['freeform', 'grid'] as const
 export type MeshTopology = typeof meshTopologies[number]
@@ -90,6 +93,12 @@ export interface MeshMaterial {
   readonly normalPerturbation?: number
   /** Micro-grain displacement intensity (0 to 1, defaults to 0.15) */
   readonly grainDisplacement?: number
+  /** Incompressible curl-noise fluid advection velocity (0 to 1, defaults to 0.35) */
+  readonly fluidAdvection?: number
+  /** Fluid viscosity dampening factor (0 to 1, defaults to 0.5) */
+  readonly fluidViscosity?: number
+  /** Fluid distortion dynamics mode (defaults to 'curl-fluid') */
+  readonly distortionMode?: MeshDistortionMode
   /** Grid-based mesh topology for NxM bicubic patch control */
   readonly grid?: MeshGridConfig
 }

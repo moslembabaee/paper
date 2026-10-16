@@ -119,6 +119,32 @@ export function duplicateSelection(store: SceneStore): string[] {
     for (const id of ids) {
       const node = state.elements[id]
       if (!node || store.isLocked(id)) continue
+      if (node.component?.kind === 'instance' && node.component.instanceId === node.id) {
+        try {
+          const inst = store.createComponentInstance(node.component.masterId, {
+            x: node.x + 20,
+            y: node.y + 20,
+            parentId: node.parentId,
+          })
+          if (node.component.propertyValues && Object.keys(node.component.propertyValues).length) {
+            for (const [pId, pVal] of Object.entries(node.component.propertyValues)) {
+              store.setComponentProperty(inst.id, pId, pVal)
+            }
+          }
+          duplicated.push(inst.id)
+          continue
+        } catch (err) {
+          console.error('Failed to duplicate component instance:', err)
+        }
+      } else if (node.component?.kind === 'master') {
+        try {
+          const masterCopy = store.duplicateComponent(node.id)
+          duplicated.push(masterCopy.id)
+          continue
+        } catch (err) {
+          console.error('Failed to duplicate master component:', err)
+        }
+      }
       const { id: _id, zIndex: _z, children: _c, ...rest } = node as any
       const copy = {
         ...rest,

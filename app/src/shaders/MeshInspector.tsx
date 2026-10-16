@@ -46,8 +46,8 @@ import {
 import { ShaderSurface } from './ShaderSurface'
 import { exportMeshReact } from './shaderExport'
 import { MeshGradientEngine } from './MeshGradientEngine'
-import type { MeshAnchor, MeshMaterial, ShaderPaint } from './types'
-import { grainBlendModes } from './types'
+import type { MeshAnchor, MeshDistortionMode, MeshMaterial, NoiseGenerator, ShaderPaint } from './types'
+import { grainBlendModes, noiseGenerators } from './types'
 
 type MeshPaint = Extract<ShaderPaint, { kind: 'mesh-gradient' }>
 
@@ -608,9 +608,72 @@ export function MeshInspector({
             value={mesh.warpModulation ?? 0.25}
             onChange={warpModulation => update({ warpModulation })}
           />
+          <label className="property-select">
+            Distortion dynamics
+            <select
+              aria-label="Mesh distortion dynamics mode"
+              value={mesh.distortionMode ?? 'curl-fluid'}
+              onChange={event =>
+                update({ distortionMode: event.currentTarget.value as MeshDistortionMode })
+              }
+            >
+              <option value="curl-fluid">Incompressible Curl Fluid</option>
+              <option value="domain-warp">Nested Domain Warp</option>
+              <option value="turbulent-swirl">Turbulent Vortex Swirl</option>
+              <option value="simplex-flow">Harmonic Simplex Flow</option>
+            </select>
+          </label>
+          <MeshRange
+            label="Fluid advection"
+            min={0}
+            max={1}
+            step={0.01}
+            value={mesh.fluidAdvection ?? 0.35}
+            onChange={fluidAdvection => update({ fluidAdvection })}
+          />
+          <MeshRange
+            label="Fluid viscosity"
+            min={0}
+            max={1}
+            step={0.01}
+            value={mesh.fluidViscosity ?? 0.5}
+            onChange={fluidViscosity => update({ fluidViscosity })}
+          />
 
           <div className="shader-divider" />
-          <span className="section-caption">PROCEDURAL FINISH</span>
+          <span className="section-caption">PROCEDURAL NOISE & DISPLACEMENT</span>
+          <label className="property-select">
+            Noise generator
+            <select
+              aria-label="Mesh noise generator"
+              value={mesh.noiseType ?? 'simplex'}
+              onChange={event =>
+                update({ noiseType: event.currentTarget.value as NoiseGenerator })
+              }
+            >
+              {noiseGenerators.map(gen => (
+                <option key={gen} value={gen}>
+                  {gen.charAt(0).toUpperCase() + gen.slice(1)} ({gen === 'simplex' ? '2D Harmonic' : gen === 'perlin' ? 'Gradient' : 'Cellular / Voronoi'})
+                </option>
+              ))}
+            </select>
+          </label>
+          <MeshRange
+            label="Octaves"
+            min={1}
+            max={6}
+            step={1}
+            value={mesh.octaves ?? 3}
+            onChange={octaves => update({ octaves: Math.round(octaves) })}
+          />
+          <MeshRange
+            label="Lacunarity"
+            min={1.0}
+            max={5.0}
+            step={0.1}
+            value={mesh.lacunarity ?? 2.0}
+            onChange={lacunarity => update({ lacunarity })}
+          />
           <MeshRange
             label="Turbulence"
             value={mesh.turbulence}
@@ -623,6 +686,22 @@ export function MeshInspector({
             step={0.1}
             value={mesh.frequency}
             onChange={frequency => update({ frequency })}
+          />
+          <MeshRange
+            label="Normal perturbation"
+            min={0}
+            max={1}
+            step={0.01}
+            value={mesh.normalPerturbation ?? 0.2}
+            onChange={normalPerturbation => update({ normalPerturbation })}
+          />
+          <MeshRange
+            label="Grain displacement"
+            min={0}
+            max={1}
+            step={0.01}
+            value={mesh.grainDisplacement ?? 0.15}
+            onChange={grainDisplacement => update({ grainDisplacement })}
           />
           <MeshRange
             label="Distortion"
@@ -676,14 +755,16 @@ export function MeshInspector({
             onChange={onChange}
             onGestureStart={onGestureStart}
             onGestureEnd={onGestureEnd}
+            target={target}
+            onBindTarget={onBindTarget}
           />
 
           {/* Direct Scene Canvas Binding */}
-          {target && (
+          {(target || onBindTarget) && (
             <div className="mesh-binding-section" role="region" aria-label="Scene canvas binding">
               <div className="mesh-binding-row">
                 <span className="section-caption">CANVAS BINDING</span>
-                <span className="mesh-binding-target-badge">{target}</span>
+                <span className="mesh-binding-target-badge">{target ?? 'Canvas layer'}</span>
               </div>
               {onBindTarget && (
                 <div className="mesh-binding-actions">

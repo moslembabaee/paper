@@ -12,7 +12,12 @@ export function textMarkup(node: TextElement, fill: string, measure?: (text: str
   const style = xml(Object.entries(typographyCSS(node)).map(([key, value]) => `${key}:${value}`).join(';'))
   const text = applyTextTransform(node.text, node.textTransform)
   if (node.textOnPath?.enabled) {
-    return `${fontFace}<defs><path id="${xml(pathId)}" d="${xml(resolveTextPathD(node, elements))}"/></defs><text fill="${xml(fill)}" style="${style};letter-spacing:${num(spacing + (node.textOnPath.spacing ?? 0))}px" text-anchor="${textAnchorForPath(node.textOnPath.align, node.textAlign)}" xml:space="preserve"><textPath href="#${xml(pathId)}" startOffset="${num(textPathOffset(node))}%">${xml(text.replace(/\n/g, ' '))}</textPath></text>`
+    const shift = node.textOnPath.baselineShift ? `;baseline-shift:${num(node.textOnPath.baselineShift)}px` : ''
+    const justifyAttrs = node.textOnPath.align === 'justify' ? ` lengthAdjust="spacing" textLength="${num(node.width)}"` : ''
+    const offsetAttr = node.textOnPath.offsetMode === 'pixels'
+      ? `${num(node.textOnPath.offset ?? 0)}px`
+      : `${num(textPathOffset(node))}%`
+    return `${fontFace}<defs><path id="${xml(pathId)}" d="${xml(resolveTextPathD(node, elements))}"/></defs><text fill="${xml(fill)}" style="${style};letter-spacing:${num(spacing + (node.textOnPath.spacing ?? 0))}px${shift}" text-anchor="${textAnchorForPath(node.textOnPath.align, node.textAlign)}" xml:space="preserve"><textPath href="#${xml(pathId)}" startOffset="${offsetAttr}"${justifyAttrs}>${xml(text.replace(/\n/g, ' '))}</textPath></text>`
   }
   const width = (text: string) => (measure ? measure(text, node) : text.length * node.fontSize * .55) + Math.max(0, text.length - 1) * spacing
   const lines: string[] = []

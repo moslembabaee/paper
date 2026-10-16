@@ -38,6 +38,17 @@ export function useArrangeShortcuts(store: SceneStore, controller: ViewportContr
         orderSelection(store, command ? front ? 'forward' : 'backward' : front ? 'front' : 'back')
         return
       }
+      if (command && event.altKey && (key === 'KeyK' || event.key === 'k' || event.key === 'K')) {
+        const selection = store.getSnapshot().selection
+        if (selection.length === 1) {
+          const reason = store.componentCreationReason(selection[0])
+          if (!reason) {
+            event.preventDefault(); finish()
+            store.createComponent(selection[0])
+            return
+          }
+        }
+      }
       if (command && (key === 'KeyD' || event.key === 'd' || event.key === 'D') && !event.altKey) {
         if (store.getSnapshot().selection.length > 0) {
           event.preventDefault(); finish()

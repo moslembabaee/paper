@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
-import { getWorldMatrix } from './geometry.ts'
 import { parsePath, serializePath } from './pathGeometry.ts'
+import { isVector } from './booleanGeometry.ts'
+import { linkedVectorPathD } from './textOnPath.ts'
 import type {
   OpenTypeFeatures,
   SceneElement,
@@ -23,12 +24,47 @@ export interface VariableAxisMeta {
 
 export const VARIABLE_AXES_META: Readonly<Record<string, VariableAxisMeta>> = {
   wght: { tag: 'wght', label: 'Weight', min: 1, max: 1000, step: 1, default: 400, description: 'Stroke thickness' },
+  WGHT: { tag: 'wght', label: 'Weight', min: 1, max: 1000, step: 1, default: 400, description: 'Stroke thickness' },
   wdth: { tag: 'wdth', label: 'Width', min: 25, max: 200, step: 1, default: 100, unit: '%', description: 'Glyph proportion horizontal scale' },
+  WDTH: { tag: 'wdth', label: 'Width', min: 25, max: 200, step: 1, default: 100, unit: '%', description: 'Glyph proportion horizontal scale' },
   slnt: { tag: 'slnt', label: 'Slant', min: -20, max: 20, step: 0.5, default: 0, unit: '°', description: 'Oblique shear angle' },
+  SLNT: { tag: 'slnt', label: 'Slant', min: -20, max: 20, step: 0.5, default: 0, unit: '°', description: 'Oblique shear angle' },
   opsz: { tag: 'opsz', label: 'Optical Size', min: 6, max: 144, step: 1, default: 16, unit: 'pt', description: 'Stroke weight adjustment for display vs caption' },
+  OPSZ: { tag: 'opsz', label: 'Optical Size', min: 6, max: 144, step: 1, default: 16, unit: 'pt', description: 'Stroke weight adjustment for display vs caption' },
   grad: { tag: 'GRAD', label: 'Grade', min: -200, max: 200, step: 1, default: 0, description: 'Weight adjustment without changing layout metrics' },
+  GRAD: { tag: 'GRAD', label: 'Grade', min: -200, max: 200, step: 1, default: 0, description: 'Weight adjustment without changing layout metrics' },
   casl: { tag: 'CASL', label: 'Casual', min: 0, max: 1, step: 0.05, default: 0, description: 'Informality of stroke terminals' },
+  CASL: { tag: 'CASL', label: 'Casual', min: 0, max: 1, step: 0.05, default: 0, description: 'Informality of stroke terminals' },
   crsv: { tag: 'CRSV', label: 'Cursive', min: 0, max: 1, step: 0.05, default: 0, description: 'Continuous script joining' },
+  CRSV: { tag: 'CRSV', label: 'Cursive', min: 0, max: 1, step: 0.05, default: 0, description: 'Continuous script joining' },
+  ital: { tag: 'ital', label: 'Italic', min: 0, max: 1, step: 0.05, default: 0, description: 'Italic stroke transformation' },
+  ITAL: { tag: 'ital', label: 'Italic', min: 0, max: 1, step: 0.05, default: 0, description: 'Italic stroke transformation' },
+  fill: { tag: 'FILL', label: 'Fill', min: 0, max: 1, step: 0.05, default: 0, description: 'Variable glyph fill and solid density' },
+  FILL: { tag: 'FILL', label: 'Fill', min: 0, max: 1, step: 0.05, default: 0, description: 'Variable glyph fill and solid density' },
+  soft: { tag: 'SOFT', label: 'Softness', min: 0, max: 100, step: 1, default: 0, description: 'Corner softness and stroke roundness' },
+  SOFT: { tag: 'SOFT', label: 'Softness', min: 0, max: 100, step: 1, default: 0, description: 'Corner softness and stroke roundness' },
+  xtra: { tag: 'XTRA', label: 'Counter Width', min: 323, max: 603, step: 1, default: 468, description: 'Parametric counter width' },
+  XTRA: { tag: 'XTRA', label: 'Counter Width', min: 323, max: 603, step: 1, default: 468, description: 'Parametric counter width' },
+  xopq: { tag: 'XOPQ', label: 'Thick Stroke', min: 27, max: 175, step: 1, default: 85, description: 'Parametric thick stroke width' },
+  XOPQ: { tag: 'XOPQ', label: 'Thick Stroke', min: 27, max: 175, step: 1, default: 85, description: 'Parametric thick stroke width' },
+  yopq: { tag: 'YOPQ', label: 'Thin Stroke', min: 25, max: 135, step: 1, default: 50, description: 'Parametric thin stroke width' },
+  YOPQ: { tag: 'YOPQ', label: 'Thin Stroke', min: 25, max: 135, step: 1, default: 50, description: 'Parametric thin stroke width' },
+}
+
+/** Retrieve metadata for a variable font axis with fallback for custom 4-character OpenType tags */
+export function getAxisMeta(tag: string): VariableAxisMeta {
+  const direct = VARIABLE_AXES_META[tag] ?? VARIABLE_AXES_META[tag.toLowerCase()]
+  if (direct) return direct
+  const cleanTag = tag.trim()
+  return {
+    tag: cleanTag.length === 4 ? cleanTag : tag,
+    label: cleanTag.toUpperCase(),
+    min: 0,
+    max: 1000,
+    step: 1,
+    default: 0,
+    description: `Custom OpenType variation axis '${cleanTag}'`,
+  }
 }
 
 export interface VariableAxisPreset {
@@ -44,6 +80,9 @@ export const VARIABLE_AXIS_PRESETS: readonly VariableAxisPreset[] = [
   { name: 'Editorial Italic', description: 'Graceful oblique voice', axes: { wght: 450, wdth: 95, slnt: -14, opsz: 22 } },
   { name: 'Ultra Light Thin', description: 'Delicate technical clarity', axes: { wght: 150, wdth: 100, slnt: 0, opsz: 12 } },
   { name: 'Poster Black', description: 'Maximum visual impact', axes: { wght: 950, wdth: 115, slnt: 0, opsz: 72 } },
+  { name: 'Casual Script', description: 'Warm informal hand-drawn voice', axes: { wght: 520, wdth: 102, slnt: -4, opsz: 24, casl: 0.8, crsv: 0.6 } },
+  { name: 'Technical Mono', description: 'Precise engineering cadence', axes: { wght: 450, wdth: 90, slnt: 0, opsz: 12, grad: -25 } },
+  { name: 'Display High-Grade', description: 'Rich high-contrast grade emphasis', axes: { wght: 800, wdth: 110, slnt: 0, opsz: 64, grad: 100 } },
 ]
 
 export interface OpenTypeFeatureMeta {
@@ -121,35 +160,53 @@ export function applyTextTransform(text: string, transform?: TextTransform): str
 export function compileFontVariationSettings(axes?: VariableFontAxes, fallbackWeight?: number): string | undefined {
   if (!axes && fallbackWeight === undefined) return undefined
   const parts: string[] = []
+  const seenTags = new Set<string>()
 
   // Ensure weight is included
   const weight = axes?.wght ?? fallbackWeight
   if (weight !== undefined && Number.isFinite(weight)) {
     parts.push(`'wght' ${Number(weight.toFixed(2))}`)
+    seenTags.add('wght')
+    seenTags.add('WGHT')
   }
 
   // Width
   if (axes?.wdth !== undefined && Number.isFinite(axes.wdth)) {
     parts.push(`'wdth' ${Number(axes.wdth.toFixed(2))}`)
+    seenTags.add('wdth')
+    seenTags.add('WDTH')
   }
 
   // Slant
   if (axes?.slnt !== undefined && Number.isFinite(axes.slnt)) {
     parts.push(`'slnt' ${Number(axes.slnt.toFixed(2))}`)
+    seenTags.add('slnt')
+    seenTags.add('SLNT')
   }
 
   // Optical size
   if (axes?.opsz !== undefined && Number.isFinite(axes.opsz)) {
     parts.push(`'opsz' ${Number(axes.opsz.toFixed(1))}`)
+    seenTags.add('opsz')
+    seenTags.add('OPSZ')
   }
 
-  // Custom axes (GRAD, CASL, CRSV, etc.)
+  // Extended and custom variation axes (GRAD, CASL, CRSV, ITAL, FILL, SOFT, XTRA, etc.)
   if (axes) {
-    for (const [tag, val] of Object.entries(axes)) {
-      if (['wght', 'wdth', 'slnt', 'opsz'].includes(tag)) continue
+    for (const [rawTag, val] of Object.entries(axes)) {
+      if (['wght', 'wdth', 'slnt', 'opsz'].includes(rawTag.toLowerCase())) continue
+      if (seenTags.has(rawTag) || seenTags.has(rawTag.toLowerCase())) continue
       if (val !== undefined && Number.isFinite(val)) {
-        const cleanTag = VARIABLE_AXES_META[tag]?.tag ?? tag
-        if (/^[a-zA-Z0-9 ]{4}$/.test(cleanTag)) parts.push(`'${cleanTag}' ${Number(val.toFixed(2))}`)
+        const cleanTag = VARIABLE_AXES_META[rawTag]?.tag ?? VARIABLE_AXES_META[rawTag.toLowerCase()]?.tag ?? rawTag
+        if (/^[a-zA-Z0-9 ]{4}$/.test(cleanTag)) {
+          if (!seenTags.has(cleanTag) && !seenTags.has(cleanTag.toLowerCase())) {
+            parts.push(`'${cleanTag}' ${Number(val.toFixed(2))}`)
+            seenTags.add(cleanTag)
+            seenTags.add(cleanTag.toLowerCase())
+            seenTags.add(rawTag)
+            seenTags.add(rawTag.toLowerCase())
+          }
+        }
       }
     }
   }
@@ -315,31 +372,13 @@ export function reversePathD(d: string): string {
   }
 }
 
-/** Map a linked vector's viewBox through both frame hierarchies into text-local space. */
-function linkedPathD(node: TextElement, target: Extract<SceneElement, { type: 'path' }>, elements: Readonly<Record<string, SceneElement>>): string {
-  const state = { elements }
-  const [a, b, c, d, e, f] = getWorldMatrix(state, node.id)
-  const [pa, pb, pc, pd, pe, pf] = getWorldMatrix(state, target.id)
-  const det = a * d - b * c
-  const [vx, vy, vw, vh] = target.viewBox
-  const transform = (p: { x: number; y: number }) => {
-    const px = (p.x - vx) * target.width / vw, py = (p.y - vy) * target.height / vh
-    const x = pa * px + pc * py + pe - e, y = pb * px + pd * py + pf - f
-    return { x: (d * x - c * y) / det, y: (a * y - b * x) / det }
-  }
-  return serializePath(parsePath(target.d).map(contour => ({
-    ...contour,
-    anchors: contour.anchors.map(anchor => ({ ...transform(anchor), ...(anchor.in ? { in: transform(anchor.in) } : {}), ...(anchor.out ? { out: transform(anchor.out) } : {}) })),
-  })))
-}
-
 /** Resolve on every geometry change; no DOM measurements or animation loop needed. */
 export function resolveTextPathD(node: TextElement, elements?: Readonly<Record<string, SceneElement>>): string {
   const top = node.textOnPath
   let path = generatePathPreset(top?.preset ?? 'wave', node.width, node.height)
   const target = top?.pathId && elements ? elements[top.pathId] : undefined
-  if (target?.type === 'path' && elements) {
-    try { path = linkedPathD(node, target, elements) }
+  if (target && isVector(target) && elements) {
+    try { path = linkedVectorPathD(node, target, elements) }
     catch { /* Keep text visible while the source path is being edited. */ }
   } else if (top?.preset === 'custom' && top.pathData?.trim()) {
     path = top.pathData
@@ -348,9 +387,9 @@ export function resolveTextPathD(node: TextElement, elements?: Readonly<Record<s
   return Boolean(top?.reverse) !== (top?.side === 'right') ? reversePathD(path) : path
 }
 
-export function textAnchorForPath(align?: 'start' | 'center' | 'end', textAlign?: 'left' | 'center' | 'right'): 'start' | 'middle' | 'end' {
+export function textAnchorForPath(align?: 'start' | 'center' | 'end' | 'justify', textAlign?: 'left' | 'center' | 'right'): 'start' | 'middle' | 'end' {
   const effective = align ?? (textAlign === 'center' ? 'center' : textAlign === 'right' ? 'end' : 'start')
-  return effective === 'center' ? 'middle' : effective
+  return effective === 'center' ? 'middle' : effective === 'justify' ? 'start' : effective
 }
 
 export function textPathOffset(node: TextElement): number {

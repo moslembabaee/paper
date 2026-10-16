@@ -2,8 +2,11 @@ import { memo, useRef, useState } from 'react'
 import type { SceneStore } from './store'
 import type { TextElement, VariableFontAxes } from './types'
 import type { SelectionBox } from './selectionGeometry'
-import { Sliders, Sparkles, Spline, ChevronDown, ChevronUp } from 'lucide-react'
-import { VARIABLE_AXIS_PRESETS } from './typography'
+import { Sliders, Sparkles, Spline, ChevronDown, ChevronUp, Plus, X, RotateCcw } from 'lucide-react'
+import {
+  VARIABLE_AXIS_PRESETS,
+  getAxisMeta,
+} from './typography'
 import { DEFAULT_KINETIC } from './kineticGeometry'
 
 interface CanvasTypographyScrubberProps {
@@ -13,35 +16,61 @@ interface CanvasTypographyScrubberProps {
   readonly box: SelectionBox
 }
 
-type AxisKey = 'wght' | 'wdth' | 'slnt' | 'opsz' | 'offset' | 'phase' | 'ampl'
-
 interface DragState {
   readonly pointerId: number
-  readonly axis: AxisKey
+  readonly axis: string
   readonly startX: number
   readonly initialVal: number
 }
 
-const AXIS_CONFIG: Record<
-  AxisKey,
-  {
-    label: string
-    min: number
-    max: number
-    step: number
-    defaultVal: number
-    unit: string
-    sensitivity: number
-  }
-> = {
-  wght: { label: 'WGHT', min: 1, max: 1000, step: 1, defaultVal: 400, unit: '', sensitivity: 1.5 },
-  wdth: { label: 'WDTH', min: 25, max: 200, step: 1, defaultVal: 100, unit: '%', sensitivity: 0.5 },
-  slnt: { label: 'SLNT', min: -20, max: 20, step: 0.5, defaultVal: 0, unit: '°', sensitivity: 0.2 },
-  opsz: { label: 'OPSZ', min: 6, max: 144, step: 1, defaultVal: 16, unit: 'pt', sensitivity: 0.3 },
-  offset: { label: 'PATH', min: 0, max: 100, step: 1, defaultVal: 0, unit: '%', sensitivity: 0.4 },
-  phase: { label: 'PHASE', min: 0, max: 100, step: 1, defaultVal: 0, unit: '%', sensitivity: 0.4 },
-  ampl: { label: 'AMPL', min: 0, max: 120, step: 1, defaultVal: 18, unit: 'px', sensitivity: 0.5 },
+interface AxisConfig {
+  readonly label: string
+  readonly min: number
+  readonly max: number
+  readonly step: number
+  readonly defaultVal: number
+  readonly unit: string
+  readonly sensitivity: number
 }
+
+function resolveAxisConfig(axis: string): AxisConfig {
+  if (axis === 'offset') {
+    return { label: 'PATH', min: 0, max: 100, step: 1, defaultVal: 0, unit: '%', sensitivity: 0.4 }
+  }
+  if (axis === 'phase') {
+    return { label: 'PHASE', min: 0, max: 100, step: 1, defaultVal: 0, unit: '%', sensitivity: 0.4 }
+  }
+  if (axis === 'ampl') {
+    return { label: 'AMPL', min: 0, max: 120, step: 1, defaultVal: 18, unit: 'px', sensitivity: 0.5 }
+  }
+
+  const meta = getAxisMeta(axis)
+  let sensitivity = 0.5
+  if (meta.step < 0.1) sensitivity = 0.008
+  else if (meta.step < 1) sensitivity = 0.06
+  else if (meta.max - meta.min > 500) sensitivity = 1.5
+  else if (meta.max - meta.min > 150) sensitivity = 0.8
+
+  return {
+    label: meta.tag.toUpperCase(),
+    min: meta.min,
+    max: meta.max,
+    step: meta.step,
+    defaultVal: meta.default,
+    unit: meta.unit ?? '',
+    sensitivity,
+  }
+}
+
+const COMMON_EXTENDED_AXES = [
+  { tag: 'grad', label: 'Grade (GRAD)' },
+  { tag: 'casl', label: 'Casual (CASL)' },
+  { tag: 'crsv', label: 'Cursive (CRSV)' },
+  { tag: 'ital', label: 'Italic (ITAL)' },
+  { tag: 'soft', label: 'Softness (SOFT)' },
+  { tag: 'fill', label: 'Fill (FILL)' },
+  { tag: 'xtra', label: 'Counter (XTRA)' },
+] as const
 
 export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
   node,
@@ -50,8 +79,10 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
   box,
 }: CanvasTypographyScrubberProps) {
   const [collapsed, setCollapsed] = useState(false)
-  const [activeAxis, setActiveAxis] = useState<AxisKey | null>(null)
+  const [activeAxis, setActiveAxis] = useState<string | null>(null)
   const [dragDelta, setDragDelta] = useState<number>(0)
+  const [showAddMenu, setShowAddMenu] = useState(false)
+  const [customTagInput, setCustomTagInput] = useState('')
   const dragRef = useRef<DragState | null>(null)
 
   const axes: VariableFontAxes = {
@@ -62,16 +93,18 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
     ...(node.variableAxes ?? {}),
   }
 
-  const getVal = (axis: AxisKey): number => {
+  const getVal = (axis: string): number => {
     if (axis === 'offset') return node.textOnPath?.offset ?? 0
     if (axis === 'phase') return Math.round((node.kinetic?.phase ?? 0) * 100)
     if (axis === 'ampl') return Math.round(node.kinetic?.amplitude ?? 18)
-    return axes[axis] ?? AXIS_CONFIG[axis].defaultVal
+    const cfg = resolveAxisConfig(axis)
+    return axes[axis] ?? cfg.defaultVal
   }
 
-  const applyVal = (axis: AxisKey, val: number) => {
-    const cfg = AXIS_CONFIG[axis]
+  const applyVal = (axis: string, val: number) => {
+    const cfg = resolveAxisConfig(axis)
     const clamped = Math.max(cfg.min, Math.min(cfg.max, val))
+    const rounded = cfg.step < 1 ? Number(clamped.toFixed(2)) : Math.round(clamped)
 
     if (axis === 'offset') {
       if (node.textOnPath) {
@@ -92,7 +125,7 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
         })
       }
     } else {
-      const nextAxes = { ...node.variableAxes, [axis]: clamped }
+      const nextAxes = { ...node.variableAxes, [axis]: rounded }
       store.update(node.id, 'text', {
         variableAxes: nextAxes,
         ...(axis === 'wght' ? { fontWeight: Math.round(clamped) } : {}),
@@ -100,7 +133,26 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
     }
   }
 
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>, axis: AxisKey) => {
+  const addAxis = (tag: string) => {
+    const cleanTag = tag.trim()
+    if (!/^[a-zA-Z0-9_ ]{4}$/.test(cleanTag)) return
+    const meta = getAxisMeta(cleanTag)
+    const nextAxes = { ...node.variableAxes, [cleanTag]: meta.default }
+    store.update(node.id, 'text', { variableAxes: nextAxes })
+    setShowAddMenu(false)
+    setCustomTagInput('')
+  }
+
+  const removeAxis = (axis: string) => {
+    if (['wght', 'wdth', 'slnt', 'opsz'].includes(axis.toLowerCase())) return
+    const nextAxes = { ...node.variableAxes }
+    delete nextAxes[axis]
+    store.update(node.id, 'text', {
+      variableAxes: Object.keys(nextAxes).length ? nextAxes : undefined,
+    })
+  }
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>, axis: string) => {
     if (event.button !== 0) return
     event.preventDefault()
     event.stopPropagation()
@@ -128,11 +180,11 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
 
     const deltaX = event.clientX - drag.startX
     const speed = event.shiftKey ? 0.2 : event.altKey ? 3.5 : 1
-    const cfg = AXIS_CONFIG[drag.axis]
+    const cfg = resolveAxisConfig(drag.axis)
     const change = deltaX * cfg.sensitivity * speed
     const nextVal = drag.initialVal + change
 
-    setDragDelta(Math.round(change))
+    setDragDelta(cfg.step < 1 ? Number(change.toFixed(2)) : Math.round(change))
     applyVal(drag.axis, nextVal)
   }
 
@@ -162,7 +214,12 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
   const screenLeft = (box.x + box.width / 2) * camera.zoom + camera.x
   const screenTop = (box.y + box.height / 2 + halfH) * camera.zoom + camera.y + 14
 
-  const visibleAxes: AxisKey[] = ['wght', 'wdth', 'slnt', 'opsz']
+  // Collect visible axes: core 4 axes + any active custom/extended axes on this node
+  const coreAxes = ['wght', 'wdth', 'slnt', 'opsz']
+  const extraAxes = Object.keys(node.variableAxes ?? {}).filter(
+    k => !coreAxes.includes(k.toLowerCase())
+  )
+  const visibleAxes: string[] = [...coreAxes, ...extraAxes]
   if (node.textOnPath?.enabled) visibleAxes.push('offset')
   if (node.kinetic?.enabled) visibleAxes.push('phase', 'ampl')
 
@@ -218,26 +275,106 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
             <span>KINETIC</span>
           </button>
         </div>
-        <button
-          type="button"
-          className="canvas-typo-collapse-btn"
-          onClick={() => setCollapsed(prev => !prev)}
-          title={collapsed ? 'Expand variable axes scrubber' : 'Collapse scrubber'}
-          aria-label={collapsed ? 'Expand scrubber' : 'Collapse scrubber'}
-        >
-          {collapsed ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
-        </button>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          {/* Quick Add Custom Axis Button */}
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="canvas-typo-toggle-pill"
+              onClick={() => setShowAddMenu(prev => !prev)}
+              title="Add extended or custom variation axis (GRAD, CASL, CRSV, etc.)"
+              aria-label="Add variation axis"
+            >
+              <Plus size={9} />
+              <span>AXIS</span>
+            </button>
+
+            {showAddMenu && (
+              <div
+                className="canvas-typo-menu"
+                onPointerDown={e => e.stopPropagation()}
+              >
+                <div className="canvas-typo-menu-title">Registered OpenType Axes</div>
+                {COMMON_EXTENDED_AXES.map(item => {
+                  const alreadyActive = node.variableAxes && (node.variableAxes[item.tag] !== undefined || node.variableAxes[item.tag.toUpperCase()] !== undefined)
+                  return (
+                    <button
+                      key={item.tag}
+                      type="button"
+                      disabled={alreadyActive}
+                      className="canvas-typo-menu-item"
+                      onClick={() => addAxis(item.tag)}
+                    >
+                      <span>{item.label}</span>
+                      {alreadyActive && <span className="canvas-typo-menu-badge">Active</span>}
+                    </button>
+                  )
+                })}
+                <div className="canvas-typo-menu-divider" />
+                <div style={{ display: 'flex', gap: 3, padding: '4px 6px' }}>
+                  <input
+                    type="text"
+                    maxLength={4}
+                    placeholder="TAG"
+                    value={customTagInput}
+                    onChange={e => setCustomTagInput(e.target.value.toUpperCase())}
+                    className="canvas-typo-menu-input"
+                    aria-label="Custom 4-letter tag"
+                  />
+                  <button
+                    type="button"
+                    disabled={!/^[A-Z0-9_ ]{4}$/.test(customTagInput)}
+                    onClick={() => addAxis(customTagInput)}
+                    className="canvas-typo-menu-add-btn"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Reset axes button */}
+          <button
+            type="button"
+            className="canvas-typo-collapse-btn"
+            onClick={() => {
+              store.batch(() => {
+                store.update(node.id, 'text', {
+                  variableAxes: { wght: 400, wdth: 100, slnt: 0, opsz: node.fontSize },
+                  fontWeight: 400,
+                })
+              }, 'Reset variable axes')
+            }}
+            title="Reset axes to defaults"
+            aria-label="Reset axes"
+          >
+            <RotateCcw size={10} />
+          </button>
+
+          <button
+            type="button"
+            className="canvas-typo-collapse-btn"
+            onClick={() => setCollapsed(prev => !prev)}
+            title={collapsed ? 'Expand variable axes scrubber' : 'Collapse scrubber'}
+            aria-label={collapsed ? 'Expand scrubber' : 'Collapse scrubber'}
+          >
+            {collapsed ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
+          </button>
+        </div>
       </div>
 
       {!collapsed && (
         <>
           {/* Quick presets row */}
           <div className="canvas-typo-presets-row" role="toolbar" aria-label="Quick typography presets">
-            {VARIABLE_AXIS_PRESETS.slice(0, 5).map(preset => {
+            {VARIABLE_AXIS_PRESETS.map(preset => {
               const isMatch =
                 preset.axes.wght === axes.wght &&
                 preset.axes.wdth === axes.wdth &&
-                preset.axes.slnt === axes.slnt
+                preset.axes.slnt === axes.slnt &&
+                (preset.axes.opsz === undefined || preset.axes.opsz === axes.opsz)
               return (
                 <button
                   key={preset.name}
@@ -262,10 +399,11 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
           {/* Interactive Scrub Pills */}
           <div className="canvas-typo-axes-row">
             {visibleAxes.map(axis => {
-              const cfg = AXIS_CONFIG[axis]
+              const cfg = resolveAxisConfig(axis)
               const val = getVal(axis)
               const isActive = activeAxis === axis
               const percent = Math.max(0, Math.min(100, ((val - cfg.min) / (cfg.max - cfg.min)) * 100))
+              const isRemovable = !['wght', 'wdth', 'slnt', 'opsz', 'offset', 'phase', 'ampl'].includes(axis)
 
               return (
                 <div
@@ -275,7 +413,7 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
                   onPointerMove={handlePointerMove}
                   onPointerUp={handlePointerUp}
                   onPointerCancel={handlePointerUp}
-                  onDoubleClick={() => applyVal(axis, AXIS_CONFIG[axis].defaultVal)}
+                  onDoubleClick={() => applyVal(axis, cfg.defaultVal)}
                   title={`Drag horizontally to scrub ${cfg.label} (${cfg.min}..${cfg.max}${cfg.unit}). Shift for fine, Alt for coarse. Double-click to reset.`}
                   aria-label={`Scrub ${cfg.label}`}
                   role="slider"
@@ -285,9 +423,29 @@ export const CanvasTypographyScrubber = memo(function CanvasTypographyScrubber({
                 >
                   <div className="canvas-typo-pill-gauge" style={{ width: `${percent}%` }} />
                   <div className="canvas-typo-pill-content">
-                    <span className="canvas-typo-pill-label">{cfg.label}</span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="canvas-typo-pill-label">{cfg.label}</span>
+                      {isRemovable && (
+                        <button
+                          type="button"
+                          className="canvas-typo-pill-close"
+                          onClick={e => {
+                            e.stopPropagation()
+                            removeAxis(axis)
+                          }}
+                          title={`Remove axis ${cfg.label}`}
+                          aria-label={`Remove axis ${cfg.label}`}
+                        >
+                          <X size={8} />
+                        </button>
+                      )}
+                    </div>
                     <span className="canvas-typo-pill-val">
-                      {axis === 'slnt' ? `${Number(val.toFixed(1))}°` : `${Math.round(val)}${cfg.unit}`}
+                      {axis === 'slnt'
+                        ? `${Number(val.toFixed(1))}°`
+                        : cfg.step < 1
+                        ? `${Number(val.toFixed(2))}${cfg.unit}`
+                        : `${Math.round(val)}${cfg.unit}`}
                     </span>
                     {isActive && dragDelta !== 0 && (
                       <span className="canvas-typo-pill-delta">

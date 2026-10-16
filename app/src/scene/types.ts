@@ -147,6 +147,12 @@ export interface VariableFontAxes {
   readonly casl?: number
   /** Cursive axis (CRSV): 0 to 1 */
   readonly crsv?: number
+  /** Italic axis (ital): 0 to 1 */
+  readonly ital?: number
+  /** Fill axis (FILL): 0 to 1 */
+  readonly fill?: number
+  /** Softness axis (SOFT): 0 to 100 */
+  readonly soft?: number
   /** Additional custom or registered variable axes */
   readonly [axisTag: string]: number | undefined
 }
@@ -199,27 +205,31 @@ export type TextPathPreset = 'custom' | 'wave' | 'arc' | 'circle' | 'scurve' | '
 
 export interface TextOnPath {
   readonly enabled: boolean
-  /** Reference to a PathElement in the scene (by element id) */
+  /** Reference to a Vector node (path, rectangle, ellipse) in the scene (by element id) */
   readonly pathId?: string | null
   /** Explicit SVG path data string (d attribute) */
   readonly pathData?: string
   /** Start offset along the path (percentage 0-100 or units) */
   readonly offset?: number
+  /** Unit of start offset: percentage (default) or pixels */
+  readonly offsetMode?: 'percent' | 'pixels'
   /** Side of path: 'left' (standard/above) or 'right' (flipped/below) */
   readonly side?: 'left' | 'right'
   /** Alignment on path relative to offset */
-  readonly align?: 'start' | 'center' | 'end'
+  readonly align?: 'start' | 'center' | 'end' | 'justify'
   /** Letter spacing delta along the curve */
   readonly spacing?: number
   /** Reverse the direction of the path */
   readonly reverse?: boolean
   /** Built-in curve preset type */
   readonly preset?: TextPathPreset
+  /** Baseline shift / normal offset perpendicular to curve in canvas pixels */
+  readonly baselineShift?: number
 }
 
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize'
 
-export type KineticStaggerMode = 'cascade' | 'wave' | 'center-out' | 'random' | 'elastic'
+export type KineticStaggerMode = 'cascade' | 'left-to-right' | 'right-to-left' | 'center-out' | 'wave' | 'random' | 'elastic'
 export type KineticWaveShape = 'triangle' | 'sine' | 'bounce' | 'spring'
 
 export interface KineticTypography {
@@ -240,6 +250,12 @@ export interface KineticTypography {
   readonly slantModulation?: number
   /** Proportional scale modulation across glyphs (0 to 1) */
   readonly scaleModulation?: number
+  /** Variable font width (wdth) modulation percentage across glyphs */
+  readonly widthModulation?: number
+  /** Displacement in the baseline's tangent/horizontal direction, in canvas pixels. */
+  readonly horizontalAmplitude?: number
+  /** Variable font optical size (opsz) modulation across glyphs */
+  readonly opticalSizeModulation?: number
 }
 
 export interface TextElement extends BaseElement {
@@ -319,12 +335,12 @@ export interface ComponentStateMachine {
 }
 
 export type ComponentProperty = Readonly<{ id: string; name: string }> & (
-  | { readonly kind: 'text'; readonly sourceId: string; readonly defaultValue: string }
-  | { readonly kind: 'boolean'; readonly sourceId: string; readonly defaultValue: boolean; readonly targetProperty?: 'visible' | 'kinetic.enabled' | 'clipContent' }
-  | { readonly kind: 'color'; readonly sourceId: string; readonly defaultValue: string; readonly targetProperty?: 'fill' | 'stroke' | 'shader' }
+  | { readonly kind: 'text'; readonly sourceId: string; readonly defaultValue: string; readonly targetProperty?: 'text' | 'fontFamily' | 'src' | 'alt' | 'textTransform' }
+  | { readonly kind: 'boolean'; readonly sourceId: string; readonly defaultValue: boolean; readonly targetProperty?: 'visible' | 'kinetic.enabled' | 'clipContent' | 'shader.animated' | 'locked' }
+  | { readonly kind: 'color'; readonly sourceId: string; readonly defaultValue: string; readonly targetProperty?: 'fill' | 'stroke' | 'shader' | 'shader.colorFront' | 'shader.colorMid' | 'shader.colorBack' | 'shadow' }
   | { readonly kind: 'number'; readonly sourceId: string; readonly defaultValue: number; readonly min?: number; readonly max?: number; readonly step?: number; readonly targetProperty?: string }
-  | { readonly kind: 'kinetic'; readonly sourceId: string; readonly defaultValue: string | number | boolean; readonly targetProperty: 'enabled' | 'amplitude' | 'rotation' | 'duration' | 'stagger' | 'waveShape' | 'staggerMode' | 'weightModulation' | 'slantModulation' | 'scaleModulation' }
-  | { readonly kind: 'shader'; readonly sourceId: string; readonly defaultValue: string | number | boolean; readonly targetProperty: 'speed' | 'scale' | 'rotation' | 'frequency' | 'octaves' | 'turbulence' | 'displacement' | 'viewMode' | 'blendMode' }
+  | { readonly kind: 'kinetic'; readonly sourceId: string; readonly defaultValue: string | number | boolean; readonly targetProperty: 'enabled' | 'amplitude' | 'rotation' | 'duration' | 'stagger' | 'waveShape' | 'staggerMode' | 'weightModulation' | 'slantModulation' | 'scaleModulation' | 'playing' | 'phase' }
+  | { readonly kind: 'shader'; readonly sourceId: string; readonly defaultValue: string | number | boolean; readonly targetProperty: 'speed' | 'scale' | 'rotation' | 'frequency' | 'octaves' | 'turbulence' | 'displacement' | 'viewMode' | 'blendMode' | 'lacunarity' | 'persistence' | 'normalPerturbation' | 'grainOverlay' | 'chromaticAberration' | 'warpModulation' | 'fluidAdvection' | 'fluidViscosity' | 'noiseType' }
   | { readonly kind: 'variant'; readonly defaultValue: string; readonly options: readonly ComponentVariant[]; readonly stateMachine?: ComponentStateMachine }
 )
 export interface ComponentVariant {

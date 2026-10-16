@@ -732,6 +732,493 @@ export class SceneStore {
     this.commit(elements, this.state.rootIds, this.state.selection, `Reset ${node.name} overrides`)
   }
 
+  /** Push local property and visual overrides from an instance back to its master component. */
+  pushOverridesToMaster(id: string): void {
+    const root = componentRoot(this.state.elements, id)
+    if (root?.component?.kind !== 'instance') throw new Error('Choose a component instance')
+    if (this.isLocked(root.id) || this.history.getSnapshot().active) throw new Error('Unlock the instance and finish the active edit first')
+    const master = this.require(root.component.masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(master.id)) throw new Error('Unlock the master component first')
+
+    let elements = { ...this.state.elements }
+    const instanceNodes = subtree(this.state.elements, root.id)
+
+    // For each layer in the instance, push overrides to corresponding master layer
+    for (const node of instanceNodes) {
+      if (node.component?.kind !== 'instance') continue
+      const sourceId = node.component.sourceId
+      const masterLayer = elements[sourceId]
+      if (!masterLayer) continue
+
+      const { properties = {}, style = {}, tokenBindings = {}, sharedStyleBindings = {} } = node.component.overrides
+      let updatedMaster = { ...masterLayer } as any
+
+      // Apply property overrides (exclude root coordinates to preserve master position)
+      for (const [key, val] of Object.entries(properties)) {
+        if (masterLayer.id === master.id && ['x', 'y', 'rotation'].includes(key)) continue
+        if (key === 'kinetic' && val && masterLayer.type === 'text') {
+          updatedMaster.kinetic = { ...(masterLayer.kinetic ?? {}), ...(val as Record<string, unknown>) }
+        } else {
+          updatedMaster[key] = val
+        }
+      }
+
+      // Apply style overrides
+      if (Object.keys(style).length) {
+        const nextStyle = { ...masterLayer.style } as any
+        for (const [key, val] of Object.entries(style)) {
+          if (key === 'stroke' && val && masterLayer.style.stroke) {
+            nextStyle.stroke = { ...masterLayer.style.stroke, ...(val as Record<string, unknown>) }
+          } else if (key === 'shader' && val && masterLayer.style.shader) {
+            const shaderVal = val as any
+            nextStyle.shader = {
+              ...masterLayer.style.shader,
+              ...shaderVal,
+              params: { ...(masterLayer.style.shader.params ?? {}), ...(shaderVal.params ?? {}) },
+              ...(masterLayer.style.shader.mesh || shaderVal.mesh ? { mesh: { ...(masterLayer.style.shader.mesh ?? {}), ...(shaderVal.mesh ?? {}) } } : {}),
+              ...(masterLayer.style.shader.composite || shaderVal.composite ? { composite: { ...(masterLayer.style.shader.composite ?? {}), ...(shaderVal.composite ?? {}) } } : {}),
+            }
+          } else {
+            nextStyle[key] = val
+          }
+        }
+        updatedMaster.style = nextStyle
+      }
+
+      // Apply token bindings
+      if (Object.keys(tokenBindings).length) {
+        const nextTokens = { ...(masterLayer.tokenBindings ?? {}) } as any
+        for (const [p, tokenId] of Object.entries(tokenBindings)) {
+          if (tokenId === null) delete nextTokens[p]
+          else nextTokens[p] = tokenId
+        }
+        updatedMaster.tokenBindings = Object.keys(nextTokens).length ? nextTokens : undefined
+      }
+
+      // Apply shared style bindings
+      if (Object.keys(sharedStyleBindings).length) {
+        const nextShared = { ...(masterLayer.sharedStyleBindings ?? {}) } as any
+        for (const [k, sId] of Object.entries(sharedStyleBindings)) {
+          if (sId === null) delete nextShared[k]
+          else nextShared[k] = sId
+        }
+        updatedMaster.sharedStyleBindings = Object.keys(nextShared).length ? nextShared : undefined
+      }
+
+      validateElement(updatedMaster)
+      elements[sourceId] = freezeElement(updatedMaster)
+
+      // Clear overrides on the instance layer
+      elements[node.id] = freezeElement({
+        ...node,
+        component: {
+          ...node.component,
+          overrides: {},
+        },
+      })
+    }
+
+    // If root instance had propertyValues, update master component.properties default values
+    const rootComponent = root.component
+    if (rootComponent.propertyValues && Object.keys(rootComponent.propertyValues).length && master.component.properties) {
+      const currentMaster = elements[master.id]
+      const updatedProperties = master.component.properties.map(prop => {
+        if (Object.hasOwn(rootComponent.propertyValues ?? {}, prop.id)) {
+          const val = (rootComponent.propertyValues as any)[prop.id]
+          return { ...prop, defaultValue: val }
+        }
+        return prop
+      })
+      elements[master.id] = freezeElement({
+        ...currentMaster,
+        component: {
+          ...currentMaster.component,
+          properties: updatedProperties,
+        } as any,
+      })
+
+      // Clear property values on instance root
+      elements[root.id] = freezeElement({
+        ...elements[root.id],
+        component: {
+          ...elements[root.id].component,
+          propertyValues: {},
+        } as any,
+      })
+    }
+
+    this.commit(elements, this.state.rootIds, this.state.selection, `Push overrides to ${master.name}`)
+  }
+
+  /** Automatically detect and expose dynamic properties for text, kinetic typography, shaders, and visual parameters. */
+  autoExposeComponentProperties(masterId: string): void {
+    const master = this.require(masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+
+    const layers = subtree(this.state.elements, master.id)
+    const existing = master.component.properties ?? []
+    const names = new Set(existing.map(p => p.name.trim().toLowerCase()))
+    const generated: ComponentProperty[] = [...existing]
+
+    for (const layer of layers) {
+      if (layer.type === 'text') {
+        const textPropName = layer.id === master.id || layers.filter(l => l.type === 'text').length === 1 ? 'Text' : `${layer.name} Text`
+        if (!names.has(textPropName.toLowerCase()) && !generated.some(p => p.kind === 'text' && p.sourceId === layer.id)) {
+          generated.push({ id: crypto.randomUUID(), name: textPropName, kind: 'text', sourceId: layer.id, defaultValue: layer.text, targetProperty: 'text' })
+          names.add(textPropName.toLowerCase())
+        }
+        if (layer.kinetic) {
+          if (!names.has('kinetic active')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Kinetic Active', kind: 'boolean', sourceId: layer.id, defaultValue: layer.kinetic.enabled ?? true, targetProperty: 'kinetic.enabled' })
+            names.add('kinetic active')
+          }
+          if (!names.has('wave amplitude')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Wave Amplitude', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.amplitude ?? 16, targetProperty: 'amplitude' })
+            names.add('wave amplitude')
+          }
+          if (!names.has('wave shape')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Wave Shape', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.waveShape ?? 'sine', targetProperty: 'waveShape' })
+            names.add('wave shape')
+          }
+          if (!names.has('stagger delay')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Stagger Delay', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.stagger ?? 40, targetProperty: 'stagger' })
+            names.add('stagger delay')
+          }
+        }
+      }
+
+      if (layer.style.shader) {
+        if (!names.has('shader speed')) {
+          generated.push({ id: crypto.randomUUID(), name: 'Shader Speed', kind: 'shader', sourceId: layer.id, defaultValue: layer.style.shader.speed ?? 1, targetProperty: 'speed' })
+          names.add('shader speed')
+        }
+        if (!names.has('shader scale')) {
+          generated.push({ id: crypto.randomUUID(), name: 'Shader Scale', kind: 'shader', sourceId: layer.id, defaultValue: layer.style.shader.scale ?? 1, targetProperty: 'scale' })
+          names.add('shader scale')
+        }
+        const sParams = layer.style.shader.params as Record<string, unknown> | undefined
+        if (sParams) {
+          if ('frequency' in sParams && !names.has('noise frequency')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Noise Frequency', kind: 'shader', sourceId: layer.id, defaultValue: Number(sParams.frequency ?? 1), targetProperty: 'frequency' })
+            names.add('noise frequency')
+          }
+          if ('turbulence' in sParams && !names.has('turbulence')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Turbulence', kind: 'shader', sourceId: layer.id, defaultValue: Number(sParams.turbulence ?? 0.5), targetProperty: 'turbulence' })
+            names.add('turbulence')
+          }
+        }
+        if (layer.style.shader.composite && !names.has('blend mode')) {
+          generated.push({ id: crypto.randomUUID(), name: 'Blend Mode', kind: 'shader', sourceId: layer.id, defaultValue: layer.style.shader.composite.blendMode ?? 'normal', targetProperty: 'blendMode' })
+          names.add('blend mode')
+        }
+      }
+
+      if (layer.style.fill && typeof layer.style.fill === 'string' && layer.style.fill !== 'transparent' && layer.type !== 'text') {
+        const fillPropName = layer.id === master.id ? 'Fill Color' : `${layer.name} Fill`
+        if (!names.has(fillPropName.toLowerCase()) && generated.filter(p => p.kind === 'color').length < 2) {
+          generated.push({ id: crypto.randomUUID(), name: fillPropName, kind: 'color', sourceId: layer.id, defaultValue: layer.style.fill, targetProperty: 'fill' })
+          names.add(fillPropName.toLowerCase())
+        }
+      }
+
+      if (('cornerRadius' in layer) && typeof (layer as any).cornerRadius === 'number' && (layer as any).cornerRadius > 0) {
+        const radiusPropName = layer.id === master.id ? 'Corner Radius' : `${layer.name} Radius`
+        if (!names.has(radiusPropName.toLowerCase()) && !generated.some(p => p.kind === 'number' && p.targetProperty === 'cornerRadius')) {
+          generated.push({ id: crypto.randomUUID(), name: radiusPropName, kind: 'number', sourceId: layer.id, defaultValue: (layer as any).cornerRadius, targetProperty: 'cornerRadius', min: 0, max: 100 })
+          names.add(radiusPropName.toLowerCase())
+        }
+      }
+    }
+
+    if (generated.length === existing.length) return
+    this.setComponentProperties(masterId, generated)
+  }
+
+  /** Duplicate a master component and its entire subtree as an independent new master on the 120px grid. */
+  duplicateComponent(masterId: string): SceneElement {
+    const master = this.require(masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.history.getSnapshot().active) throw new Error('Finish the active edit first')
+
+    const sources = subtree(this.state.elements, master.id)
+    const idMap = new Map<string, string>()
+    for (const src of sources) {
+      idMap.set(src.id, crypto.randomUUID())
+    }
+
+    const y = master.y
+    let x = master.x + Math.ceil(master.width / 120) * 120 + 120
+    const neighbors = this.getChildren(master.parentId).map(id => this.state.elements[id]).filter(node => node.visible).sort((a, b) => a.x - b.x)
+    for (const neighbor of neighbors) {
+      if (x < neighbor.x + neighbor.width && x + master.width > neighbor.x && y < neighbor.y + neighbor.height && y + master.height > neighbor.y) {
+        x = master.x + Math.ceil((neighbor.x + neighbor.width - master.x) / 120) * 120 + 120
+      }
+    }
+
+    let elements = { ...this.state.elements }
+    const newRootId = idMap.get(master.id)!
+
+    for (const src of sources) {
+      const newId = idMap.get(src.id)!
+      const isRoot = src.id === master.id
+      const newParentId = isRoot ? master.parentId : idMap.get(src.parentId!)!
+      const cloned = {
+        ...src,
+        id: newId,
+        parentId: newParentId,
+        ...(isRoot ? {
+          x,
+          y,
+          name: `${src.name.replace(/ copy( \d+)?$/, '')} copy`,
+          component: {
+            kind: 'master' as const,
+            ...(master.component.properties ? {
+              properties: master.component.properties.map(p => {
+                if (p.kind === 'variant') {
+                  return {
+                    ...p,
+                    options: p.options.map(opt => ({
+                      ...opt,
+                      layers: Object.fromEntries(
+                        Object.entries(opt.layers).map(([layerId, ovr]) => [idMap.get(layerId) ?? layerId, ovr])
+                      ),
+                    })),
+                  }
+                }
+                return {
+                  ...p,
+                  sourceId: idMap.get(p.sourceId) ?? p.sourceId,
+                }
+              }),
+            } : {}),
+            ...(master.component.stateMachine ? { stateMachine: master.component.stateMachine } : {}),
+          },
+        } : {
+          component: undefined,
+        }),
+        ...(src.type === 'frame' ? { children: src.children.map(cId => idMap.get(cId)!) } : {}),
+      } as SceneElement
+
+      validateElement(cloned)
+      elements[newId] = freezeElement(cloned)
+    }
+
+    const siblings = [...this.getChildren(master.parentId), newRootId]
+    this.ordered(elements, master.parentId, siblings)
+    this.commit(elements, master.parentId === null ? siblings : this.state.rootIds, [newRootId], `Duplicate ${master.name} component`)
+    return this.state.elements[newRootId]
+  }
+
+  /** Insert a pre-configured master symbol and instance for kinetic typography, shaders, or interactive canvas elements. */
+  insertPresetMasterSymbol(presetKey: string, placement?: { x?: number; y?: number }): { master: SceneElement; instance: SceneElement } {
+    let master: SceneElement | null = null
+
+    if (presetKey === 'kinetic-wave-header') {
+      const frameId = crypto.randomUUID()
+      const textId = crypto.randomUUID()
+      const x = placement?.x ?? 0
+      const y = placement?.y ?? 0
+
+      this.batch(() => {
+        const frame = this.add('frame', {
+          id: frameId,
+          name: 'Kinetic Wave Header',
+          x,
+          y,
+          width: 520,
+          height: 140,
+          cornerRadius: 16,
+          clipContent: true,
+          style: { fill: '#080808', stroke: { color: '#222222', width: 1, dash: [] } },
+        })
+        this.add('text', {
+          id: textId,
+          parentId: frame.id,
+          name: 'Headline',
+          x: 32,
+          y: 44,
+          text: 'INFINITE CANVAS',
+          fontSize: 40,
+          fontWeight: 700,
+          style: { fill: '#edebe1' },
+          kinetic: {
+            enabled: true,
+            playing: true,
+            amplitude: 18,
+            rotation: 0,
+            duration: 900,
+            stagger: 35,
+            phase: 0,
+            staggerMode: 'wave',
+            waveShape: 'sine',
+            weightModulation: 120,
+          },
+        })
+        master = this.createComponent(frame.id)
+        this.setComponentProperties(frame.id, [
+          { id: crypto.randomUUID(), name: 'Headline Text', kind: 'text', sourceId: textId, defaultValue: 'INFINITE CANVAS', targetProperty: 'text' },
+          { id: crypto.randomUUID(), name: 'Wave Amplitude', kind: 'kinetic', sourceId: textId, defaultValue: 18, targetProperty: 'amplitude' },
+          { id: crypto.randomUUID(), name: 'Wave Shape', kind: 'kinetic', sourceId: textId, defaultValue: 'sine', targetProperty: 'waveShape' },
+          { id: crypto.randomUUID(), name: 'Kinetic Active', kind: 'boolean', sourceId: textId, defaultValue: true, targetProperty: 'kinetic.enabled' },
+          { id: crypto.randomUUID(), name: 'Card Fill', kind: 'color', sourceId: frame.id, defaultValue: '#080808', targetProperty: 'fill' },
+        ])
+      }, 'Insert Kinetic Wave Header symbol')
+    } else if (presetKey === 'shader-neuro-hero') {
+      const frameId = crypto.randomUUID()
+      const textId = crypto.randomUUID()
+      const x = placement?.x ?? 0
+      const y = placement?.y ?? 0
+
+      this.batch(() => {
+        const frame = this.add('frame', {
+          id: frameId,
+          name: 'Neuro Noise Hero',
+          x,
+          y,
+          width: 480,
+          height: 260,
+          cornerRadius: 16,
+          clipContent: true,
+          style: {
+            fill: '#080808',
+            stroke: { color: '#81adec44', width: 1, dash: [] },
+            shader: {
+              kind: 'neuro-noise',
+              animated: true,
+              speed: 0.8,
+              scale: 1.2,
+              rotation: 0,
+              frame: 0,
+              offsetX: 0,
+              offsetY: 0,
+              params: { colorFront: '#81adec', colorMid: '#4b75af', colorBack: '#080808', brightness: 0.1, contrast: 0.35 },
+              composite: { blendMode: 'screen', opacity: 0.95 },
+            },
+          },
+        })
+        this.add('text', {
+          id: textId,
+          parentId: frame.id,
+          name: 'Badge',
+          x: 28,
+          y: 200,
+          text: 'NEURAL FLUID FIELD',
+          fontSize: 14,
+          fontWeight: 600,
+          letterSpacing: 2,
+          style: { fill: '#edebe1' },
+        })
+        master = this.createComponent(frame.id)
+        this.setComponentProperties(frame.id, [
+          { id: crypto.randomUUID(), name: 'Shader Speed', kind: 'shader', sourceId: frame.id, defaultValue: 0.8, targetProperty: 'speed' },
+          { id: crypto.randomUUID(), name: 'Shader Scale', kind: 'shader', sourceId: frame.id, defaultValue: 1.2, targetProperty: 'scale' },
+          { id: crypto.randomUUID(), name: 'Noise Frequency', kind: 'shader', sourceId: frame.id, defaultValue: 1.5, targetProperty: 'frequency' },
+          { id: crypto.randomUUID(), name: 'Turbulence', kind: 'shader', sourceId: frame.id, defaultValue: 0.75, targetProperty: 'turbulence' },
+          { id: crypto.randomUUID(), name: 'Badge Text', kind: 'text', sourceId: textId, defaultValue: 'NEURAL FLUID FIELD', targetProperty: 'text' },
+        ])
+      }, 'Insert Neuro Noise Hero symbol')
+    } else if (presetKey === 'shader-procedural-grain') {
+      const rectId = crypto.randomUUID()
+      const x = placement?.x ?? 0
+      const y = placement?.y ?? 0
+
+      this.batch(() => {
+        const rect = this.add('rectangle', {
+          id: rectId,
+          name: 'Procedural Simplex Mesh',
+          x,
+          y,
+          width: 360,
+          height: 240,
+          cornerRadius: 14,
+          style: {
+            fill: '#141414',
+            stroke: { color: '#81adec66', width: 1, dash: [] },
+            shader: {
+              kind: 'procedural-noise',
+              animated: true,
+              speed: 0.6,
+              scale: 1,
+              rotation: 0,
+              frame: 0,
+              offsetX: 0,
+              offsetY: 0,
+              params: {
+                noiseType: 'simplex',
+                frequency: 2,
+                octaves: 4,
+                lacunarity: 2,
+                persistence: 0.5,
+                turbulence: 0.6,
+                displacement: 0.4,
+                normalPerturbation: 0.3,
+                grainMixer: 0.2,
+                grainOverlay: 0.15,
+                colorFront: '#81adec',
+                colorMid: '#4b75af',
+                colorBack: '#080808',
+                lightAngle: 45,
+                specularStrength: 0.8,
+                viewMode: 'shaded',
+              },
+            },
+          },
+        })
+        master = this.createComponent(rect.id)
+        this.setComponentProperties(rect.id, [
+          { id: crypto.randomUUID(), name: 'Noise Frequency', kind: 'shader', sourceId: rect.id, defaultValue: 2, targetProperty: 'frequency' },
+          { id: crypto.randomUUID(), name: 'Octaves', kind: 'shader', sourceId: rect.id, defaultValue: 4, targetProperty: 'octaves' },
+          { id: crypto.randomUUID(), name: 'Displacement', kind: 'shader', sourceId: rect.id, defaultValue: 0.4, targetProperty: 'displacement' },
+          { id: crypto.randomUUID(), name: 'Shader Speed', kind: 'shader', sourceId: rect.id, defaultValue: 0.6, targetProperty: 'speed' },
+          { id: crypto.randomUUID(), name: 'Corner Radius', kind: 'number', sourceId: rect.id, defaultValue: 14, targetProperty: 'cornerRadius', min: 0, max: 100 },
+        ])
+      }, 'Insert Procedural Simplex Mesh symbol')
+    } else {
+      // Default: interactive spring button
+      const frameId = crypto.randomUUID()
+      const textId = crypto.randomUUID()
+      const x = placement?.x ?? 0
+      const y = placement?.y ?? 0
+
+      this.batch(() => {
+        const frame = this.add('frame', {
+          id: frameId,
+          name: 'Interactive Spring Button',
+          x,
+          y,
+          width: 220,
+          height: 52,
+          cornerRadius: 10,
+          style: { fill: '#81adec', stroke: { color: '#edebe1', width: 1, dash: [] } },
+          layout: { direction: 'horizontal', gap: 8, padding: { top: 16, right: 24, bottom: 16, left: 24 }, justify: 'center', align: 'center' },
+        })
+        this.add('text', {
+          id: textId,
+          parentId: frame.id,
+          name: 'Label',
+          text: 'Get Started',
+          fontSize: 14,
+          fontWeight: 600,
+          style: { fill: '#080808' },
+        })
+        master = this.createComponent(frame.id)
+        this.generateInteractiveStates(frame.id)
+        this.setComponentProperties(frame.id, [
+          ...(this.state.elements[frame.id].component as any)?.properties ?? [],
+          { id: crypto.randomUUID(), name: 'Button Label', kind: 'text', sourceId: textId, defaultValue: 'Get Started', targetProperty: 'text' },
+          { id: crypto.randomUUID(), name: 'Button Color', kind: 'color', sourceId: frame.id, defaultValue: '#81adec', targetProperty: 'fill' },
+          { id: crypto.randomUUID(), name: 'Corner Radius', kind: 'number', sourceId: frame.id, defaultValue: 10, targetProperty: 'cornerRadius', min: 0, max: 50 },
+        ])
+      }, 'Insert Interactive Spring Button symbol')
+    }
+
+    const resolvedMaster = this.state.elements[(master as any).id]
+    const instance = this.createComponentInstance(resolvedMaster.id)
+    return { master: resolvedMaster, instance }
+  }
+
   /** The same checks serve the toolbar and programmatic callers. */
   booleanSelectionReason(ids = this.state.selection): string | null {
     if (this.history.getSnapshot().active) return 'Finish the active edit first.'

@@ -1,6 +1,8 @@
 import type { SceneElement } from '../scene/types.ts'
 import { sampleTimes, trackValue } from './model.ts'
 import type { MotionDocument, MotionProperty } from './types.ts'
+import { exportLottieFromMotion } from '../io/lottieExport.ts'
+import { exportAnimatedSVGFromMotion } from '../io/animatedSvgExport.ts'
 
 const round = (n: number) => Number(n.toFixed(5))
 
@@ -18,7 +20,7 @@ const fmProperty = (property: MotionProperty) => {
   return property
 }
 
-export type ExportFormat = 'framer' | 'css' | 'waapi' | 'json'
+export type ExportFormat = 'framer' | 'css' | 'waapi' | 'json' | 'lottie' | 'animated-svg'
 
 /** Bake easing into shared samples so multiple springs, delays and segments retain their timing. */
 export function exportMotion(
@@ -28,6 +30,14 @@ export function exportMotion(
 ): string {
   if (format === 'json') {
     return JSON.stringify(motion, null, 2)
+  }
+
+  if (format === 'lottie') {
+    return exportLottieFromMotion(motion, elements, undefined, { pretty: true })
+  }
+
+  if (format === 'animated-svg') {
+    return exportAnimatedSVGFromMotion(motion, elements, undefined, { loop: motion.loop, background: 'transparent' })
   }
 
   const tracks = motion.tracks.filter(track => track.enabled && elements[track.elementId])

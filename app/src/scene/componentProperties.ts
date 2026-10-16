@@ -30,21 +30,22 @@ export function validateComponentProperties(properties: readonly ComponentProper
       }
     } else if (property.kind === 'boolean') {
       if (!safeId(property.sourceId) || typeof property.defaultValue !== 'boolean') throw new Error('Invalid component property')
-      if (property.targetProperty && !['visible', 'kinetic.enabled', 'clipContent'].includes(property.targetProperty)) throw new Error('Invalid boolean target property')
+      if (property.targetProperty && !['visible', 'kinetic.enabled', 'clipContent', 'shader.animated', 'locked'].includes(property.targetProperty)) throw new Error('Invalid boolean target property')
     } else if (property.kind === 'text') {
       if (!safeId(property.sourceId) || typeof property.defaultValue !== 'string') throw new Error('Invalid component property')
+      if (property.targetProperty && !['text', 'fontFamily', 'src', 'alt', 'textTransform'].includes(property.targetProperty)) throw new Error('Invalid text target property')
     } else if (property.kind === 'color') {
       if (!safeId(property.sourceId) || typeof property.defaultValue !== 'string') throw new Error('Invalid component property')
-      if (property.targetProperty && !['fill', 'stroke', 'shader'].includes(property.targetProperty)) throw new Error('Invalid color target property')
+      if (property.targetProperty && !['fill', 'stroke', 'shader', 'shader.colorFront', 'shader.colorMid', 'shader.colorBack', 'shadow'].includes(property.targetProperty)) throw new Error('Invalid color target property')
     } else if (property.kind === 'number') {
       if (!safeId(property.sourceId) || typeof property.defaultValue !== 'number' || !Number.isFinite(property.defaultValue)) throw new Error('Invalid component property')
     } else if (property.kind === 'kinetic') {
       if (!safeId(property.sourceId) || !property.targetProperty) throw new Error('Invalid component property')
-      const validTargets = ['enabled', 'amplitude', 'rotation', 'duration', 'stagger', 'waveShape', 'staggerMode', 'weightModulation', 'slantModulation', 'scaleModulation']
+      const validTargets = ['enabled', 'amplitude', 'rotation', 'duration', 'stagger', 'waveShape', 'staggerMode', 'weightModulation', 'slantModulation', 'scaleModulation', 'playing', 'phase']
       if (!validTargets.includes(property.targetProperty)) throw new Error('Invalid kinetic target property')
     } else if (property.kind === 'shader') {
       if (!safeId(property.sourceId) || !property.targetProperty) throw new Error('Invalid component property')
-      const validTargets = ['speed', 'scale', 'rotation', 'frequency', 'octaves', 'turbulence', 'displacement', 'viewMode', 'blendMode']
+      const validTargets = ['speed', 'scale', 'rotation', 'frequency', 'octaves', 'turbulence', 'displacement', 'viewMode', 'blendMode', 'lacunarity', 'persistence', 'normalPerturbation', 'grainOverlay', 'chromaticAberration', 'warpModulation', 'fluidAdvection', 'fluidViscosity', 'noiseType']
       if (!validTargets.includes(property.targetProperty)) throw new Error('Invalid shader target property')
     } else {
       throw new Error('Invalid component property')
@@ -72,13 +73,13 @@ export function validPropertyValue(property: ComponentProperty, value: Component
     return true
   }
   if (property.kind === 'kinetic') {
-    if (property.targetProperty === 'enabled') return typeof value === 'boolean'
+    if (property.targetProperty === 'enabled' || property.targetProperty === 'playing') return typeof value === 'boolean'
     if (property.targetProperty === 'waveShape') return typeof value === 'string' && ['triangle', 'sine', 'bounce', 'spring'].includes(value)
     if (property.targetProperty === 'staggerMode') return typeof value === 'string' && ['cascade', 'wave', 'center-out', 'random', 'elastic'].includes(value)
     return typeof value === 'number' && Number.isFinite(value)
   }
   if (property.kind === 'shader') {
-    if (property.targetProperty === 'blendMode' || property.targetProperty === 'viewMode') return typeof value === 'string'
+    if (property.targetProperty === 'blendMode' || property.targetProperty === 'viewMode' || property.targetProperty === 'noiseType') return typeof value === 'string'
     return typeof value === 'number' && Number.isFinite(value)
   }
   return false
@@ -103,7 +104,18 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
     if (property.kind === 'variant' || property.sourceId !== source.id) continue
     const value = values[property.id] ?? property.defaultValue
     if (property.kind === 'text') {
-      apply({ properties: { text: String(value) } })
+      const textVal = String(value)
+      if (property.targetProperty === 'fontFamily' && source.type === 'text') {
+        apply({ properties: { fontFamily: textVal } as any })
+      } else if (property.targetProperty === 'src' && source.type === 'image') {
+        apply({ properties: { src: textVal } as any })
+      } else if (property.targetProperty === 'alt' && source.type === 'image') {
+        apply({ properties: { alt: textVal } as any })
+      } else if (property.targetProperty === 'textTransform' && source.type === 'text') {
+        apply({ properties: { textTransform: textVal as any } as any })
+      } else {
+        apply({ properties: { text: textVal } })
+      }
     } else if (property.kind === 'boolean') {
       const boolVal = Boolean(value)
       if (property.targetProperty === 'clipContent' && source.type === 'frame') {
@@ -111,6 +123,10 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
       } else if (property.targetProperty === 'kinetic.enabled' && source.type === 'text') {
         const kineticOverrides = { ...(source.kinetic ?? { enabled: true, playing: true, amplitude: 16, rotation: 0, duration: 800, stagger: 40, phase: 0 }), enabled: boolVal }
         apply({ properties: { kinetic: kineticOverrides } as any })
+      } else if (property.targetProperty === 'shader.animated' && source.style.shader) {
+        apply({ style: { shader: { ...source.style.shader, animated: boolVal } } })
+      } else if (property.targetProperty === 'locked') {
+        apply({ properties: { locked: boolVal } as any })
       } else {
         apply({ properties: { visible: boolVal } })
       }
@@ -118,6 +134,13 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
       const colorVal = String(value)
       if (property.targetProperty === 'stroke') {
         apply({ style: { stroke: { color: colorVal, width: source.style.stroke?.width ?? 1, dash: source.style.stroke?.dash ?? [] } } })
+      } else if (property.targetProperty === 'shadow') {
+        apply({ style: { shadow: { color: colorVal, x: source.style.shadow?.x ?? 0, y: source.style.shadow?.y ?? 4, blur: source.style.shadow?.blur ?? 8 } } })
+      } else if (property.targetProperty && property.targetProperty.startsWith('shader.')) {
+        if (source.style.shader) {
+          const paramKey = property.targetProperty.replace('shader.', '')
+          apply({ style: { shader: { ...source.style.shader, params: { ...source.style.shader.params, [paramKey]: colorVal } as any } } })
+        }
       } else if (property.targetProperty === 'shader') {
         if (source.style.shader) {
           apply({ style: { shader: { ...source.style.shader, params: { ...source.style.shader.params, color: colorVal, tint: colorVal } as any } } })
@@ -137,6 +160,8 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
           apply({ properties: { width: numVal } })
         } else if (target === 'height') {
           apply({ properties: { height: numVal } })
+        } else if (target === 'rotation') {
+          apply({ properties: { rotation: numVal } })
         } else if (target === 'strokeWidth') {
           apply({ style: { stroke: { color: source.style.stroke?.color ?? '#080808', width: numVal, dash: source.style.stroke?.dash ?? [] } } })
         } else if (target === 'fontSize' && source.type === 'text') {
@@ -147,6 +172,8 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
           apply({ properties: { letterSpacing: numVal } })
         } else if (target === 'lineHeight' && source.type === 'text') {
           apply({ properties: { lineHeight: numVal } })
+        } else if (target === 'layout.gap' && source.type === 'frame' && source.layout) {
+          apply({ properties: { layout: { ...source.layout, gap: numVal } } as any })
         }
       }
     } else if (property.kind === 'kinetic' && source.type === 'text') {
@@ -167,8 +194,15 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
       const existingShader = source.style.shader
       if (['speed', 'scale', 'rotation'].includes(prop)) {
         apply({ style: { shader: { ...existingShader, [prop]: typeof value === 'number' ? value : Number(value) } } })
+      } else if (prop === 'blendMode') {
+        apply({ style: { shader: { ...existingShader, composite: { blendMode: value as any, opacity: existingShader.composite?.opacity ?? 1 } } } })
       } else {
-        apply({ style: { shader: { ...existingShader, params: { ...existingShader.params, [prop]: value } as any } } })
+        const nextParams = { ...existingShader.params, [prop]: value } as any
+        let nextMesh = existingShader.mesh
+        if (nextMesh && prop in nextMesh) {
+          nextMesh = { ...nextMesh, [prop]: value }
+        }
+        apply({ style: { shader: { ...existingShader, params: nextParams, ...(nextMesh ? { mesh: nextMesh } : {}) } } })
       }
     }
   }
@@ -183,7 +217,8 @@ export function validatePropertyTargets(master: SceneElement, elements: Readonly
     if (property.kind !== 'variant') {
       const source = sources.get(property.sourceId)
       if (!source) throw new Error('Choose a compatible layer inside this master')
-      if (property.kind === 'text' && source.type !== 'text') throw new Error('Choose a text layer for a text slot')
+      if (property.kind === 'text' && source.type !== 'text' && property.targetProperty !== 'src' && property.targetProperty !== 'alt') throw new Error('Choose a text layer for a text slot')
+      if (property.kind === 'text' && (property.targetProperty === 'src' || property.targetProperty === 'alt') && source.type !== 'image') throw new Error('Choose an image layer for an image slot')
       if (property.kind === 'kinetic' && source.type !== 'text') throw new Error('Choose a text layer for kinetic typography')
       if (property.kind === 'shader' && !source.style.shader) throw new Error('Choose a layer with a shader for shader properties')
     } else for (const option of property.options) for (const [id, overrides] of Object.entries(option.layers)) {

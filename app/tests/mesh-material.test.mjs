@@ -5,14 +5,20 @@ import { SceneStore } from '../src/scene/store.ts'
 import { createShader, freezeShader, updateShaderParameter, validateShader } from '../src/shaders/catalog.ts'
 import {
   clampUnit,
+  createMeshGrid,
+  createMeshMaterial,
   evaluateBicubicPatch,
+  evaluateGridMesh,
   generateCornerPatchLayout,
   generateGridLayout,
   generateRadialLayout,
   generateSpiralLayout,
   generateWaveLayout,
+  gridVertexPosition,
   interpolateMeshColor,
   interpolatePaletteColors,
+  meshDistortionModes,
+  meshGridUniforms,
   meshHarmonyModes,
   meshToSurface,
   meshUniforms,
@@ -22,8 +28,18 @@ import {
   surfaceToMesh,
   synthesizeProceduralColorField,
   toHexColor,
+  validateMeshGrid,
+  validateMeshMaterial,
 } from '../src/shaders/mesh.ts'
-import { getMeshActiveAnchor, setMeshActiveAnchor, getMeshPlacementMode, setMeshPlacementMode, subscribeMeshState } from '../src/shaders/meshState.ts'
+import {
+  getMeshActiveAnchor,
+  setMeshActiveAnchor,
+  getMeshActiveGridVertex,
+  setMeshActiveGridVertex,
+  getMeshPlacementMode,
+  setMeshPlacementMode,
+  subscribeMeshState,
+} from '../src/shaders/meshState.ts'
 import { exportMeshReact } from '../src/shaders/shaderExport.ts'
 import { createProject } from '../src/io/project.ts'
 import { mutateCanvas } from '../src/mcp/operations.ts'
@@ -322,4 +338,157 @@ test('generateWaveLayout and generateCornerPatchLayout produce bounded coordinat
   assert.deepEqual(four[0], { x: 0.15, y: 0.15, radius: 0.7 })
   assert.deepEqual(four[1], { x: 0.85, y: 0.15, radius: 0.7 })
 })
+
+test('grid mesh topology creates valid NxM patch, evaluates bicubic colors, and formats GPU uniforms', () => {
+  const grid = createMeshGrid(3, 4, ['#edebe1', '#81adec', '#222222'])
+  assert.equal(grid.rows, 3)
+  assert.equal(grid.cols, 4)
+  assert.equal(grid.vertices.length, 12)
+  assert.equal(grid.topology, 'grid')
+  assert.equal(grid.smoothing, 0.5)
+
+  // Validation passes on clean grid
+  validateMeshGrid(grid)
+
+  // Vertex positions
+  const corner00 = gridVertexPosition(0, 0, 3, 4)
+  assert.deepEqual(corner00, { x: 0, y: 0 })
+  const corner23 = gridVertexPosition(2, 3, 3, 4)
+  assert.deepEqual(corner23, { x: 1, y: 1 })
+  const center = gridVertexPosition(1, 1, 3, 3)
+  assert.deepEqual(center, { x: 0.5, y: 0.5 })
+
+  // Evaluate color on grid
+  const sampled = evaluateGridMesh(grid, 0.5, 0.5)
+  assert.match(sampled, /^#[\da-f]{6}$/i)
+
+  // Invalid grid assertions
+  assert.throws(() => validateMeshGrid({ ...grid, rows: 1 }), /Invalid mesh grid rows/)
+  assert.throws(() => validateMeshGrid({ ...grid, cols: 9 }), /Invalid mesh grid cols/)
+  assert.throws(() => validateMeshGrid({ ...grid, smoothing: -0.1 }), /Invalid mesh grid smoothing/)
+  assert.throws(() => validateMeshGrid({ ...grid, vertices: grid.vertices.slice(0, 5) }), /Invalid mesh grid vertex count/)
+
+  // GPU Grid Uniforms
+  const paint = {
+    kind: 'mesh-gradient',
+    params: { colors: ['#edebe1', '#81adec', '#222222'], distortion: 0.3, swirl: 0.1, grainMixer: 0, grainOverlay: 0 },
+    animated: true,
+    speed: 0.2,
+    frame: 500,
+    scale: 1,
+    rotation: 0,
+    offsetX: 0,
+    offsetY: 0,
+    mesh: {
+      ...createMeshMaterial(3),
+      grid,
+      fluidAdvection: 0.45,
+      fluidViscosity: 0.6,
+      distortionMode: 'curl-fluid',
+    },
+  }
+
+  const uniforms = meshGridUniforms(paint)
+  assert.equal(uniforms.u_gridMode, 1.0)
+  assert.equal(uniforms.u_gridRows, 3)
+  assert.equal(uniforms.u_gridCols, 4)
+  assert.equal(uniforms.u_gridSmoothing, 0.5)
+  assert.equal(uniforms.u_fluidAdvection, 0.45)
+  assert.equal(uniforms.u_fluidViscosity, 0.6)
+  assert.equal(uniforms.u_distortionMode, 0) // curl-fluid = 0
+  assert.equal(uniforms.u_gridColors.length, 64)
+  assert.equal(uniforms.u_gridTangents.length, 64)
+})
+
+test('mesh distortion dynamics modes support curl-fluid, domain-warp, turbulent-swirl, and simplex-flow', () => {
+  for (const mode of meshDistortionModes) {
+    const mesh = createMeshMaterial(3, {
+      distortionMode: mode,
+      fluidAdvection: 0.7,
+      fluidViscosity: 0.3,
+    })
+    assert.equal(mesh.distortionMode, mode)
+    assert.equal(mesh.fluidAdvection, 0.7)
+    assert.equal(mesh.fluidViscosity, 0.3)
+
+    const paint = {
+      kind: 'mesh-gradient',
+      params: { colors: ['#edebe1', '#81adec', '#222222'], distortion: 0.2, swirl: 0.1, grainMixer: 0, grainOverlay: 0 },
+      animated: true,
+      speed: 0.3,
+      frame: 100,
+      scale: 1,
+      rotation: 0,
+      offsetX: 0,
+      offsetY: 0,
+      mesh,
+    }
+
+    validateMeshMaterial(mesh, paint)
+    const uniforms = meshUniforms(paint)
+    assert.equal(uniforms.u_fluidAdvection, 0.7)
+    assert.equal(uniforms.u_fluidViscosity, 0.3)
+    const expectedModeVal = mode === 'curl-fluid' ? 0 : mode === 'domain-warp' ? 1 : mode === 'turbulent-swirl' ? 2 : 3
+    assert.equal(uniforms.u_distortionMode, expectedModeVal)
+  }
+})
+
+test('meshState broadcasts active grid vertex updates', () => {
+  let count = 0
+  const unsubscribe = subscribeMeshState(() => {
+    count++
+  })
+
+  setMeshActiveGridVertex(3)
+  assert.equal(getMeshActiveGridVertex(), 3)
+  assert.equal(count, 1)
+
+  // Duplicate set should not fire
+  setMeshActiveGridVertex(3)
+  assert.equal(count, 1)
+
+  setMeshActiveGridVertex(0)
+  assert.equal(getMeshActiveGridVertex(), 0)
+  assert.equal(count, 2)
+
+  unsubscribe()
+})
+
+test('direct scene canvas binding applies mesh gradient to elements, background, and new cards', () => {
+  const store = new SceneStore()
+  const paint = createShader('mesh-gradient')
+
+  // 1. Bind to background
+  store.setBackgroundShader(paint)
+  assert.equal(store.getSnapshot().backgroundShader?.kind, 'mesh-gradient')
+
+  // 2. Bind to selected element
+  store.add('rectangle', { id: 'canvas-node', x: 100, y: 100, width: 240, height: 180 })
+  store.beginTransaction('Bind mesh to selection')
+  store.update('canvas-node', 'rectangle', { style: { shader: paint } })
+  store.endTransaction()
+  assert.equal(store.getSnapshot().elements['canvas-node'].style.shader?.kind, 'mesh-gradient')
+
+  // 3. Grid mesh binding with undo/redo
+  const grid = createMeshGrid(3, 3, ['#edebe1', '#81adec', '#222222'])
+  const gridPaint = freezeShader({
+    ...paint,
+    mesh: {
+      ...paint.mesh,
+      grid,
+    },
+  })
+
+  store.beginTransaction('Apply grid mesh to node')
+  store.update('canvas-node', 'rectangle', { style: { shader: gridPaint } })
+  store.endTransaction()
+  assert.ok(store.getSnapshot().elements['canvas-node'].style.shader?.mesh?.grid)
+
+  store.undo()
+  assert.equal(store.getSnapshot().elements['canvas-node'].style.shader?.mesh?.grid, undefined)
+
+  store.redo()
+  assert.ok(store.getSnapshot().elements['canvas-node'].style.shader?.mesh?.grid)
+})
+
 

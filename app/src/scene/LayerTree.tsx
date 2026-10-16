@@ -15,7 +15,7 @@ const LayerRow = memo(function LayerRow({ store, id, depth }: { store: SceneStor
   const [expanded, setExpanded] = useState(false)
   if (!node) return null
   const Icon = node.mask ? Scan : node.component?.kind === 'master' ? Diamonds : node.component?.kind === 'instance' && node.component.instanceId === id ? Diamond : node.type === 'path' && node.boolean ? Combine : elementIcons[node.type]
-  const overridden = node.component?.kind === 'instance' && Object.values(node.component.overrides).some(value => value && Object.keys(value).length)
+  const overridden = node.component?.kind === 'instance' && (Object.values(node.component.overrides).some(value => value && Object.keys(value).length) || (node.id === node.component.instanceId && Object.keys(node.component.propertyValues ?? {}).length > 0))
   const hasChildren = (node.type === 'frame' && node.children.length > 0) || (node.type === 'path' && !!node.boolean)
   return <div role="treeitem" aria-selected={selected} aria-expanded={hasChildren ? expanded : undefined}>
     <div className={`scene-layer-row ${selected ? 'selected' : ''} ${node.mask ? 'is-mask' : ''} ${!visible ? 'is-hidden' : ''} ${node.component ? 'is-component' : ''} ${node.component?.kind === 'master' ? 'is-master' : ''}`} data-layer-id={id} style={{ paddingLeft: 8 + depth * 12 }}>

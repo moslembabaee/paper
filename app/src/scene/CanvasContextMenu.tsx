@@ -36,6 +36,12 @@ import {
   ZoomIn,
   LayoutGrid,
   Ungroup,
+  Component as Diamonds,
+  Diamond,
+  Sparkles,
+  RotateCcw,
+  ArrowUpRight,
+  Plus,
 } from 'lucide-react'
 import type { ViewportController } from '../canvas'
 import type { Point } from '../canvas/types'
@@ -48,6 +54,8 @@ import { cleanSvgPathGeometry } from './cagEngine'
 import { sceneToSVG } from '../io/svg'
 import { buildReactComponent } from '../tokens/codegen'
 import { importClipboard, insertImportedScene } from '../io/import'
+import { componentRoot } from './components'
+import { getWorldBounds } from './geometry'
 import './contextMenu.css'
 
 interface ContextMenuPosition {
@@ -251,6 +259,73 @@ export function CanvasContextMenu({ store, controller, position, onClose }: Canv
     onClose()
   }
 
+  const compRoot = isSingle && firstNode ? componentRoot(state.elements, firstNode.id) : undefined
+  const isMaster = firstNode?.component?.kind === 'master'
+  const isInstance = compRoot?.component?.kind === 'instance'
+  const canMakeComponent = isSingle && firstNode && !firstNode.component && !store.componentCreationReason(firstNode.id)
+
+  const handleCreateComponent = () => {
+    if (firstNode && canMakeComponent) {
+      store.createComponent(firstNode.id)
+      store.autoExposeComponentProperties(firstNode.id)
+    }
+    onClose()
+  }
+
+  const handleInsertInstance = () => {
+    if (firstNode && isMaster) {
+      const inst = store.createComponentInstance(firstNode.id)
+      store.select([inst.id])
+    }
+    onClose()
+  }
+
+  const handleAutoExpose = () => {
+    if (firstNode && isMaster) {
+      store.autoExposeComponentProperties(firstNode.id)
+    }
+    onClose()
+  }
+
+  const handlePushOverrides = () => {
+    if (firstNode && isInstance) {
+      store.pushOverridesToMaster(firstNode.id)
+    }
+    onClose()
+  }
+
+  const handleResetOverrides = () => {
+    if (firstNode && isInstance) {
+      store.resetComponentOverrides(firstNode.id)
+    }
+    onClose()
+  }
+
+  const handleDetachInstance = () => {
+    if (firstNode && isInstance) {
+      store.detachComponentInstance(firstNode.id)
+    }
+    onClose()
+  }
+
+  const handleGoToMaster = () => {
+    if (firstNode && isInstance && compRoot?.component?.kind === 'instance') {
+      const masterId = compRoot.component.masterId
+      store.select([masterId])
+      controller.fit(getWorldBounds(store.getSnapshot(), masterId))
+    }
+    onClose()
+  }
+
+  const handleInsertPreset = (presetKey: string) => {
+    const { instance } = store.insertPresetMasterSymbol(presetKey, {
+      x: position.worldPos.x,
+      y: position.worldPos.y,
+    })
+    store.select([instance.id])
+    onClose()
+  }
+
   const isCompound = isSingle && firstNode?.type === 'path' && !!firstNode.boolean
   const canBoolean = selectedRoots.length >= 2 && !store.booleanSelectionReason(selectedRoots)
 
@@ -376,6 +451,30 @@ export function CanvasContextMenu({ store, controller, position, onClose }: Canv
             <MenuItem icon={<Ungroup size={14} />} label="Ungroup" shortcut={`${modKey}Shift+G`} onClick={handleUngroup} />
           )}
 
+          {(canMakeComponent || isMaster || isInstance) && (
+            <>
+              <div className="context-menu-separator" />
+              <div className="context-menu-header">Component</div>
+              {canMakeComponent && (
+                <MenuItem icon={<Diamonds size={14} />} label="Create Component" shortcut="Alt+Cmd+K" onClick={handleCreateComponent} />
+              )}
+              {isMaster && (
+                <>
+                  <MenuItem icon={<Plus size={14} />} label="Insert Instance" onClick={handleInsertInstance} />
+                  <MenuItem icon={<Sparkles size={14} />} label="Auto-Expose Properties" onClick={handleAutoExpose} />
+                </>
+              )}
+              {isInstance && (
+                <>
+                  <MenuItem icon={<ArrowUpRight size={14} />} label="Push Overrides to Master" onClick={handlePushOverrides} />
+                  <MenuItem icon={<RotateCcw size={14} />} label="Reset Overrides" onClick={handleResetOverrides} />
+                  <MenuItem icon={<Unlink size={14} />} label="Detach Instance" onClick={handleDetachInstance} />
+                  <MenuItem icon={<Diamond size={14} />} label="Go to Master Component" onClick={handleGoToMaster} />
+                </>
+              )}
+            </>
+          )}
+
           {canBoolean && (
             <>
               <div className="context-menu-separator" />
@@ -417,6 +516,13 @@ export function CanvasContextMenu({ store, controller, position, onClose }: Canv
           <MenuItem icon={<Square size={14} />} label="New Rectangle" shortcut="R" onClick={() => handleAddElement('rectangle')} />
           <MenuItem icon={<Circle size={14} />} label="New Ellipse" shortcut="O" onClick={() => handleAddElement('ellipse')} />
           <MenuItem icon={<Type size={14} />} label="New Text" shortcut="T" onClick={() => handleAddElement('text')} />
+
+          <div className="context-menu-separator" />
+          <div className="context-menu-header">Insert Master Symbol</div>
+          <MenuItem icon={<Sparkles size={14} />} label="Interactive Spring Button" onClick={() => handleInsertPreset('button')} />
+          <MenuItem icon={<Sparkles size={14} />} label="Kinetic Wave Header" onClick={() => handleInsertPreset('kinetic-wave-header')} />
+          <MenuItem icon={<Sparkles size={14} />} label="Procedural Simplex Mesh" onClick={() => handleInsertPreset('shader-procedural-grain')} />
+          <MenuItem icon={<Sparkles size={14} />} label="Neuro Noise Hero" onClick={() => handleInsertPreset('shader-neuro-hero')} />
 
           <div className="context-menu-separator" />
 
