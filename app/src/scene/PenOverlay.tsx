@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ViewportController } from '../canvas/ViewportController'
 import type { Point } from '../canvas/types'
 import { getWorldMatrix } from './geometry'
-import { bendSegment, convertSegmentCurveMode, copyContours, insertPathAnchor, moveAnchor, moveHandle, nearestPathSegment, parsePath, pathBounds, roundPathContours, segmentPoint, serializePath, setHandleType, snapPathPoint, snapToGrid, toggleNodeCornerSmooth } from './pathGeometry'
+import { bendSegment, convertSegmentCurveMode, copyContours, evaluateSegmentCurvature, insertPathAnchor, isSmoothNode, moveAnchor, moveHandle, moveQuadApex, nearestPathSegment, parsePath, pathBounds, roundPathContours, segmentPoint, serializePath, setHandleType, snapPathPoint, snapToGrid, toggleNodeCornerSmooth } from './pathGeometry'
 import type { AnchorSelection, CurveMode, PathAnchor, PathContour } from './pathGeometry'
 import { PathNodeInspector } from './PathNodeInspector'
 import type { NodeAction } from './PathNodeInspector'
@@ -21,7 +21,7 @@ interface Gesture {
   pointerId: number
   contour: number
   anchor: number
-  handle?: 'in' | 'out'
+  handle?: 'in' | 'out' | 'quadApex'
   start: Point
   original: PathAnchor
   moved: boolean
@@ -61,7 +61,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
   const callbackRef = useRef(onFinish)
   useLayoutEffect(() => { callbackRef.current = onFinish }, [onFinish])
   const [hover, setHover] = useState<Point | null>(null)
-  const [hoverSegment, setHoverSegment] = useState<{ contour: number; segment: number; t: number; point: Point } | null>(null)
+  const [hoverSegment, setHoverSegment] = useState<{ contour: number; segment: number; t: number; point: Point; curvature?: { radius: number; curvature: number } } | null>(null)
   const [curveMode, setCurveMode] = useState<CurveMode>('cubic')
   const [isBending, setIsBending] = useState(false)
   const [selected, setSelected] = useState<AnchorSelection[]>([])
@@ -96,8 +96,26 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
     return worldMatrix ? mapPoint(worldMatrix, p) : p
   }
   const screen = (p: Point): Point => { const world = toWorld(p); return { x: world.x * camera.zoom + camera.x, y: world.y * camera.zoom + camera.y } }
-  const screenContours = session.contours.map(c => ({ ...c, anchors: c.anchors.map(a => ({ ...screen(a), ...(a.in ? { in: screen(a.in) } : {}), ...(a.out ? { out: screen(a.out) } : {}) })) }))
-  const previewContours = roundPathContours(session.contours).map(c => ({ ...c, anchors: c.anchors.map(a => ({ ...screen(a), ...(a.in ? { in: screen(a.in) } : {}), ...(a.out ? { out: screen(a.out) } : {}) })) }))
+  const screenContours = session.contours.map(c => ({
+    ...c,
+    anchors: c.anchors.map(a => ({
+      ...screen(a),
+      ...(a.in ? { in: screen(a.in) } : {}),
+      ...(a.out ? { out: screen(a.out) } : {}),
+      ...(a.quadApex ? { quadApex: screen(a.quadApex) } : {}),
+      curveMode: a.curveMode,
+    })),
+  }))
+  const previewContours = roundPathContours(session.contours).map(c => ({
+    ...c,
+    anchors: c.anchors.map(a => ({
+      ...screen(a),
+      ...(a.in ? { in: screen(a.in) } : {}),
+      ...(a.out ? { out: screen(a.out) } : {}),
+      ...(a.quadApex ? { quadApex: screen(a.quadApex) } : {}),
+      curveMode: a.curveMode,
+    })),
+  }))
 
   useLayoutEffect(() => {
     const root = rootRef.current!, viewport = root.closest<HTMLElement>('.canvas-viewport')!
@@ -258,6 +276,24 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
             const c = s.contours[p.contour], a = c?.anchors[p.anchor]
             if (c && a) convertSegmentCurveMode(c, p.anchor, targetMode)
           }
+        } else if (action === 'quad-apex-x' || action === 'quad-apex-y') {
+          if (value !== undefined && Number.isFinite(value)) {
+            for (const p of selected) {
+              const c = s.contours[p.contour]
+              const a = c?.anchors[p.anchor]
+              const nextIdx = (p.anchor + 1) % c.anchors.length
+              const b = c?.anchors[nextIdx]
+              if (a && b && a.quadApex) {
+                const nextApex = {
+                  x: action === 'quad-apex-x' ? value : a.quadApex.x,
+                  y: action === 'quad-apex-y' ? value : a.quadApex.y,
+                }
+                const updated = moveQuadApex(a, b, nextApex)
+                c.anchors[p.anchor] = updated.a
+                c.anchors[nextIdx] = updated.b
+              }
+            }
+          }
         } else if (action === 'insert') {
           const p = selected[0], c = s.contours[p.contour]
           if (!c || (!c.closed && p.anchor === c.anchors.length - 1)) return
@@ -303,7 +339,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       if (indexedElements !== store.getSnapshot().elements) {
         vertexIndex = sceneVertexIndex(store.getSnapshot(), s.id); indexedElements = store.getSnapshot().elements
       }
-      let contourIndex: number, anchorIndex: number, handle: 'in' | 'out' | undefined
+      let contourIndex: number, anchorIndex: number, handle: 'in' | 'out' | 'quadApex' | undefined
       const control = target.closest<SVGElement>('[data-anchor]')
       if (control) {
         contourIndex = Number(control.dataset.contour); anchorIndex = Number(control.dataset.anchor); handle = control.dataset.control as typeof handle
@@ -438,7 +474,13 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
         const angle = Math.round(Math.atan2(p.y - anchor.y, p.x - anchor.x) / (Math.PI / 4)) * Math.PI / 4, length = Math.hypot(p.x - anchor.x, p.y - anchor.y)
         p = { x: anchor.x + Math.cos(angle) * length, y: anchor.y + Math.sin(angle) * length }
       }
-      if (g.handle) {
+      if (g.handle === 'quadApex') {
+        const c = s.contours[g.contour]
+        const nextIdx = (g.anchor + 1) % c.anchors.length
+        const updated = moveQuadApex(c.anchors[g.anchor], c.anchors[nextIdx], p)
+        c.anchors[g.anchor] = updated.a
+        c.anchors[nextIdx] = updated.b
+      } else if (g.handle) {
         s.contours[g.contour].anchors[g.anchor] = moveHandle(g.original, g.handle, p, event.altKey)
       } else if (g.creating || penMode) {
         anchor.out = p; anchor.in = event.altKey ? undefined : { x: 2 * anchor.x - p.x, y: 2 * anchor.y - p.y }
@@ -477,7 +519,14 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
           const a = rendered[hit.contour].anchors[hit.segment]
           const b = rendered[hit.contour].anchors[(hit.segment + 1) % rendered[hit.contour].anchors.length]
           const pt = segmentPoint(a, b, hit.t)
-          setHoverSegment({ contour: hit.contour, segment: hit.segment, t: hit.t, point: pt })
+          const curvature = (a.out || b.in) ? evaluateSegmentCurvature(a, b, hit.t) : undefined
+          setHoverSegment({
+            contour: hit.contour,
+            segment: hit.segment,
+            t: hit.t,
+            point: pt,
+            curvature: curvature ? { radius: curvature.radius, curvature: curvature.curvature } : undefined,
+          })
         } else {
           setHoverSegment(null)
         }
@@ -606,15 +655,83 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
     <svg className="pen-geometry" aria-label="Path anchors and Bézier handles">
       <path className="pen-preview" data-testid="pen-preview" d={preview} />
       {snapTarget && <g className="pen-snap-target" data-testid="pen-snap-target" transform={`translate(${snapTarget.x * camera.zoom + camera.x} ${snapTarget.y * camera.zoom + camera.y})`}><circle r="8" /><path d="M-12 0H-5M5 0H12M0-12V-5M0 5V12" /><text x="14" y="-12">{snapTarget.label}</text></g>}
-      {hoverSegment && <circle className="pen-curvature-handle" data-testid="pen-curvature-handle" cx={screen(hoverSegment.point).x} cy={screen(hoverSegment.point).y} r={6} />}
+      {hoverSegment && (
+        <g>
+          <circle className="pen-curvature-handle" data-testid="pen-curvature-handle" cx={screen(hoverSegment.point).x} cy={screen(hoverSegment.point).y} r={6} />
+          {hoverSegment.curvature && Number.isFinite(hoverSegment.curvature.radius) && hoverSegment.curvature.radius < 5000 && (
+            <text className="pen-curvature-label" x={screen(hoverSegment.point).x + 10} y={screen(hoverSegment.point).y - 8}>
+              R: {Math.round(hoverSegment.curvature.radius)}px
+            </text>
+          )}
+        </g>
+      )}
       {penMode && hasOpenContour && screenContours.at(-1)?.anchors[0] && (
         <circle className="pen-close-indicator" cx={screenContours.at(-1)!.anchors[0].x} cy={screenContours.at(-1)!.anchors[0].y} r={12} />
       )}
-      {screenContours.map((c, ci) => c.anchors.map((a, ai) => <g key={`${ci}-${ai}`}>
-        {(penMode || selectionKeys.has(`${ci}:${ai}`)) && (['in', 'out'] as const).map(handle => a[handle] ? <g key={handle}><line x1={a.x} y1={a.y} x2={a[handle].x} y2={a[handle].y} className="pen-handle-line" /><circle cx={a[handle].x} cy={a[handle].y} r={4} className="pen-control" data-contour={ci} data-anchor={ai} data-control={handle} aria-label={`Subpath ${ci + 1}, ${handle === 'in' ? 'incoming' : 'outgoing'} handle ${ai + 1}`} /></g> : null)}
-        <rect x={a.x - 4} y={a.y - 4} width={8} height={8} className={`pen-anchor ${selectionKeys.has(`${ci}:${ai}`) ? 'is-active' : ''}`} data-contour={ci} data-anchor={ai} aria-label={`Subpath ${ci + 1}, anchor ${ai + 1}`} />
-      </g>))}
+      {screenContours.map((c, ci) => c.anchors.map((a, ai) => {
+        const isSmooth = isSmoothNode(session.contours[ci]?.anchors[ai])
+        const nextAnchor = c.anchors[(ai + 1) % c.anchors.length]
+        const showQuadApex = a.curveMode === 'quadratic' && a.quadApex && (c.closed || ai < c.anchors.length - 1)
+        return (
+          <g key={`${ci}-${ai}`}>
+            {showQuadApex && (penMode || selectionKeys.has(`${ci}:${ai}`) || selectionKeys.has(`${ci}:${(ai + 1) % c.anchors.length}`)) && (
+              <g key={`quad-${ci}-${ai}`}>
+                <line x1={a.x} y1={a.y} x2={a.quadApex!.x} y2={a.quadApex!.y} className="pen-handle-line is-quad" />
+                <line x1={a.quadApex!.x} y1={a.quadApex!.y} x2={nextAnchor.x} y2={nextAnchor.y} className="pen-handle-line is-quad" />
+                <polygon
+                  points={`${a.quadApex!.x},${a.quadApex!.y - 5} ${a.quadApex!.x + 5},${a.quadApex!.y} ${a.quadApex!.x},${a.quadApex!.y + 5} ${a.quadApex!.x - 5},${a.quadApex!.y}`}
+                  className="pen-control pen-quad-apex"
+                  data-contour={ci}
+                  data-anchor={ai}
+                  data-control="quadApex"
+                  aria-label={`Subpath ${ci + 1}, quadratic apex control point between node ${ai + 1} and ${(ai + 1) % c.anchors.length + 1}`}
+                />
+              </g>
+            )}
+            {(penMode || selectionKeys.has(`${ci}:${ai}`)) && (['in', 'out'] as const).map(handle => {
+              if (handle === 'out' && a.curveMode === 'quadratic' && a.quadApex) return null
+              const prevAnchor = c.anchors[(ai + c.anchors.length - 1) % c.anchors.length]
+              if (handle === 'in' && prevAnchor?.curveMode === 'quadratic' && prevAnchor?.quadApex) return null
+              return a[handle] ? (
+                <g key={handle}>
+                  <line x1={a.x} y1={a.y} x2={a[handle].x} y2={a[handle].y} className="pen-handle-line" />
+                  <circle cx={a[handle].x} cy={a[handle].y} r={4} className="pen-control" data-contour={ci} data-anchor={ai} data-control={handle} aria-label={`Subpath ${ci + 1}, ${handle === 'in' ? 'incoming' : 'outgoing'} handle ${ai + 1}`} />
+                </g>
+              ) : null
+            })}
+            <rect
+              x={a.x - 4}
+              y={a.y - 4}
+              width={8}
+              height={8}
+              rx={isSmooth ? 4 : 0}
+              ry={isSmooth ? 4 : 0}
+              className={`pen-anchor ${selectionKeys.has(`${ci}:${ai}`) ? 'is-active' : ''} ${isSmooth ? 'is-smooth' : 'is-corner'}`}
+              data-contour={ci}
+              data-anchor={ai}
+              aria-label={`Subpath ${ci + 1}, ${isSmooth ? 'smooth' : 'corner'} anchor ${ai + 1}`}
+            />
+          </g>
+        )
+      }))}
     </svg>
+    {penMode && hover && (
+      <div
+        className="pen-cursor-hud"
+        style={{ left: screen(hover).x, top: screen(hover).y }}
+        aria-hidden="true"
+      >
+        <div className="pen-cursor-hud-coords">
+          <span>X: {Math.round(hover.x)}</span>
+          <span>Y: {Math.round(hover.y)}</span>
+        </div>
+        <div className="pen-cursor-hud-meta">
+          <span>{curveMode.toUpperCase()}</span>
+          {snapTarget && <span className="pen-cursor-hud-snap">⚡ {snapTarget.label}</span>}
+          {isClosingHover && <span className="pen-cursor-hud-snap">↩ CLOSE</span>}
+        </div>
+      </div>
+    )}
     {!penMode && <PathNodeInspector contours={session.contours} selection={selected} onEdit={(action, value) => editRef.current(action, value)} />}
     <div className="pen-help viewport-ui" role="status">
       <span className="pen-tool-label">{editingId ? 'EDIT PATH' : 'PEN'}</span>

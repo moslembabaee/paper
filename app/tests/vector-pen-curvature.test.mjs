@@ -10,6 +10,7 @@ import {
   isSmoothNode,
   moveAnchor,
   moveHandle,
+  moveQuadApex,
   nearestPathSegment,
   parsePath,
   quadToCubicHandles,
@@ -203,3 +204,62 @@ test('vector Pen paths with Bézier curves integrate seamlessly with CAG boolean
   assert.ok(excludeResult.d)
   assert.ok(excludeResult.metrics.area > 0)
 })
+
+test('moveQuadApex correctly recomputes equivalent cubic handles for quadratic segment', () => {
+  const a = { x: 0, y: 0 }
+  const b = { x: 100, y: 0 }
+  const apex = { x: 50, y: 80 }
+
+  const updated = moveQuadApex(a, b, apex)
+  assert.equal(updated.a.curveMode, 'quadratic')
+  assert.deepEqual(updated.a.quadApex, apex)
+  assert.ok(Math.abs(updated.a.out.x - (2 / 3) * 50) < 1e-4)
+  assert.ok(Math.abs(updated.a.out.y - (2 / 3) * 80) < 1e-4)
+  assert.ok(Math.abs(updated.b.in.x - (100 + (2 / 3) * (50 - 100))) < 1e-4)
+  assert.ok(Math.abs(updated.b.in.y - (2 / 3) * 80) < 1e-4)
+})
+
+test('parsePath extracts quadratic curveMode and quadApex from SVG Q commands', () => {
+  const d = 'M 0 0 Q 60 120 120 0 Z'
+  const contours = parsePath(d)
+  assert.equal(contours.length, 1)
+  assert.equal(contours[0].anchors[0].curveMode, 'quadratic')
+  assert.deepEqual(contours[0].anchors[0].quadApex, { x: 60, y: 120 })
+})
+
+test('elements validation and freezing preserve quadratic quadApex on path nodes', async () => {
+  const { validateElement, freezeElement } = await import('../src/scene/elements.ts')
+  const contour = {
+    closed: true,
+    anchors: [
+      { x: 0, y: 0, out: { x: 40, y: 80 }, quadApex: { x: 60, y: 120 }, curveMode: 'quadratic' },
+      { x: 120, y: 0, in: { x: 80, y: 80 } },
+    ],
+  }
+  const d = serializePath([contour])
+  const element = {
+    id: 'path-1',
+    name: 'Vector Path',
+    parentId: null,
+    type: 'path',
+    x: 0,
+    y: 0,
+    width: 120,
+    height: 120,
+    rotation: 0,
+    zIndex: 0,
+    visible: true,
+    locked: false,
+    d,
+    viewBox: [0, 0, 120, 120],
+    fillRule: 'nonzero',
+    nodes: [contour],
+    style: { fill: '#81adec', stroke: null, opacity: 1, shadow: null },
+  }
+
+  assert.doesNotThrow(() => validateElement(element))
+  const frozen = freezeElement(element)
+  assert.ok(frozen.type === 'path' && frozen.nodes)
+  assert.deepEqual(frozen.nodes[0].anchors[0].quadApex, { x: 60, y: 120 })
+})
+

@@ -4,10 +4,22 @@
 .pen-geometry { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
 .pen-preview { stroke:#81adec; stroke-width:1.5; fill:none; pointer-events:none; }
 .pen-handle-line { stroke:#81adec; stroke-width:1; pointer-events:none; }
+.pen-handle-line.is-quad { stroke:#81adec; stroke-width:1; stroke-dasharray:3 3; opacity:0.85; pointer-events:none; }
 .pen-anchor, .pen-control { stroke:#516b94; stroke-width:1; fill:#edebe1; cursor:move; }
-.pen-anchor.is-active { fill:#81adec; }
+.pen-anchor.is-smooth { stroke:#48658f; stroke-width:1.5; }
+.pen-anchor.is-corner { stroke:#516b94; stroke-width:1.2; }
+.pen-control.pen-quad-apex { stroke:#81adec; stroke-width:1.5; fill:#edebe1; filter:drop-shadow(0 1px 3px rgba(8,8,8,0.2)); }
+.pen-control.pen-quad-apex:hover { stroke:#080808; fill:#81adec; }
+.pen-anchor.is-active { fill:#81adec; stroke:#080808; }
 .pen-anchor:hover, .pen-control:hover { stroke:#080808; fill:#81adec; }
 .pen-curvature-handle { fill:#edebe1; stroke:#81adec; stroke-width:1.5; pointer-events:none; filter:drop-shadow(0 2px 4px rgba(8,8,8,0.25)); }
+.pen-curvature-label { fill:var(--paper-text); stroke:var(--paper-surface); stroke-width:3px; paint-order:stroke; font:10px var(--font-mono); pointer-events:none; font-weight:500; }
+.pen-cursor-hud { position:absolute; pointer-events:none; display:flex; flex-direction:column; gap:2px; padding:4px 8px; background:var(--paper-surface); border:1px solid var(--paper-border); border-radius:5px; box-shadow:0 4px 16px rgba(8,8,8,0.12); font:10px var(--font-mono); color:var(--paper-text); white-space:nowrap; z-index:10; transform:translate(14px,14px); backdrop-filter:blur(8px); }
+.pen-cursor-hud-coords { display:flex; align-items:center; gap:8px; font-weight:500; }
+.pen-cursor-hud-meta { display:flex; align-items:center; gap:6px; color:var(--paper-text-muted); font-size:9px; }
+.pen-cursor-hud-snap { color:#81adec; font-weight:600; }
+.vector-edit-btn { display:inline-flex; align-items:center; gap:4px; font:10px var(--font-mono); color:var(--paper-accent-text); padding:2px 6px; border:1px solid var(--paper-border); border-radius:4px; }
+.vector-edit-btn:hover { background:var(--paper-accent-soft); border-color:#81adec; }
 @keyframes pen-close-dash { to { stroke-dashoffset: -12; } }
 .pen-close-indicator { fill:none; stroke:#81adec; stroke-width:1.5; stroke-dasharray:3 3; animation:pen-close-dash 0.8s linear infinite; pointer-events:none; }
 .pen-help { position:absolute; bottom:54px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:12px; width:max-content; max-width:calc(100% - 32px); padding:10px 12px; border:1px solid var(--paper-border); border-radius:8px; background:var(--paper-surface); box-shadow:0 8px 32px #08080812; font-size:10px; color:var(--paper-text-muted); cursor:default; }

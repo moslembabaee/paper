@@ -49,7 +49,7 @@ export function freezeElement(element: SceneElement): SceneElement {
     ? Object.freeze({ ...element, style, children: Object.freeze([...element.children]) })
     : element.type === 'path'
       ? Object.freeze({ ...element, style, viewBox: Object.freeze([...element.viewBox]) as typeof element.viewBox,
-        ...(element.nodes ? { nodes: Object.freeze(element.nodes.map(c => Object.freeze({ closed: c.closed, anchors: Object.freeze(c.anchors.map(a => Object.freeze({ ...a, ...(a.in ? { in: Object.freeze({ ...a.in }) } : {}), ...(a.out ? { out: Object.freeze({ ...a.out }) } : {}) }))) }))) } : {}),
+        ...(element.nodes ? { nodes: Object.freeze(element.nodes.map(c => Object.freeze({ closed: c.closed, anchors: Object.freeze(c.anchors.map(a => Object.freeze({ ...a, ...(a.in ? { in: Object.freeze({ ...a.in }) } : {}), ...(a.out ? { out: Object.freeze({ ...a.out }) } : {}), ...(a.quadApex ? { quadApex: Object.freeze({ ...a.quadApex }) } : {}) }))) }))) } : {}),
         ...(element.boolean ? { boolean: freezeCompound(element.boolean) } : {}),
       })
       : Object.freeze({ ...element, style })
@@ -107,7 +107,8 @@ export function validateElement(element: SceneElement, depth = 0): void {
       if (!c || typeof c.closed !== 'boolean' || !Array.isArray(c.anchors) || !c.anchors.length) throw new Error('Invalid path contour')
       for (const a of c.anchors) {
         if (!a || ![a.x, a.y].every(Number.isFinite) || (a.cornerRadius !== undefined && (!Number.isFinite(a.cornerRadius) || a.cornerRadius < 0)) || (a.handleType !== undefined && !['mirrored', 'asymmetric', 'disconnected'].includes(a.handleType))) throw new Error('Invalid path anchor')
-        for (const h of [a.in, a.out]) if (h !== undefined && (!h || ![h.x, h.y].every(Number.isFinite))) throw new Error('Invalid path handle')
+        if (a.curveMode !== undefined && !['cubic', 'quadratic'].includes(a.curveMode)) throw new Error('Invalid curve mode')
+        for (const h of [a.in, a.out, a.quadApex]) if (h !== undefined && (!h || ![h.x, h.y].every(Number.isFinite))) throw new Error('Invalid path handle')
       }
     }
     if (serializePath(element.nodes) !== element.d) throw new Error('Path outline does not match its anchors')

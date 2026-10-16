@@ -137,6 +137,8 @@ export function parsePath(d: string): PathContour[] {
       const control: Point = op === 'Q' ? readPoint() : /[QT]/.test(previous) && quadratic ? reflect(quadratic, cursor) : cursor
       end = readPoint(); outgoing = point(cursor.x + 2 / 3 * (control.x - cursor.x), cursor.y + 2 / 3 * (control.y - cursor.y))
       incoming = point(end.x + 2 / 3 * (control.x - end.x), end.y + 2 / 3 * (control.y - end.y)); quadratic = control
+      last().curveMode = 'quadratic'
+      last().quadApex = control
     } else if (op === 'A') {
       last()
       const rx = number(), ry = number(), rotation = number(), large = flag(), sweep = flag()
@@ -290,6 +292,32 @@ export function cubicHandlesToQuadApex(p0: Point, out: Point, in_: Point, p1: Po
   return point((q1.x + q2.x) / 2, (q1.y + q2.y) / 2)
 }
 
+/**
+ * Interactively positions the quadratic Bézier apex control point Q,
+ * updating the cubic handles on endpoints a and b to maintain exact mathematical equivalence.
+ */
+export function moveQuadApex(
+  a: PathAnchor,
+  b: PathAnchor,
+  targetApex: Point
+): { a: PathAnchor; b: PathAnchor } {
+  const handles = quadToCubicHandles(a, targetApex, b)
+  return {
+    a: {
+      ...a,
+      curveMode: 'quadratic',
+      quadApex: targetApex,
+      out: handles.out,
+      cornerRadius: 0,
+    },
+    b: {
+      ...b,
+      in: handles.in,
+      cornerRadius: 0,
+    },
+  }
+}
+
 /** Interactively bends a path segment to match a target pointer point in cubic or quadratic mode. */
 export function bendSegment(
   a: PathAnchor,
@@ -332,6 +360,7 @@ export function convertSegmentCurveMode(
   segmentIndex: number,
   targetMode: CurveMode
 ): void {
+  if (!contour.closed && segmentIndex >= contour.anchors.length - 1) return
   const a = contour.anchors[segmentIndex]
   const nextIdx = (segmentIndex + 1) % contour.anchors.length
   const b = contour.anchors[nextIdx]

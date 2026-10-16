@@ -3,7 +3,7 @@ import { Plus, Trash2, Spline } from 'lucide-react'
 import { getHandleType, isSmoothNode, evaluateSegmentCurvature } from './pathGeometry'
 import type { AnchorSelection, CurveMode, HandleType, PathContour } from './pathGeometry'
 
-export type NodeAction = 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete' | 'toggle-closed' | 'toggle-smooth' | 'curve-mode'
+export type NodeAction = 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete' | 'toggle-closed' | 'toggle-smooth' | 'curve-mode' | 'quad-apex-x' | 'quad-apex-y'
 interface Props { contours: PathContour[]; selection: AnchorSelection[]; onEdit: (action: NodeAction, value?: number) => void }
 
 function NodeNumber({ label, value, disabled, min, onCommit }: { label: string; value: number | undefined; disabled?: boolean; min?: number; onCommit: (value: number) => void }) {
@@ -76,6 +76,12 @@ export function PathNodeInspector({ contours, selection, onEdit }: Props) {
         <div className="node-curvature-info" title="Estimated curve radius at segment midpoint">
           <span>Curvature Radius</span>
           <span>{Math.round(curvatureMetric.radius)} px</span>
+        </div>
+      )}
+      {currentCurveMode === 'quadratic' && first?.quadApex && (
+        <div className="node-coordinates" title="Quadratic Bézier Apex Control Point">
+          <NodeNumber label="Apex X" value={first.quadApex.x} onCommit={value => onEdit('quad-apex-x', value)} />
+          <NodeNumber label="Apex Y" value={first.quadApex.y} onCommit={value => onEdit('quad-apex-y', value)} />
         </div>
       )}
       <div className="node-coordinates"><NodeNumber label="X" value={common('x')} onCommit={value => onEdit('x', value)} /><NodeNumber label="Y" value={common('y')} onCommit={value => onEdit('y', value)} /></div>
