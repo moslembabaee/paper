@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { SceneElement } from '../scene/types.ts'
-import { findAdjacentKeyframeTimes, isShaderProperty, sampleTimes, trackValue } from './model.ts'
+import { findAdjacentKeyframeTimes, isShaderProperty, isTypographyProperty, sampleTimes, trackValue } from './model.ts'
 import type { MotionDocument, MotionProperty } from './types.ts'
 
 interface ModifiedNodeRecord {
@@ -10,6 +10,15 @@ interface ModifiedNodeRecord {
   readonly originalTransform: string
   readonly originalOpacity: string
   readonly originalTransformOrigin: string
+  readonly textContainer?: HTMLElement | null
+  readonly originalFontVariationSettings?: string
+  readonly originalFontWeight?: string
+  readonly originalFontStretch?: string
+  readonly originalLetterSpacing?: string
+  readonly originalFontSize?: string
+  readonly originalLineHeight?: string
+  readonly textPathElement?: SVGTextPathElement | null
+  readonly originalStartOffset?: string
 }
 
 /** Native paused animations and WebGL shader modulations isolate preview from scene edits, history and autosave. */
@@ -45,7 +54,7 @@ export function useMotionPlayback(
 
   const duration = motion.duration
 
-  const cleanShaderOverrides = useCallback(() => {
+  const cleanOverrides = useCallback(() => {
     for (const record of modifiedElements.current) {
       if (record.shaderSurface) {
         record.shaderSurface.style.opacity = record.originalOpacity
@@ -58,6 +67,33 @@ export function useMotionPlayback(
       record.node.style.removeProperty('--shader-offset-x')
       record.node.style.removeProperty('--shader-offset-y')
       record.node.style.removeProperty('--shader-speed')
+
+      if (record.textContainer) {
+        if (record.originalFontVariationSettings !== undefined) {
+          record.textContainer.style.fontVariationSettings = record.originalFontVariationSettings
+        }
+        if (record.originalFontWeight !== undefined) {
+          record.textContainer.style.fontWeight = record.originalFontWeight
+        }
+        if (record.originalFontStretch !== undefined) {
+          record.textContainer.style.fontStretch = record.originalFontStretch
+        }
+        if (record.originalLetterSpacing !== undefined) {
+          record.textContainer.style.letterSpacing = record.originalLetterSpacing
+        }
+        if (record.originalFontSize !== undefined) {
+          record.textContainer.style.fontSize = record.originalFontSize
+        }
+        if (record.originalLineHeight !== undefined) {
+          record.textContainer.style.lineHeight = record.originalLineHeight
+        }
+      }
+      if (record.textPathElement && record.originalStartOffset !== undefined) {
+        record.textPathElement.setAttribute('startOffset', record.originalStartOffset)
+      }
+      record.node.style.removeProperty('--kinetic-phase')
+      record.node.style.removeProperty('--cascade-amplitude')
+      record.node.style.removeProperty('--cascade-rotation')
     }
     modifiedElements.current = []
   }, [])
@@ -137,17 +173,110 @@ export function useMotionPlayback(
         }
       }
 
+      // Update variable font axes and kinetic typography properties directly on canvas elements
+      const typoTracks = motion.tracks.filter(t => t.enabled && isTypographyProperty(t.property))
+      if (applyPreview && typoTracks.length > 0 && stage.current) {
+        const typoElementIds = new Set(typoTracks.map(t => t.elementId))
+        for (const id of typoElementIds) {
+          const elem = elements[id]
+          if (elem?.type !== 'text') continue
+          const node = stage.current.querySelector<HTMLElement>(
+            `.viewport-world .scene-node[data-element-id="${CSS.escape(id)}"]`
+          )
+          if (!node) continue
+
+          const textContainer =
+            node.querySelector<HTMLElement>('.scene-text') ??
+            node.querySelector<HTMLElement>('.scene-text-on-path')
+          const textPathElement = node.querySelector<SVGTextPathElement>('textPath')
+
+          let record = modifiedElements.current.find(m => m.node === node)
+          if (!record) {
+            record = {
+              node,
+              shaderSurface: null,
+              originalTransform: '',
+              originalOpacity: '',
+              originalTransformOrigin: '',
+              textContainer,
+              originalFontVariationSettings: textContainer?.style.fontVariationSettings ?? '',
+              originalFontWeight: textContainer?.style.fontWeight ?? '',
+              originalFontStretch: textContainer?.style.fontStretch ?? '',
+              originalLetterSpacing: textContainer?.style.letterSpacing ?? '',
+              originalFontSize: textContainer?.style.fontSize ?? '',
+              originalLineHeight: textContainer?.style.lineHeight ?? '',
+              textPathElement,
+              originalStartOffset: textPathElement?.getAttribute('startOffset') ?? '',
+            }
+            modifiedElements.current.push(record)
+          }
+
+          const elemTracks = typoTracks.filter(t => t.elementId === id)
+          const values: Partial<Record<MotionProperty, number>> = {}
+          for (const t of elemTracks) {
+            values[t.property] = trackValue(t, time.current)
+          }
+
+          const currentAxes = elem.variableAxes ?? {}
+          const wght = values.fontWeight ?? currentAxes.wght ?? elem.fontWeight
+          const wdth = values.fontWidth ?? currentAxes.wdth
+          const slnt = values.fontSlant ?? currentAxes.slnt
+          const opsz = values.fontOpticalSize ?? currentAxes.opsz
+
+          const variationParts: string[] = []
+          if (wght !== undefined && Number.isFinite(wght)) variationParts.push(`'wght' ${Number(wght.toFixed(2))}`)
+          if (wdth !== undefined && Number.isFinite(wdth)) variationParts.push(`'wdth' ${Number(wdth.toFixed(2))}`)
+          if (slnt !== undefined && Number.isFinite(slnt)) variationParts.push(`'slnt' ${Number(slnt.toFixed(2))}`)
+          if (opsz !== undefined && Number.isFinite(opsz)) variationParts.push(`'opsz' ${Number(opsz.toFixed(1))}`)
+
+          if (textContainer) {
+            if (variationParts.length > 0) {
+              textContainer.style.fontVariationSettings = variationParts.join(', ')
+            }
+            if (values.fontWeight !== undefined) {
+              textContainer.style.fontWeight = String(Math.round(values.fontWeight))
+            }
+            if (values.fontWidth !== undefined) {
+              textContainer.style.fontStretch = `${values.fontWidth}%`
+            }
+            if (values.fontSize !== undefined) {
+              textContainer.style.fontSize = `${values.fontSize}px`
+            }
+            if (values.letterSpacing !== undefined) {
+              textContainer.style.letterSpacing = `${values.letterSpacing}px`
+            }
+            if (values.lineHeight !== undefined) {
+              textContainer.style.lineHeight = String(values.lineHeight)
+            }
+          }
+
+          if (textPathElement && values.textPathOffset !== undefined) {
+            textPathElement.setAttribute('startOffset', `${values.textPathOffset}%`)
+          }
+
+          if (values.kineticPhase !== undefined) {
+            node.style.setProperty('--kinetic-phase', String(values.kineticPhase))
+          }
+          if (values.kineticAmplitude !== undefined) {
+            node.style.setProperty('--cascade-amplitude', `${values.kineticAmplitude}px`)
+          }
+          if (values.kineticRotation !== undefined) {
+            node.style.setProperty('--cascade-rotation', `${values.kineticRotation}deg`)
+          }
+        }
+      }
+
       root.current?.style.setProperty('--motion-progress', `${(time.current / duration) * 100}%`)
       if (readout.current) readout.current.value = `${(time.current / 1000).toFixed(2)} s`
       if (scrubber.current) scrubber.current.value = String(time.current)
     },
-    [duration, motion.tracks, stage, preview]
+    [duration, motion.tracks, stage, preview, elements]
   )
 
   // Construct Web Animations when preview starts or tracks change
   useEffect(() => {
     if (!preview) {
-      cleanShaderOverrides()
+      cleanOverrides()
       return
     }
 
@@ -202,9 +331,9 @@ export function useMotionPlayback(
     return () => {
       created.forEach(animation => animation.cancel())
       animations.current = []
-      cleanShaderOverrides()
+      cleanOverrides()
     }
-  }, [motion, elements, stage, preview, duration, paint, cleanShaderOverrides])
+  }, [motion, elements, stage, preview, duration, paint, cleanOverrides])
 
   // Playback animation frame loop
   useEffect(() => {
@@ -274,9 +403,9 @@ export function useMotionPlayback(
   const restore = useCallback(() => {
     setPlaying(false)
     setPreview(false)
-    cleanShaderOverrides()
+    cleanOverrides()
     paint(0, false)
-  }, [paint, cleanShaderOverrides])
+  }, [paint, cleanOverrides])
 
   const stepFrame = useCallback(
     (deltaFrames: number, fps = 60) => {

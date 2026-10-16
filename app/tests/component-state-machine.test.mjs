@@ -6,6 +6,8 @@ import {
   createDefaultStateMachine,
   validateStateMachine,
   findStateTransition,
+  findDelayedTransition,
+  normalizeTrigger,
   resolveNextState,
   getEffectiveStateMachine,
 } from '../src/scene/stateMachine.ts'
@@ -164,3 +166,80 @@ test('component state machine satisfies published MCP project schema', () => {
   const project = createProject(store, 'State Machine Test', { x: 0, y: 0, zoom: 1 }, true)
   assert.doesNotThrow(() => validateSchema(project, projectSchema))
 })
+
+test('normalizeTrigger maps various trigger formats safely', () => {
+  assert.equal(normalizeTrigger('click'), 'on-click')
+  assert.equal(normalizeTrigger('on-click'), 'on-click')
+  assert.equal(normalizeTrigger('hover'), 'on-hover')
+  assert.equal(normalizeTrigger('pointerdown'), 'on-pointerdown')
+  assert.equal(normalizeTrigger('on-pointerdown'), 'on-pointerdown')
+  assert.equal(normalizeTrigger('pointerup'), 'on-pointerup')
+  assert.equal(normalizeTrigger('hover-end'), 'on-hover-end')
+  assert.equal(normalizeTrigger('leave'), 'on-hover-end')
+  assert.equal(normalizeTrigger('delay'), 'after-delay')
+  assert.equal(normalizeTrigger('after-delay'), 'after-delay')
+  assert.equal(normalizeTrigger('unknown-trigger'), undefined)
+})
+
+test('transitions support delay parameter and after-delay triggers', () => {
+  const machine = validateStateMachine({
+    initial: 'default',
+    states: ['default', 'hover', 'active'],
+    transitions: [
+      {
+        id: 't-hover',
+        fromState: 'default',
+        trigger: 'on-hover',
+        targetState: 'hover',
+        spring: { stiffness: 200, damping: 20, mass: 1 },
+      },
+      {
+        id: 't-delay',
+        fromState: 'hover',
+        trigger: 'after-delay',
+        targetState: 'active',
+        delay: 500,
+        spring: { stiffness: 180, damping: 18, mass: 1 },
+      },
+    ],
+  })
+
+  const delayed = findDelayedTransition(machine, 'hover')
+  assert.ok(delayed)
+  assert.equal(delayed.targetState, 'active')
+  assert.equal(delayed.delay, 500)
+
+  // Non-delayed state returns undefined
+  assert.equal(findDelayedTransition(machine, 'default'), undefined)
+
+  // Rejects negative or non-number delays
+  assert.throws(() =>
+    validateStateMachine({
+      initial: 'default',
+      states: ['default', 'hover'],
+      transitions: [
+        {
+          id: 't-invalid-delay',
+          fromState: 'default',
+          trigger: 'after-delay',
+          targetState: 'hover',
+          delay: -100,
+          spring: { stiffness: 200, damping: 20, mass: 1 },
+        },
+      ],
+    })
+  )
+})
+
+test('resolveNextState supports on-pointerdown and while-pressed fallback', () => {
+  const machine = createDefaultStateMachine()
+  // By default, createDefaultStateMachine defines while-pressed from hover to pressed
+  const stepPointerDown = resolveNextState(machine, 'hover', 'on-pointerdown')
+  assert.ok(stepPointerDown)
+  assert.equal(stepPointerDown.targetState, 'pressed')
+
+  const stepWhilePressed = resolveNextState(machine, 'hover', 'while-pressed')
+  assert.ok(stepWhilePressed)
+  assert.equal(stepWhilePressed.targetState, 'pressed')
+})
+

@@ -2,7 +2,7 @@ import { EMPTY_MOTION, pruneMotion, validateMotion } from '../motion/model.ts'
 import type { MotionDocument } from '../motion/types.ts'
 import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, ComponentStateMachine, ComponentVariant } from './types.ts'
 import { releaseComponentResources, validPropertyValue, validatePropertyTargets } from './componentProperties.ts'
-import { createDefaultStateMachine, validateStateMachine } from './stateMachine.ts'
+import { createDefaultStateMachine, getEffectiveStateMachine, validateStateMachine } from './stateMachine.ts'
 import { EMPTY_COMMENTS, validateComments } from '../comments/model.ts'
 import type { CommentDocument } from '../comments/types.ts'
 import { EMPTY_LIBRARY, detachEditedSharedStyles, resolveSharedStyles, resolveTokens, validateLibrary } from '../tokens/library.ts'
@@ -563,6 +563,121 @@ export class SceneStore {
       }
     })
     this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, 'Generate interactive states')
+  }
+
+  addComponentState(masterId: string, stateName: string): void {
+    const master = this.require(masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const trimmed = stateName.trim()
+    if (!trimmed || trimmed.length > 100) throw new Error('Enter a valid state name (up to 100 characters)')
+    const machine = getEffectiveStateMachine(master) ?? createDefaultStateMachine(['default'])
+    if (machine.states.includes(trimmed)) throw new Error(`State '${trimmed}' already exists`)
+    const nextStates = [...machine.states, trimmed]
+    const nextMachine = validateStateMachine({
+      initial: machine.initial,
+      states: nextStates,
+      transitions: machine.transitions,
+    })
+
+    const layers = subtree(this.state.elements, master.id)
+    const baseCapture: Record<string, ComponentOverrides> = {}
+    for (const layer of layers) {
+      baseCapture[layer.id] = {
+        style: { ...layer.style },
+        properties: {
+          width: layer.width,
+          height: layer.height,
+          ...('cornerRadius' in layer ? { cornerRadius: layer.cornerRadius } : {}),
+          ...(layer.type === 'text' ? { text: layer.text, fontFamily: layer.fontFamily, fontSize: layer.fontSize, fontWeight: layer.fontWeight, lineHeight: layer.lineHeight, letterSpacing: layer.letterSpacing, textAlign: layer.textAlign } : {}),
+        },
+        ...(layer.tokenBindings ? { tokenBindings: layer.tokenBindings } : {}),
+        ...(layer.sharedStyleBindings ? { sharedStyleBindings: layer.sharedStyleBindings } : {}),
+      }
+    }
+
+    const properties = [...(master.component.properties ?? [])]
+    const existingVariant = properties.find(p => p.kind === 'variant')
+    let nextProperties: ComponentProperty[]
+    if (existingVariant && existingVariant.kind === 'variant') {
+      const options = [...existingVariant.options, { value: trimmed, layers: baseCapture }]
+      nextProperties = properties.map(p => p.id === existingVariant.id ? { ...existingVariant, options, stateMachine: nextMachine } : p)
+    } else {
+      const stateProperty: ComponentProperty = {
+        id: crypto.randomUUID(),
+        name: 'State',
+        kind: 'variant',
+        defaultValue: machine.initial,
+        options: nextStates.map(s => ({ value: s, layers: baseCapture })),
+        stateMachine: nextMachine,
+      }
+      nextProperties = [...properties, stateProperty]
+    }
+
+    const next = freezeElement({
+      ...master,
+      component: {
+        ...master.component,
+        properties: nextProperties,
+        stateMachine: nextMachine,
+      }
+    })
+    this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, `Add state ${trimmed}`)
+  }
+
+  removeComponentState(masterId: string, stateName: string): void {
+    const master = this.require(masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const machine = getEffectiveStateMachine(master)
+    if (!machine) throw new Error('No state machine found on master')
+    if (machine.states.length <= 1) throw new Error('Cannot remove the only state')
+    if (!machine.states.includes(stateName)) throw new Error(`State '${stateName}' not found`)
+
+    const nextStates = machine.states.filter(s => s !== stateName)
+    const nextInitial = machine.initial === stateName ? nextStates[0] : machine.initial
+    const nextTransitions = machine.transitions.filter(t => t.fromState !== stateName && t.targetState !== stateName)
+    const nextMachine = validateStateMachine({
+      initial: nextInitial,
+      states: nextStates,
+      transitions: nextTransitions,
+    })
+
+    const properties = [...(master.component.properties ?? [])]
+    const existingVariant = properties.find(p => p.kind === 'variant')
+    let nextProperties = properties
+    if (existingVariant && existingVariant.kind === 'variant') {
+      const options = existingVariant.options.filter(o => o.value !== stateName)
+      const defaultValue = existingVariant.defaultValue === stateName ? nextInitial : existingVariant.defaultValue
+      nextProperties = properties.map(p => p.id === existingVariant.id ? { ...existingVariant, defaultValue, options, stateMachine: nextMachine } : p)
+    }
+
+    const next = freezeElement({
+      ...master,
+      component: {
+        ...master.component,
+        properties: nextProperties,
+        stateMachine: nextMachine,
+      }
+    })
+    this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, `Remove state ${stateName}`)
+  }
+
+  resetAllActiveStates(): void {
+    let changed = false
+    const nextElements = { ...this.state.elements }
+    for (const [id, node] of Object.entries(this.state.elements)) {
+      if (node.component?.kind === 'instance' && node.component.activeState) {
+        const nextComponent = { ...node.component }
+        delete (nextComponent as { activeState?: string }).activeState
+        nextElements[id] = freezeElement({ ...node, component: nextComponent })
+        changed = true
+      }
+    }
+    if (!changed) return
+    let synchronized = synchronizeComponents(nextElements, resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), this.state.elements, this.state.styleLibrary)
+    this.state = Object.freeze({ ...this.state, elements: Object.freeze(synchronized) })
+    this.emit()
   }
 
   createComponentInstance(masterId: string, placement: { x?: number; y?: number; parentId?: string | null } = {}): SceneElement {

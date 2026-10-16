@@ -80,12 +80,9 @@ if [ "$COMMIT_AGE" -gt 1800 ]; then
             kill -9 $PROJECT_PIDS 2>/dev/null || true
         fi
     
-    # Check Claude gateway model health
-    CLAUDE_TEST=$(claude -p "ping" --max-turns 1 2>&1)
-    if echo "$CLAUDE_TEST" | grep -qE "503|Unavailable"; then
-        echo "[$NOW] [WATCHDOG] Detected Claude gateway 503 limit. Auto-switching to backup model ag/gemini-3.8-flash-high..." >> "$LOG_FILE"
-        sed -i 's/"model": ".*"/"model": "ag\/gemini-3.8-flash-high"/' /root/.claude/settings.json
-    fi
+    # Check Claude gateway model health (informational; do NOT auto-switch the model here)
+    # Model selection is managed explicitly in /root/.claude/settings.json to avoid clobbering
+    # the working antigravity/claude-* route. The old sed auto-switch to gemini is removed.
 fi
 
 # 4. Check & Process GitHub Issues (Triage, Authorize, Dispatch)

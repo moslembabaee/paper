@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ArrowDown, ArrowUp, Check, Code, Copy, Eye } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, Code, Copy, Download, Eye } from 'lucide-react'
 import type { BooleanOperation, PathElement, VectorElement } from './types'
 import { vectorPathData } from './booleanGeometry'
 import { parsePath, pathBounds } from './pathGeometry'
 import { unionBounds } from '../canvas/math'
+import { downloadFile } from '../io/project'
 import {
   extractCAGMetrics,
   cleanSvgPathGeometry,
@@ -128,6 +129,19 @@ function CompoundPreview({
     }
   }
 
+  const handleDownloadSvg = () => {
+    try {
+      const svgMarkup = exportCleanSVGGeometry(compound, {
+        standalone: true,
+        precision: 4,
+      })
+      const blob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' })
+      downloadFile(blob, `${compound.name || 'compound-shape'}.svg`)
+    } catch {
+      // Ignore download errors
+    }
+  }
+
   if (!bounds) return null
   const padding = Math.max(bounds.width, bounds.height) * 0.12
 
@@ -158,16 +172,28 @@ function CompoundPreview({
             SVG CODE
           </button>
         </div>
-        <button
-          type="button"
-          className="cag-copy-btn"
-          onClick={handleCopy}
-          title="Copy clean, optimized SVG path data (d) to clipboard"
-          aria-label="Copy clean SVG path data"
-        >
-          {copied ? <Check size={10} color="#81adec" /> : <Copy size={10} />}
-          <span>{copied ? 'COPIED' : 'COPY PATH'}</span>
-        </button>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button
+            type="button"
+            className="cag-copy-btn"
+            onClick={handleCopy}
+            title="Copy clean, optimized SVG path data (d) to clipboard"
+            aria-label="Copy clean SVG path data"
+          >
+            {copied ? <Check size={10} color="#81adec" /> : <Copy size={10} />}
+            <span>{copied ? 'COPIED' : 'COPY PATH'}</span>
+          </button>
+          <button
+            type="button"
+            className="cag-copy-btn"
+            onClick={handleDownloadSvg}
+            title="Download clean standalone SVG file"
+            aria-label="Download clean SVG file"
+          >
+            <Download size={10} />
+            <span>EXPORT SVG</span>
+          </button>
+        </div>
       </div>
 
       {viewMode === 'visual' ? (

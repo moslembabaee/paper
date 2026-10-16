@@ -20,6 +20,7 @@ export interface ShaderParams {
   'liquid-distortion': Palette<WarpParams>
   'glass-refraction': Omit<Controls<FlutedGlassParams>, 'image' | 'margin'> & { readonly image: string }
   'multi-pass': MultiPassParams
+  'procedural-noise': ProceduralNoiseParams
 }
 export type ShaderKind = keyof ShaderParams
 export interface ShaderMotion {
@@ -47,7 +48,27 @@ export interface MeshAnchor {
 export const meshInterpolationModes = ['bicubic', 'gaussian-rbf', 'catmull-rom'] as const
 export type MeshInterpolationMode = typeof meshInterpolationModes[number]
 
+export const noiseGenerators = ['simplex', 'perlin', 'worley'] as const
+export type NoiseGenerator = typeof noiseGenerators[number]
+
 export const grainBlendModes = ['overlay', 'soft-light', 'multiply', 'screen', 'linear-dodge', 'color-dodge'] as const
+export const meshTopologies = ['freeform', 'grid'] as const
+export type MeshTopology = typeof meshTopologies[number]
+
+export interface MeshGridVertex {
+  readonly color: string
+  readonly tx: number
+  readonly ty: number
+}
+
+export interface MeshGridConfig {
+  readonly topology: 'grid'
+  readonly rows: number
+  readonly cols: number
+  readonly vertices: readonly MeshGridVertex[]
+  readonly smoothing: number
+}
+
 export interface MeshMaterial {
   /** One normalized, top-left-origin anchor per palette color. */
   readonly anchors: readonly MeshAnchor[]
@@ -59,6 +80,37 @@ export interface MeshMaterial {
   readonly interpolation?: MeshInterpolationMode
   /** Multi-octave domain warp distortion modulation intensity (0 to 1) */
   readonly warpModulation?: number
+  /** Multi-octave procedural noise generator type (defaults to 'simplex') */
+  readonly noiseType?: NoiseGenerator
+  /** Frequency multiplier per octave (defaults to 2.0) */
+  readonly lacunarity?: number
+  /** Multi-octave iteration count (1 to 6, defaults to 3) */
+  readonly octaves?: number
+  /** Normal-map surface perturbation intensity (0 to 1, defaults to 0.2) */
+  readonly normalPerturbation?: number
+  /** Micro-grain displacement intensity (0 to 1, defaults to 0.15) */
+  readonly grainDisplacement?: number
+  /** Grid-based mesh topology for NxM bicubic patch control */
+  readonly grid?: MeshGridConfig
+}
+
+export interface ProceduralNoiseParams {
+  readonly noiseType: NoiseGenerator
+  readonly frequency: number
+  readonly octaves: number
+  readonly lacunarity: number
+  readonly persistence: number
+  readonly turbulence: number
+  readonly displacement: number
+  readonly normalPerturbation: number
+  readonly grainMixer: number
+  readonly grainOverlay: number
+  readonly colorFront: string
+  readonly colorMid: string
+  readonly colorBack: string
+  readonly lightAngle: number
+  readonly specularStrength: number
+  readonly viewMode: 'shaded' | 'normal-map' | 'heightmap'
 }
 export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K]; readonly composite?: ShaderComposite; readonly mesh?: MeshMaterial; readonly pipeline?: ShaderPipeline; readonly postProcessing?: CanvasPostProcessingPipeline } }[ShaderKind]
 export type ShaderValue = number | string | readonly string[]

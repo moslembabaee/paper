@@ -65,6 +65,11 @@
 .mesh-handle-popover-radius { display:flex; align-items:center; gap:6px; font-size:9px; color:var(--paper-text-muted); }
 .mesh-handle-popover-radius input[type='range'] { flex:1; height:3px; accent-color:#81adec; cursor:pointer; }
 .mesh-handle-popover-radius output { font:9px var(--font-mono); width:24px; text-align:right; color:var(--paper-text-secondary); }
+.mesh-popover-quick-swatches { display:flex; gap:4px; align-items:center; padding-top:2px; }
+.mesh-popover-quick-dot { width:14px; height:14px; border-radius:50%; border:1px solid var(--paper-border-strong); cursor:pointer; padding:0; transition:transform .12s ease, box-shadow .12s ease; }
+.mesh-popover-quick-dot:hover { transform:scale(1.15); box-shadow:0 0 0 1px #81adec; }
+.mesh-popover-sample { background:transparent; border:0; color:var(--paper-text-muted); cursor:pointer; padding:2px; display:flex; align-items:center; border-radius:3px; }
+.mesh-popover-sample:hover { color:#81adec; }
 .mesh-tool-bar { display:flex; flex-direction:column; gap:6px; margin:12px 0; padding:8px; background:var(--paper-input); border:1px solid var(--paper-border); border-radius:5px; }
 .mesh-tool-group { display:flex; align-items:center; gap:4px; }
 .mesh-tool-label { font:8px var(--font-mono); color:var(--paper-text-muted); width:42px; text-transform:uppercase; letter-spacing:.05em; flex-shrink:0; }
@@ -112,6 +117,27 @@
 .mesh-code-actions { margin:0; }
 .mesh-code-actions button:first-child { background:#81adec; border-color:#81adec; color:#080808; flex:1; }
 .mesh-copy-status { display:block; font-size:9px; line-height:1.6; color:var(--paper-text-muted); margin-top:5px; }
+
+/* ── Procedural Color Field Synthesizer & Canvas Binding ── */
+.mesh-synthesizer-section { margin:14px 0; padding:10px; background:var(--paper-input); border:1px solid var(--paper-border); border-radius:5px; display:flex; flex-direction:column; gap:8px; }
+.mesh-synthesizer-header { display:flex; align-items:center; justify-content:space-between; }
+.mesh-synthesizer-base-row { display:flex; align-items:center; gap:6px; font-size:9px; color:var(--paper-text-muted); padding:3px 0; }
+.mesh-synthesizer-base-label { font:9px var(--font-mono); }
+.mesh-synthesizer-base-swatch { width:12px; height:12px; border-radius:50%; border:1px solid var(--paper-border-strong); display:inline-block; }
+.mesh-synthesizer-base-hex { font:9px var(--font-mono); color:var(--paper-text); }
+.mesh-harmony-chips { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0; }
+.mesh-harmony-chip { padding:3px 7px; font-size:9px; font-weight:500; border-radius:3px; border:1px solid var(--paper-border); background:var(--paper-surface); color:var(--paper-text-muted); cursor:pointer; transition:all .15s ease; }
+.mesh-harmony-chip:hover { border-color:var(--paper-border-strong); color:var(--paper-text); }
+.mesh-harmony-chip.active { background:var(--paper-accent-soft); border-color:#81adec; color:#81adec; font-weight:600; }
+.mesh-synthesize-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:7px 10px; border:1px solid #81adec88; border-radius:4px; background:rgba(129,172,236,0.12); color:#81adec; font-size:10px; font-weight:500; cursor:pointer; transition:all .15s ease; }
+.mesh-synthesize-btn:hover { background:#81adec; color:#080808; border-color:#81adec; }
+
+.mesh-binding-section { margin:14px 0; padding:10px; background:var(--paper-input); border:1px solid var(--paper-border); border-radius:5px; display:flex; flex-direction:column; gap:8px; }
+.mesh-binding-row { display:flex; align-items:center; justify-content:space-between; }
+.mesh-binding-target-badge { font:9px var(--font-mono); color:#81adec; background:rgba(129,172,236,0.12); border:1px solid rgba(129,172,236,0.25); padding:2px 6px; border-radius:3px; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mesh-binding-actions { display:flex; flex-direction:column; gap:4px; }
+.mesh-binding-btn { display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:6px 8px; font-size:10px; border:1px solid var(--paper-border); border-radius:4px; background:var(--paper-surface); color:var(--paper-text); cursor:pointer; transition:all .15s ease; }
+.mesh-binding-btn:hover { background:var(--paper-hover); border-color:#81adec; color:#81adec; }
 
 .shader-browser { padding:0; width:min(1000px,calc(100vw - 48px)); max-height:min(820px,calc(100dvh - 48px)); border:1px solid var(--paper-border); border-radius:12px; background:var(--paper-surface); color:var(--paper-text); box-shadow:0 24px 120px #08080840; overflow:hidden; }
 .shader-browser::backdrop { background:#08080866; backdrop-filter:blur(5px); }

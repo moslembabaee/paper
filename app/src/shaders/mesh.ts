@@ -1,6 +1,6 @@
-import type { MeshAnchor, MeshInterpolationMode, MeshMaterial, ShaderPaint } from './types.ts'
-import { grainBlendModes, meshInterpolationModes } from './types.ts'
-export { meshInterpolationModes }
+import type { MeshAnchor, MeshGridConfig, MeshGridVertex, MeshInterpolationMode, MeshMaterial, NoiseGenerator, ShaderPaint } from './types.ts'
+import { grainBlendModes, meshInterpolationModes, meshTopologies, noiseGenerators } from './types.ts'
+export { meshInterpolationModes, meshTopologies, noiseGenerators }
 
 export const clampUnit = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0
 
@@ -11,7 +11,15 @@ export function defaultMeshAnchor(index: number): MeshAnchor {
 
 export function createMeshMaterial(
   count: number,
-  options?: { interpolation?: MeshInterpolationMode; warpModulation?: number }
+  options?: {
+    interpolation?: MeshInterpolationMode
+    warpModulation?: number
+    noiseType?: NoiseGenerator
+    lacunarity?: number
+    octaves?: number
+    normalPerturbation?: number
+    grainDisplacement?: number
+  }
 ): MeshMaterial {
   return {
     anchors: Array.from({ length: count }, (_, index) => defaultMeshAnchor(index)),
@@ -21,6 +29,11 @@ export function createMeshMaterial(
     grainBlend: 'overlay',
     interpolation: options?.interpolation ?? 'bicubic',
     warpModulation: options?.warpModulation ?? 0.25,
+    noiseType: options?.noiseType ?? 'simplex',
+    lacunarity: options?.lacunarity ?? 2.0,
+    octaves: options?.octaves ?? 3,
+    normalPerturbation: options?.normalPerturbation ?? 0.2,
+    grainDisplacement: options?.grainDisplacement ?? 0.15,
   }
 }
 
@@ -32,6 +45,12 @@ const allowedMeshKeys = new Set([
   'grainBlend',
   'interpolation',
   'warpModulation',
+  'noiseType',
+  'lacunarity',
+  'octaves',
+  'normalPerturbation',
+  'grainDisplacement',
+  'grid',
 ])
 
 export function validateMeshMaterial(mesh: MeshMaterial, paint: ShaderPaint) {
@@ -71,6 +90,24 @@ export function validateMeshMaterial(mesh: MeshMaterial, paint: ShaderPaint) {
   if (mesh.warpModulation !== undefined && !within(mesh.warpModulation, 0, 1)) {
     throw new Error('Invalid shader mesh material')
   }
+  if (mesh.noiseType !== undefined && !noiseGenerators.includes(mesh.noiseType)) {
+    throw new Error('Invalid shader mesh material')
+  }
+  if (mesh.lacunarity !== undefined && !within(mesh.lacunarity, 1, 5)) {
+    throw new Error('Invalid shader mesh material')
+  }
+  if (mesh.octaves !== undefined && (!within(mesh.octaves, 1, 8) || !Number.isInteger(mesh.octaves))) {
+    throw new Error('Invalid shader mesh material')
+  }
+  if (mesh.normalPerturbation !== undefined && !within(mesh.normalPerturbation, 0, 1)) {
+    throw new Error('Invalid shader mesh material')
+  }
+  if (mesh.grainDisplacement !== undefined && !within(mesh.grainDisplacement, 0, 1)) {
+    throw new Error('Invalid shader mesh material')
+  }
+  if (mesh.grid !== undefined) {
+    validateMeshGrid(mesh.grid)
+  }
 }
 
 /** Same transform as the fragment shader; handles stay aligned through material transforms. */
@@ -88,15 +125,44 @@ export function surfaceToMesh(point: Pick<MeshAnchor, 'x' | 'y'>, paint: ShaderP
 
 export function meshUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradient' }>) {
   const mesh = paint.mesh ?? createMeshMaterial(paint.params.colors.length)
-  const colors = paint.params.colors.map(hex => [
-    parseInt(hex.slice(1, 3), 16) / 255,
-    parseInt(hex.slice(3, 5), 16) / 255,
-    parseInt(hex.slice(5, 7), 16) / 255,
-    hex.length === 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1,
-  ])
+  const grid = mesh.grid
+  const colors = paint.params.colors.map(hex => {
+    const c = parseHexColor(hex)
+    return [c.r, c.g, c.b, c.a]
+  })
   const interpMode = mesh.interpolation ?? 'bicubic'
   const interpolationValue = interpMode === 'bicubic' ? 0 : interpMode === 'gaussian-rbf' ? 1 : 2
   const warpModulation = mesh.warpModulation ?? 0.25
+  const noiseType = mesh.noiseType ?? 'simplex'
+  const noiseTypeValue = noiseType === 'simplex' ? 0 : noiseType === 'perlin' ? 1 : 2
+  const lacunarity = mesh.lacunarity ?? 2.0
+  const octaves = mesh.octaves ?? 3
+  const normalPerturbation = mesh.normalPerturbation ?? 0.2
+  const grainDisplacement = mesh.grainDisplacement ?? 0.15
+
+  const gridUniforms = grid ? {
+    u_gridMode: 1.0,
+    u_gridRows: grid.rows,
+    u_gridCols: grid.cols,
+    u_gridSmoothing: grid.smoothing,
+    u_gridColors: Array.from({ length: 64 }, (_, i) => {
+      if (i < grid.vertices.length) {
+        const c = parseHexColor(grid.vertices[i].color)
+        return [c.r, c.g, c.b, c.a]
+      }
+      return [0, 0, 0, 1]
+    }),
+    u_gridTangents: Array.from({ length: 64 }, (_, i) =>
+      i < grid.vertices.length ? [grid.vertices[i].tx, grid.vertices[i].ty] : [0, 0]
+    ),
+  } : {
+    u_gridMode: 0.0,
+    u_gridRows: 0,
+    u_gridCols: 0,
+    u_gridSmoothing: 0,
+    u_gridColors: Array.from({ length: 64 }, () => [0, 0, 0, 1]),
+    u_gridTangents: Array.from({ length: 64 }, () => [0, 0]),
+  }
 
   return {
     u_count: colors.length,
@@ -104,6 +170,11 @@ export function meshUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradient'
     u_anchors: Array.from({ length: 10 }, (_, i) => { const a = mesh.anchors[i] ?? defaultMeshAnchor(i); return [a.x, a.y, a.radius] }),
     u_interpolation: interpolationValue,
     u_warpModulation: warpModulation,
+    u_noiseType: noiseTypeValue,
+    u_lacunarity: lacunarity,
+    u_octaves: octaves,
+    u_normalPerturbation: normalPerturbation,
+    u_grainDisplacement: grainDisplacement,
     u_turbulence: mesh.turbulence,
     u_frequency: mesh.frequency,
     u_chromatic: mesh.chromaticAberration,
@@ -115,6 +186,7 @@ export function meshUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradient'
     u_scale: paint.scale,
     u_rotation: paint.rotation * Math.PI / 180,
     u_offset: [paint.offsetX, paint.offsetY],
+    ...gridUniforms,
   }
 }
 
@@ -276,13 +348,26 @@ export function evaluateBicubicPatch(
   })
 }
 
+export const meshHarmonyModes = [
+  'harmonic',
+  'analogous',
+  'complementary',
+  'split-complementary',
+  'triadic',
+  'tetradic',
+  'vibrant',
+  'monochrome',
+  'duotone',
+] as const
+export type MeshHarmonyMode = typeof meshHarmonyModes[number]
+
 /**
  * Procedural Color Field Synthesizer: converts base color into harmonious color field stops.
  */
 export function synthesizeProceduralColorField(
   baseHex: string,
   count: number,
-  harmony: 'analogous' | 'complementary' | 'triadic' | 'harmonic' | 'vibrant' = 'harmonic'
+  harmony: MeshHarmonyMode = 'harmonic'
 ): string[] {
   if (count <= 0) return []
   const base = parseHexColor(baseHex)
@@ -340,13 +425,32 @@ export function synthesizeProceduralColorField(
       stopH = (h + t * 0.5 + 1) % 1
       stopS = Math.max(0.3, Math.min(0.9, s + (1 - t) * 0.1))
       stopL = Math.max(0.2, Math.min(0.8, l + (t - 0.5) * 0.4))
+    } else if (harmony === 'split-complementary') {
+      const splitOffset = i % 2 === 0 ? 0.42 : 0.58
+      stopH = (h + (t === 0 ? 0 : splitOffset + (t - 0.5) * 0.1) + 1) % 1
+      stopS = Math.max(0.35, Math.min(0.9, s + (1 - t) * 0.15))
+      stopL = Math.max(0.2, Math.min(0.8, l + (t - 0.5) * 0.35))
     } else if (harmony === 'triadic') {
       stopH = (h + t * (2 / 3) + 1) % 1
       stopL = Math.max(0.2, Math.min(0.8, l + (t - 0.5) * 0.25))
+    } else if (harmony === 'tetradic') {
+      const quadStep = (i % 4) * 0.25
+      stopH = (h + quadStep + (t - 0.5) * 0.05 + 1) % 1
+      stopS = Math.max(0.3, Math.min(0.85, s))
+      stopL = Math.max(0.2, Math.min(0.8, l + (t - 0.5) * 0.3))
     } else if (harmony === 'vibrant') {
       stopH = (h + t * 0.8 + 1) % 1
-      stopS = 0.85
+      stopS = 0.88
       stopL = Math.max(0.3, Math.min(0.7, 0.4 + t * 0.3))
+    } else if (harmony === 'monochrome') {
+      stopH = h
+      stopS = Math.max(0.08, Math.min(0.9, s * (0.6 + t * 0.4)))
+      stopL = Math.max(0.12, Math.min(0.88, 0.15 + t * 0.7))
+    } else if (harmony === 'duotone') {
+      const accentH = (h + 0.55 + 1) % 1
+      stopH = t < 0.5 ? h : accentH
+      stopS = Math.max(0.3, Math.min(0.9, s * 0.8 + 0.2))
+      stopL = Math.max(0.15, Math.min(0.85, 0.2 + t * 0.6))
     } else {
       // harmonic (Paper aesthetic balance)
       stopH = (h + (t - 0.5) * 0.18 + (i % 2 === 0 ? 0 : 0.05) + 1) % 1
@@ -503,3 +607,125 @@ export const MESH_PALETTE_PRESETS = [
   { name: 'Monochrome', colors: ['#080808', '#222222', '#555555', '#999999', '#edebe1'] },
 ] as const
 
+export function validateMeshGrid(grid: MeshGridConfig): void {
+  if (!grid || typeof grid !== 'object') throw new Error('Invalid mesh grid')
+  if (grid.topology !== 'grid') throw new Error('Invalid mesh grid topology')
+  if (!Number.isInteger(grid.rows) || grid.rows < 2 || grid.rows > 8) throw new Error('Invalid mesh grid rows')
+  if (!Number.isInteger(grid.cols) || grid.cols < 2 || grid.cols > 8) throw new Error('Invalid mesh grid cols')
+  if (!Number.isFinite(grid.smoothing) || grid.smoothing < 0 || grid.smoothing > 1) throw new Error('Invalid mesh grid smoothing')
+  if (!Array.isArray(grid.vertices) || grid.vertices.length !== grid.rows * grid.cols) throw new Error('Invalid mesh grid vertex count')
+  for (const v of grid.vertices) {
+    if (!v || typeof v !== 'object') throw new Error('Invalid mesh grid vertex')
+    if (typeof v.color !== 'string' || !/^#[\da-f]{6}([\da-f]{2})?$/i.test(v.color)) throw new Error('Invalid mesh grid vertex color')
+    if (!Number.isFinite(v.tx) || v.tx < -1 || v.tx > 1) throw new Error('Invalid mesh grid vertex tangent x')
+    if (!Number.isFinite(v.ty) || v.ty < -1 || v.ty > 1) throw new Error('Invalid mesh grid vertex tangent y')
+  }
+}
+
+export function createMeshGrid(rows: number, cols: number, colors?: readonly string[]): MeshGridConfig {
+  const count = rows * cols
+  const baseColors = colors ?? ['#edebe1', '#81adec', '#516b94', '#222222']
+  const palette = interpolatePaletteColors(baseColors, count)
+  const vertices: MeshGridVertex[] = Array.from({ length: count }, (_, i) => ({
+    color: palette[i],
+    tx: 0,
+    ty: 0,
+  }))
+  return { topology: 'grid', rows, cols, vertices, smoothing: 0.5 }
+}
+
+export function gridVertexPosition(row: number, col: number, rows: number, cols: number): { x: number; y: number } {
+  return {
+    x: cols > 1 ? col / (cols - 1) : 0.5,
+    y: rows > 1 ? row / (rows - 1) : 0.5,
+  }
+}
+
+export function evaluateGridMesh(
+  grid: MeshGridConfig,
+  u: number,
+  v: number,
+): string {
+  const cu = clampUnit(u)
+  const cv = clampUnit(v)
+  const { rows, cols, vertices, smoothing } = grid
+  if (rows < 2 || cols < 2) return vertices[0]?.color ?? '#81adec'
+
+  const uPos = cu * (cols - 1)
+  const vPos = cv * (rows - 1)
+  const colIdx = Math.min(Math.floor(uPos), cols - 2)
+  const rowIdx = Math.min(Math.floor(vPos), rows - 2)
+  const s = uPos - colIdx
+  const t = vPos - rowIdx
+
+  const su = s * s * (3 - 2 * s)
+  const sv = t * t * (3 - 2 * t)
+  const blendS = s + (su - s) * smoothing
+  const blendT = t + (sv - t) * smoothing
+
+  const c00 = parseHexColor(vertices[rowIdx * cols + colIdx].color)
+  const c10 = parseHexColor(vertices[rowIdx * cols + colIdx + 1].color)
+  const c01 = parseHexColor(vertices[(rowIdx + 1) * cols + colIdx].color)
+  const c11 = parseHexColor(vertices[(rowIdx + 1) * cols + colIdx + 1].color)
+
+  const topR = c00.r + (c10.r - c00.r) * blendS
+  const topG = c00.g + (c10.g - c00.g) * blendS
+  const topB = c00.b + (c10.b - c00.b) * blendS
+  const topA = c00.a + (c10.a - c00.a) * blendS
+
+  const botR = c01.r + (c11.r - c01.r) * blendS
+  const botG = c01.g + (c11.g - c01.g) * blendS
+  const botB = c01.b + (c11.b - c01.b) * blendS
+  const botA = c01.a + (c11.a - c01.a) * blendS
+
+  return toHexColor({
+    r: topR + (botR - topR) * blendT,
+    g: topG + (botG - topG) * blendT,
+    b: topB + (botB - topB) * blendT,
+    a: topA + (botA - topA) * blendT,
+  })
+}
+
+export function meshGridUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradient' }>) {
+  const mesh = paint.mesh ?? createMeshMaterial(paint.params.colors.length)
+  const grid = mesh.grid
+  if (!grid) return null
+
+  const { rows, cols, vertices, smoothing } = grid
+  const gridColors = Array.from({ length: 64 }, (_, i) => {
+    if (i < vertices.length) {
+      const c = parseHexColor(vertices[i].color)
+      return [c.r, c.g, c.b, c.a]
+    }
+    return [0, 0, 0, 1]
+  })
+  const tangents = Array.from({ length: 64 }, (_, i) =>
+    i < vertices.length ? [vertices[i].tx, vertices[i].ty] : [0, 0]
+  )
+
+  return {
+    u_gridMode: 1.0,
+    u_gridRows: rows,
+    u_gridCols: cols,
+    u_gridSmoothing: smoothing,
+    u_gridColors: gridColors,
+    u_gridTangents: tangents,
+    u_turbulence: mesh.turbulence,
+    u_frequency: mesh.frequency,
+    u_chromatic: mesh.chromaticAberration,
+    u_grainBlend: grainBlendModes.indexOf(mesh.grainBlend),
+    u_warpModulation: mesh.warpModulation ?? 0.25,
+    u_noiseType: (mesh.noiseType ?? 'simplex') === 'simplex' ? 0 : (mesh.noiseType ?? 'simplex') === 'perlin' ? 1 : 2,
+    u_lacunarity: mesh.lacunarity ?? 2.0,
+    u_octaves: mesh.octaves ?? 3,
+    u_normalPerturbation: mesh.normalPerturbation ?? 0.2,
+    u_grainDisplacement: mesh.grainDisplacement ?? 0.15,
+    u_distortion: paint.params.distortion,
+    u_swirl: paint.params.swirl,
+    u_grainMixer: paint.params.grainMixer,
+    u_grainOverlay: paint.params.grainOverlay,
+    u_scale: paint.scale,
+    u_rotation: paint.rotation * Math.PI / 180,
+    u_offset: [paint.offsetX, paint.offsetY],
+  }
+}

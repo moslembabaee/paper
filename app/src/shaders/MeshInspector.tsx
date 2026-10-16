@@ -28,12 +28,14 @@ import {
   generateWaveLayout,
   interpolateMeshColor,
   interpolatePaletteColors,
+  meshHarmonyModes,
   meshToSurface,
   MESH_PALETTE_PRESETS,
   smoothMeshColors,
   surfaceToMesh,
   synthesizeProceduralColorField,
 } from './mesh'
+import type { MeshHarmonyMode } from './mesh'
 import { MeshAnchorHandle } from './MeshAnchorHandle'
 import {
   setMeshActiveAnchor,
@@ -43,6 +45,7 @@ import {
 } from './meshState'
 import { ShaderSurface } from './ShaderSurface'
 import { exportMeshReact } from './shaderExport'
+import { MeshGradientEngine } from './MeshGradientEngine'
 import type { MeshAnchor, MeshMaterial, ShaderPaint } from './types'
 import { grainBlendModes } from './types'
 
@@ -65,9 +68,7 @@ export function MeshInspector({
 }) {
   const activeAnchor = useMeshActiveAnchor()
   const placementMode = useMeshPlacementMode()
-  const [synthesizerHarmony, setSynthesizerHarmony] = useState<
-    'harmonic' | 'analogous' | 'complementary' | 'triadic' | 'vibrant'
-  >('harmonic')
+  const [synthesizerHarmony, setSynthesizerHarmony] = useState<MeshHarmonyMode>('harmonic')
   const [copiedSource, setCopiedSource] = useState('')
   const [copyError, setCopyError] = useState('')
   const preview = useRef<HTMLDivElement>(null)
@@ -178,7 +179,7 @@ export function MeshInspector({
   }
 
   const synthesizeField = (
-    harmony: 'harmonic' | 'analogous' | 'complementary' | 'triadic' | 'vibrant' = synthesizerHarmony
+    harmony: MeshHarmonyMode = synthesizerHarmony
   ) => {
     if (!mesh) return
     const baseColor = paint.params.colors[active] ?? '#81adec'
@@ -358,15 +359,20 @@ export function MeshInspector({
               <span className="section-caption">COLOR FIELD SYNTHESIZER</span>
               <span className="shader-engine-mark">GPU BICUBIC</span>
             </div>
+            <div className="mesh-synthesizer-base-row">
+              <span className="mesh-synthesizer-base-label">Seed vertex V{String(active + 1).padStart(2, '0')}:</span>
+              <span className="mesh-synthesizer-base-swatch" style={{ background: paint.params.colors[active] ?? '#81adec' }} />
+              <span className="mesh-synthesizer-base-hex">{(paint.params.colors[active] ?? '#81adec').toUpperCase()}</span>
+            </div>
             <div className="mesh-harmony-chips" role="group" aria-label="Color harmony modes">
-              {(['harmonic', 'analogous', 'complementary', 'triadic', 'vibrant'] as const).map(mode => (
+              {meshHarmonyModes.map(mode => (
                 <button
                   key={mode}
                   type="button"
                   className={`mesh-harmony-chip ${synthesizerHarmony === mode ? 'active' : ''}`}
                   onClick={() => setSynthesizerHarmony(mode)}
                 >
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  {mode.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
                 </button>
               ))}
             </div>
@@ -662,6 +668,15 @@ export function MeshInspector({
               ))}
             </select>
           </label>
+
+          {/* Grid Mesh Topology Engine */}
+          <div className="shader-divider" />
+          <MeshGradientEngine
+            paint={paint}
+            onChange={onChange}
+            onGestureStart={onGestureStart}
+            onGestureEnd={onGestureEnd}
+          />
 
           {/* Direct Scene Canvas Binding */}
           {target && (

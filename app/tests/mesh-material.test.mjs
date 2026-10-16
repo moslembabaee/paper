@@ -3,7 +3,26 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 import { SceneStore } from '../src/scene/store.ts'
 import { createShader, freezeShader, updateShaderParameter, validateShader } from '../src/shaders/catalog.ts'
-import { clampUnit, meshToSurface, surfaceToMesh, meshUniforms, parseHexColor, toHexColor, interpolateMeshColor, interpolatePaletteColors, smoothMeshColors, generateGridLayout, generateRadialLayout, generateSpiralLayout, MESH_PALETTE_PRESETS } from '../src/shaders/mesh.ts'
+import {
+  clampUnit,
+  evaluateBicubicPatch,
+  generateCornerPatchLayout,
+  generateGridLayout,
+  generateRadialLayout,
+  generateSpiralLayout,
+  generateWaveLayout,
+  interpolateMeshColor,
+  interpolatePaletteColors,
+  meshHarmonyModes,
+  meshToSurface,
+  meshUniforms,
+  MESH_PALETTE_PRESETS,
+  parseHexColor,
+  smoothMeshColors,
+  surfaceToMesh,
+  synthesizeProceduralColorField,
+  toHexColor,
+} from '../src/shaders/mesh.ts'
 import { getMeshActiveAnchor, setMeshActiveAnchor, getMeshPlacementMode, setMeshPlacementMode, subscribeMeshState } from '../src/shaders/meshState.ts'
 import { exportMeshReact } from '../src/shaders/shaderExport.ts'
 import { createProject } from '../src/io/project.ts'
@@ -233,5 +252,74 @@ test('meshState external store correctly broadcasts active vertex and placement 
   unsubscribe()
   setMeshActiveAnchor(0)
   assert.equal(notifications, 3)
+})
+
+test('synthesizeProceduralColorField generates harmonious color stops for all harmony modes', () => {
+  const base = '#81adec'
+  for (const harmony of meshHarmonyModes) {
+    const stops = synthesizeProceduralColorField(base, 5, harmony)
+    assert.equal(stops.length, 5, `Expected 5 stops for harmony ${harmony}`)
+    for (const stop of stops) {
+      assert.match(stop, /^#[\da-f]{6}$/i, `Invalid hex color generated: ${stop}`)
+      const parsed = parseHexColor(stop)
+      assert.ok(parsed.r >= 0 && parsed.r <= 1)
+      assert.ok(parsed.g >= 0 && parsed.g <= 1)
+      assert.ok(parsed.b >= 0 && parsed.b <= 1)
+      assert.equal(parsed.a, 1)
+    }
+  }
+
+  // Edge cases: count <= 0, single stop
+  assert.deepEqual(synthesizeProceduralColorField(base, 0), [])
+  const single = synthesizeProceduralColorField(base, 1, 'harmonic')
+  assert.equal(single.length, 1)
+  assert.match(single[0], /^#[\da-f]{6}$/i)
+})
+
+test('evaluateBicubicPatch performs smooth Hermite polynomial interpolation on 2D color grids', () => {
+  const grid = [
+    ['#ff0000', '#00ff00'],
+    ['#0000ff', '#ffffff'],
+  ]
+
+  // Corners should match exactly
+  assert.equal(evaluateBicubicPatch(grid, 0, 0), '#ff0000')
+  assert.equal(evaluateBicubicPatch(grid, 1, 0), '#00ff00')
+  assert.equal(evaluateBicubicPatch(grid, 0, 1), '#0000ff')
+  assert.equal(evaluateBicubicPatch(grid, 1, 1), '#ffffff')
+
+  // Interior evaluation
+  const center = evaluateBicubicPatch(grid, 0.5, 0.5)
+  assert.match(center, /^#[\da-f]{6}$/i)
+  const c = parseHexColor(center)
+  assert.ok(c.r > 0.1 && c.g > 0.1 && c.b > 0.1, 'Center should blend all 4 corners')
+
+  // Boundary checks (out of bounds clamp)
+  assert.equal(evaluateBicubicPatch(grid, -0.5, 0), '#ff0000')
+  assert.equal(evaluateBicubicPatch(grid, 1.5, 1.5), '#ffffff')
+})
+
+test('generateWaveLayout and generateCornerPatchLayout produce bounded coordinates', () => {
+  const wave = generateWaveLayout(6)
+  assert.equal(wave.length, 6)
+  for (const a of wave) {
+    assert.ok(a.x >= 0 && a.x <= 1, 'x within bounds')
+    assert.ok(a.y >= 0 && a.y <= 1, 'y within bounds')
+    assert.ok(a.radius >= 0.1 && a.radius <= 2.0, 'radius within bounds')
+  }
+
+  const patch = generateCornerPatchLayout(8)
+  assert.equal(patch.length, 8)
+  for (const a of patch) {
+    assert.ok(a.x >= 0 && a.x <= 1, 'x within bounds')
+    assert.ok(a.y >= 0 && a.y <= 1, 'y within bounds')
+    assert.ok(a.radius >= 0.1 && a.radius <= 2.0, 'radius within bounds')
+  }
+
+  // 4 corners
+  const four = generateCornerPatchLayout(4)
+  assert.equal(four.length, 4)
+  assert.deepEqual(four[0], { x: 0.15, y: 0.15, radius: 0.7 })
+  assert.deepEqual(four[1], { x: 0.85, y: 0.15, radius: 0.7 })
 })
 

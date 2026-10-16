@@ -18,6 +18,7 @@ import { useScene } from './useScene'
 import './selection.css'
 import { MeasurementHUD } from './MeasurementHUD'
 import { measurementHit } from './measurementGeometry'
+import { CanvasTypographyScrubber } from './CanvasTypographyScrubber'
 
 type HandleId = ResizeHandle | 'rotate'
 const HANDLES: readonly { id: ResizeHandle; x: number; y: number; angle: number }[] = [
@@ -276,6 +277,9 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       <div data-handle="rotate" className="sel-rotate-handle" title="Rotate · Shift for 15° increments" />
       {selectedNode?.type === 'frame' && <AutoLayoutHandles frame={selectedNode} state={state} store={store} zoom={camera.zoom} rotation={box.rotation} active={activeSpacing} />}
     </div>}
+    {!panMode && box && selectedNode?.type === 'text' && !activeCursor && (
+      <CanvasTypographyScrubber node={selectedNode} store={store} camera={camera} box={box} />
+    )}
     <MeasurementHUD store={store} controller={controller} suppressed={panMode || activeCursor !== null} />
   </div>
 })

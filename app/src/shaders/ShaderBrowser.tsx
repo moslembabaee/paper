@@ -10,7 +10,7 @@ import type { ShaderKind, ShaderPaint } from './types'
 import './shaders.css'
 
 const thumbnails = Object.fromEntries(shaderKinds.map(kind => [kind, { ...createShader(kind), animated: false }])) as Record<ShaderKind, ShaderPaint>
-const categories: Record<ShaderKind, 'Color' | 'Texture' | 'Organic' | 'Glass'> = { 'mesh-gradient': 'Color', 'grain-gradient': 'Texture', 'halftone-cmyk': 'Texture', dithering: 'Texture', 'dot-orbit': 'Organic', 'neuro-noise': 'Organic', gooey: 'Organic', 'perlin-noise': 'Texture', 'liquid-distortion': 'Organic', 'glass-refraction': 'Glass', 'multi-pass': 'Organic' }
+const categories: Record<ShaderKind, 'Color' | 'Texture' | 'Organic' | 'Glass'> = { 'mesh-gradient': 'Color', 'grain-gradient': 'Texture', 'halftone-cmyk': 'Texture', dithering: 'Texture', 'dot-orbit': 'Organic', 'neuro-noise': 'Organic', gooey: 'Organic', 'perlin-noise': 'Texture', 'liquid-distortion': 'Organic', 'glass-refraction': 'Glass', 'multi-pass': 'Organic', 'procedural-noise': 'Texture' }
 const filters = ['All', 'Color', 'Texture', 'Organic', 'Glass'] as const
 
 export function ShaderBrowser({ store, onClose }: { store: SceneStore; onClose: () => void }) {
@@ -57,7 +57,33 @@ export function ShaderBrowser({ store, onClose }: { store: SceneStore; onClose: 
           <button aria-label="Rectangle preview" aria-pressed={previewShape === 'rectangle'} onClick={() => setPreviewShape('rectangle')}><Square size={12} /></button>
           <button aria-label="Ellipse preview" aria-pressed={previewShape === 'ellipse'} onClick={() => setPreviewShape('ellipse')}><Circle size={12} /></button>
         </div><button aria-label="Compare base paint" aria-pressed={compare} onClick={() => setCompare(value => !value)}><Eye size={12} />Compare</button></div>
-        <div className="shader-detail-caption"><SlidersHorizontal size={12} /><span>Fine-tune your material</span></div><div className="shader-library-controls"><ShaderInspector paint={paint} onChange={next => { if (next) setPaint(next) }} target="Preview" showPicker={false} allowRemove={false} /></div>
+        <div className="shader-detail-caption"><SlidersHorizontal size={12} /><span>Fine-tune your material</span></div><div className="shader-library-controls"><ShaderInspector
+          paint={paint}
+          onChange={next => { if (next) setPaint(next) }}
+          target={target}
+          showPicker={false}
+          allowRemove={false}
+          onBindTarget={mode => {
+            if (mode === 'background') {
+              store.setBackgroundShader(paint)
+            } else if (mode === 'selection' && targets.length > 0) {
+              store.batch(() => {
+                for (const node of targets) store.update(node.id, node.type, { style: { shader: paint } })
+              }, 'Bind mesh to selection')
+            } else if (mode === 'new-card') {
+              const newNode = store.add('rectangle', {
+                x: 120,
+                y: 120,
+                width: 240,
+                height: 240,
+                cornerRadius: 12,
+                style: { fill: null, shader: paint },
+              })
+              store.select([newNode.id])
+              onClose()
+            }
+          }}
+        /></div>
       </section>
     </div>
     <footer className="shader-browser-footer"><span>Apply to <strong>{target}</strong>{disabled ? ' · Unlock a layer to apply' : ''}</span><div><button className="shader-browser-cancel" onClick={onClose}>Cancel</button><button className="shader-browser-apply" disabled={disabled} onClick={apply}>Apply shader <Check size={13} /></button></div></footer>

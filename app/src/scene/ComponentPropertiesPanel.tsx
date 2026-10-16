@@ -1,81 +1,794 @@
 import { useState } from 'react'
 import { Plus, RotateCcw, Trash2 } from 'lucide-react'
 import type { SceneStore } from './store'
-import type { ComponentOverrides, ComponentProperty, SceneElement } from './types'
+import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, SceneElement } from './types'
 import { subtree } from './components'
 import { ComponentStateMachineEditor } from './ComponentStateMachineEditor'
 import { getEffectiveStateMachine, DEFAULT_INTERACTIVE_STATES } from './stateMachine'
+import { shaderBlendModes } from '../shaders/types'
 
 /** Capture visual channels, preserving token/style links for future theme changes. */
 function capture(node: SceneElement): ComponentOverrides {
   return {
     style: { ...node.style },
     properties: {
-      width: node.width, height: node.height,
+      width: node.width,
+      height: node.height,
       ...('cornerRadius' in node ? { cornerRadius: node.cornerRadius } : {}),
-      ...(node.type === 'text' ? { text: node.text, fontFamily: node.fontFamily, fontSize: node.fontSize, fontWeight: node.fontWeight, lineHeight: node.lineHeight, letterSpacing: node.letterSpacing, textAlign: node.textAlign } : {}),
+      ...(node.type === 'text'
+        ? {
+            text: node.text,
+            fontFamily: node.fontFamily,
+            fontSize: node.fontSize,
+            fontWeight: node.fontWeight,
+            lineHeight: node.lineHeight,
+            letterSpacing: node.letterSpacing,
+            textAlign: node.textAlign,
+            ...(node.kinetic ? { kinetic: node.kinetic } : {}),
+          }
+        : {}),
     },
     ...(node.tokenBindings ? { tokenBindings: node.tokenBindings } : {}),
     ...(node.sharedStyleBindings ? { sharedStyleBindings: node.sharedStyleBindings } : {}),
   }
 }
 
-export function ComponentPropertiesPanel({ store, master, root, disabled }: { store: SceneStore; master: SceneElement; root: SceneElement; disabled: boolean }) {
+function propertySubtitle(prop: ComponentProperty): string {
+  if (prop.kind === 'variant') return 'Variant'
+  if (prop.kind === 'boolean') {
+    return prop.targetProperty === 'clipContent'
+      ? 'Clip content'
+      : prop.targetProperty === 'kinetic.enabled'
+      ? 'Kinetic toggle'
+      : 'Visibility'
+  }
+  if (prop.kind === 'text') return 'Text slot'
+  if (prop.kind === 'color') return `Color · ${prop.targetProperty ?? 'fill'}`
+  if (prop.kind === 'number') return `Number · ${prop.targetProperty ?? 'value'}`
+  if (prop.kind === 'kinetic') return `Kinetic · ${prop.targetProperty}`
+  if (prop.kind === 'shader') return `Shader · ${prop.targetProperty}`
+  return 'Property'
+}
+
+function PropertyField({
+  property,
+  value,
+  disabled,
+  onChange,
+}: {
+  property: ComponentProperty
+  value: ComponentPropertyValue
+  disabled: boolean
+  onChange: (val: ComponentPropertyValue) => void
+}) {
+  if (property.kind === 'variant') {
+    return (
+      <select
+        className="property-input"
+        aria-label={property.name}
+        disabled={disabled}
+        value={String(value)}
+        onChange={event => onChange(event.currentTarget.value)}
+      >
+        {property.options.map(option => (
+          <option key={option.value} value={option.value}>
+            {option.value}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
+  if (property.kind === 'boolean') {
+    const labelText = value
+      ? property.targetProperty === 'clipContent'
+        ? 'Clipped'
+        : property.targetProperty === 'kinetic.enabled'
+        ? 'Kinetic Active'
+        : 'Visible'
+      : property.targetProperty === 'clipContent'
+      ? 'Unclipped'
+      : property.targetProperty === 'kinetic.enabled'
+      ? 'Static'
+      : 'Hidden'
+    return (
+      <label className="component-property-switch">
+        <input
+          type="checkbox"
+          aria-label={property.name}
+          disabled={disabled}
+          checked={Boolean(value)}
+          onChange={event => onChange(event.currentTarget.checked)}
+        />
+        <span>{labelText}</span>
+      </label>
+    )
+  }
+
+  if (property.kind === 'text') {
+    return (
+      <input
+        className="property-input"
+        aria-label={property.name}
+        disabled={disabled}
+        value={String(value)}
+        onChange={event => onChange(event.currentTarget.value)}
+      />
+    )
+  }
+
+  if (property.kind === 'color') {
+    const colorStr = String(value)
+    return (
+      <div className="component-color-field">
+        <input
+          type="color"
+          className="component-color-swatch"
+          aria-label={`${property.name} swatch`}
+          disabled={disabled}
+          value={colorStr.startsWith('#') && (colorStr.length === 7 || colorStr.length === 9) ? colorStr.slice(0, 7) : '#81adec'}
+          onChange={event => onChange(event.currentTarget.value)}
+        />
+        <input
+          className="property-input property-mono"
+          aria-label={property.name}
+          disabled={disabled}
+          value={colorStr}
+          onChange={event => onChange(event.currentTarget.value)}
+        />
+      </div>
+    )
+  }
+
+  if (property.kind === 'number') {
+    const step = property.step ?? (property.targetProperty === 'opacity' ? 0.05 : 1)
+    return (
+      <input
+        type="number"
+        className="property-input"
+        aria-label={property.name}
+        disabled={disabled}
+        value={Number(value)}
+        min={property.min}
+        max={property.max}
+        step={step}
+        onChange={event => onChange(event.currentTarget.valueAsNumber)}
+      />
+    )
+  }
+
+  if (property.kind === 'kinetic') {
+    if (property.targetProperty === 'enabled') {
+      return (
+        <label className="component-property-switch">
+          <input
+            type="checkbox"
+            aria-label={property.name}
+            disabled={disabled}
+            checked={Boolean(value)}
+            onChange={event => onChange(event.currentTarget.checked)}
+          />
+          <span>{value ? 'Kinetic Active' : 'Static'}</span>
+        </label>
+      )
+    }
+    if (property.targetProperty === 'waveShape') {
+      return (
+        <select
+          className="property-input"
+          aria-label={property.name}
+          disabled={disabled}
+          value={String(value)}
+          onChange={event => onChange(event.currentTarget.value)}
+        >
+          <option value="sine">Sine</option>
+          <option value="triangle">Triangle</option>
+          <option value="bounce">Bounce</option>
+          <option value="spring">Spring</option>
+        </select>
+      )
+    }
+    if (property.targetProperty === 'staggerMode') {
+      return (
+        <select
+          className="property-input"
+          aria-label={property.name}
+          disabled={disabled}
+          value={String(value)}
+          onChange={event => onChange(event.currentTarget.value)}
+        >
+          <option value="cascade">Cascade</option>
+          <option value="wave">Wave</option>
+          <option value="center-out">Center Out</option>
+          <option value="random">Random</option>
+          <option value="elastic">Elastic</option>
+        </select>
+      )
+    }
+    return (
+      <input
+        type="number"
+        className="property-input"
+        aria-label={property.name}
+        disabled={disabled}
+        value={Number(value)}
+        step={property.targetProperty === 'duration' ? 50 : property.targetProperty === 'stagger' ? 5 : 1}
+        onChange={event => onChange(event.currentTarget.valueAsNumber)}
+      />
+    )
+  }
+
+  if (property.kind === 'shader') {
+    if (property.targetProperty === 'blendMode') {
+      return (
+        <select
+          className="property-input"
+          aria-label={property.name}
+          disabled={disabled}
+          value={String(value)}
+          onChange={event => onChange(event.currentTarget.value)}
+        >
+          {shaderBlendModes.map(mode => (
+            <option key={mode} value={mode}>
+              {mode}
+            </option>
+          ))}
+        </select>
+      )
+    }
+    if (property.targetProperty === 'viewMode') {
+      return (
+        <select
+          className="property-input"
+          aria-label={property.name}
+          disabled={disabled}
+          value={String(value)}
+          onChange={event => onChange(event.currentTarget.value)}
+        >
+          <option value="render">Render</option>
+          <option value="normal">Normal</option>
+          <option value="depth">Depth</option>
+          <option value="uv">UV</option>
+        </select>
+      )
+    }
+    return (
+      <input
+        type="number"
+        className="property-input"
+        aria-label={property.name}
+        disabled={disabled}
+        value={Number(value)}
+        step={property.targetProperty === 'octaves' ? 1 : 0.1}
+        onChange={event => onChange(event.currentTarget.valueAsNumber)}
+      />
+    )
+  }
+
+  return null
+}
+
+export function ComponentPropertiesPanel({
+  store,
+  master,
+  root,
+  disabled,
+}: {
+  store: SceneStore
+  master: SceneElement
+  root: SceneElement
+  disabled: boolean
+}) {
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
   const [kind, setKind] = useState<ComponentProperty['kind']>('variant')
   const [options, setOptions] = useState('Default, Accent')
   const [target, setTarget] = useState(master.id)
+  const [targetProperty, setTargetProperty] = useState<string>('visible')
   const [error, setError] = useState('')
+
   if (master.component?.kind !== 'master') return null
   const properties = master.component.properties ?? []
   const instance = root.component?.kind === 'instance' ? root.component : undefined
   const machine = getEffectiveStateMachine(master)
   const variantProp = properties.find(p => p.kind === 'variant')
-  const availableStates = machine?.states ?? (variantProp && variantProp.kind === 'variant' ? variantProp.options.map(o => o.value) : DEFAULT_INTERACTIVE_STATES)
+  const availableStates =
+    machine?.states ??
+    (variantProp && variantProp.kind === 'variant'
+      ? variantProp.options.map(o => o.value)
+      : DEFAULT_INTERACTIVE_STATES)
   const layers = subtree(store.getSnapshot().elements, master.id)
-  const perform = (action: () => void) => { try { action(); setError('') } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to edit property') } }
-  const replace = (next: ComponentProperty) => store.setComponentProperties(master.id, properties.map(property => property.id === next.id ? next : property))
-  const add = () => perform(() => {
-    const source = layers.find(layer => layer.id === target)
-    const common = { id: crypto.randomUUID(), name: name.trim() }
-    let property: ComponentProperty
-    if (kind === 'variant') {
-      const values = options.split(',').map(value => value.trim()).filter(Boolean)
-      property = { ...common, kind, defaultValue: values[0], options: values.map(value => ({ value, layers: {} })) }
-    } else {
-      if (!source || (kind === 'text' && source.type !== 'text')) throw new Error('Choose a text layer for a text slot')
-      property = kind === 'text' ? { ...common, kind, sourceId: source.id, defaultValue: source.type === 'text' ? source.text : '' } : { ...common, kind, sourceId: source.id, defaultValue: source.visible }
+
+  const perform = (action: () => void) => {
+    try {
+      action()
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to edit property')
     }
-    store.setComponentProperties(master.id, [...properties, property]); setAdding(false); setName('')
-  })
-  return <div className="component-properties" data-testid="component-properties">
-    <div className="component-section-heading"><span className="section-caption">PROPERTIES</span>{!instance && <button className="quiet-button" title="Add component property" aria-label="Add component property" disabled={disabled} onClick={() => setAdding(value => !value)}><Plus size={13} /></button>}</div>
-    {!properties.length && <p>{instance ? 'This master has no configurable properties.' : 'Expose variants, visibility switches and text slots.'}</p>}
-    {instance && (machine || (variantProp && variantProp.options.length > 1)) && <div className={`component-property ${instance.activeState ? 'is-local' : ''}`}>
-      <div className="component-property-heading"><span>Interactive State<small>Micro-interaction</small></span>{instance.activeState && <button className="quiet-button" disabled={disabled} aria-label="Reset interactive state" title="Use default state" onClick={() => perform(() => store.setComponentActiveState(root.id, null))}><RotateCcw size={11} /></button>}</div>
-      <select className="property-input" aria-label="Interactive State" disabled={disabled} value={instance.activeState ?? 'default'} onChange={event => perform(() => store.setComponentActiveState(root.id, event.currentTarget.value === 'default' ? null : event.currentTarget.value))}>
-        {availableStates.map(stateName => <option key={stateName} value={stateName}>{stateName} {stateName === (machine?.initial ?? 'default') ? '(Default)' : ''}</option>)}
-      </select>
-    </div>}
-    {properties.map(property => {
-      const value = instance?.propertyValues?.[property.id] ?? property.defaultValue
-      const local = instance && Object.hasOwn(instance.propertyValues ?? {}, property.id)
-      const change = (next: string | boolean) => perform(() => instance ? store.setComponentProperty(root.id, property.id, next) : replace({ ...property, defaultValue: next } as ComponentProperty))
-      return <div key={property.id} className={`component-property ${local ? 'is-local' : ''}`}>
-        <div className="component-property-heading"><span>{property.name}<small>{property.kind === 'boolean' ? 'Visibility' : property.kind === 'text' ? 'Text slot' : 'Variant'}</small></span>{instance ? <button className="quiet-button" disabled={!local || disabled} aria-label={`Reset ${property.name}`} title="Use master default" onClick={() => perform(() => store.setComponentProperty(root.id, property.id, null))}><RotateCcw size={11} /></button> : <button className="quiet-button" disabled={disabled} aria-label={`Remove ${property.name}`} onClick={() => perform(() => store.setComponentProperties(master.id, properties.filter(item => item.id !== property.id)))}><Trash2 size={11} /></button>}</div>
-        {property.kind === 'variant' ? <select className="property-input" aria-label={property.name} disabled={disabled} value={String(value)} onChange={event => change(event.currentTarget.value)}>{property.options.map(option => <option key={option.value} value={option.value}>{option.value}</option>)}</select> : property.kind === 'boolean' ? <label className="component-property-switch"><input type="checkbox" aria-label={property.name} disabled={disabled} checked={Boolean(value)} onChange={event => change(event.currentTarget.checked)} /><span>{value ? 'Visible' : 'Hidden'}</span></label> : <input className="property-input" aria-label={property.name} disabled={disabled} value={String(value)} onChange={event => change(event.currentTarget.value)} />}
-        {!instance && property.kind === 'variant' && <div className="component-variant-capture">{property.options.map(option => <div key={option.value}><span>{option.value}<small>{Object.keys(option.layers).length ? `${Object.keys(option.layers).length} captured layers` : 'Inherits master'}</small></span><button className="text-action" disabled={disabled} title="Save the current master’s appearance for this option" aria-label={`Capture ${property.name} ${option.value}`} onClick={() => perform(() => replace({ ...property, options: property.options.map(item => item.value === option.value ? { ...item, layers: Object.fromEntries(layers.map(layer => [layer.id, capture(layer)])) } : item) }))}>Capture</button>{Object.keys(option.layers).length > 0 && <button className="quiet-button" disabled={disabled} title="Restore inheritance" aria-label={`Clear ${property.name} ${option.value}`} onClick={() => perform(() => replace({ ...property, options: property.options.map(item => item.value === option.value ? { ...item, layers: {} } : item) }))}><RotateCcw size={11} /></button>}</div>)}</div>}
+  }
+
+  const replace = (next: ComponentProperty) =>
+    store.setComponentProperties(
+      master.id,
+      properties.map(property => (property.id === next.id ? next : property))
+    )
+
+  const add = () =>
+    perform(() => {
+      const source = layers.find(layer => layer.id === target)
+      const common = { id: crypto.randomUUID(), name: name.trim() }
+      let property: ComponentProperty
+
+      if (kind === 'variant') {
+        const values = options
+          .split(',')
+          .map(value => value.trim())
+          .filter(Boolean)
+        if (!values.length) throw new Error('Enter at least one variant option')
+        property = {
+          ...common,
+          kind,
+          defaultValue: values[0],
+          options: values.map(value => ({ value, layers: {} })),
+        }
+      } else if (kind === 'text') {
+        if (!source || source.type !== 'text') throw new Error('Choose a text layer for a text slot')
+        property = { ...common, kind, sourceId: source.id, defaultValue: source.text }
+      } else if (kind === 'boolean') {
+        if (!source) throw new Error('Choose a layer for a boolean property')
+        const tProp = (targetProperty as 'visible' | 'kinetic.enabled' | 'clipContent') || 'visible'
+        const def =
+          tProp === 'clipContent' && source.type === 'frame'
+            ? source.clipContent
+            : tProp === 'kinetic.enabled' && source.type === 'text'
+            ? source.kinetic?.enabled ?? true
+            : source.visible
+        property = { ...common, kind, sourceId: source.id, defaultValue: def, targetProperty: tProp }
+      } else if (kind === 'color') {
+        if (!source) throw new Error('Choose a layer for a color property')
+        const tProp = (targetProperty as 'fill' | 'stroke' | 'shader') || 'fill'
+        const def =
+          tProp === 'stroke'
+            ? source.style.stroke?.color ?? '#080808'
+            : source.style.fill ?? '#81adec'
+        property = { ...common, kind, sourceId: source.id, defaultValue: def, targetProperty: tProp }
+      } else if (kind === 'number') {
+        if (!source) throw new Error('Choose a layer for a numeric parameter')
+        const tProp = targetProperty || 'opacity'
+        let def = 1
+        if (tProp === 'opacity') def = source.style.opacity ?? 1
+        else if (tProp === 'cornerRadius' && 'cornerRadius' in source) def = source.cornerRadius
+        else if (tProp === 'width') def = source.width
+        else if (tProp === 'height') def = source.height
+        else if (tProp === 'strokeWidth') def = source.style.stroke?.width ?? 1
+        else if (tProp === 'fontSize' && source.type === 'text') def = source.fontSize
+        else if (tProp === 'fontWeight' && source.type === 'text') def = source.fontWeight
+        else if (tProp === 'letterSpacing' && source.type === 'text') def = source.letterSpacing
+        property = { ...common, kind, sourceId: source.id, defaultValue: def, targetProperty: tProp }
+      } else if (kind === 'kinetic') {
+        if (!source || source.type !== 'text') throw new Error('Choose a text layer for kinetic typography')
+        const tProp =
+          (targetProperty as
+            | 'enabled'
+            | 'amplitude'
+            | 'rotation'
+            | 'duration'
+            | 'stagger'
+            | 'waveShape'
+            | 'staggerMode'
+            | 'weightModulation'
+            | 'slantModulation'
+            | 'scaleModulation') || 'amplitude'
+        let def: string | number | boolean = 16
+        if (tProp === 'enabled') def = source.kinetic?.enabled ?? true
+        else if (tProp === 'waveShape') def = source.kinetic?.waveShape ?? 'sine'
+        else if (tProp === 'staggerMode') def = source.kinetic?.staggerMode ?? 'cascade'
+        else if (tProp === 'duration') def = source.kinetic?.duration ?? 800
+        else if (tProp === 'stagger') def = source.kinetic?.stagger ?? 40
+        else if (source.kinetic && tProp in source.kinetic) {
+          def = (source.kinetic as any)[tProp] ?? 16
+        }
+        property = { ...common, kind, sourceId: source.id, defaultValue: def, targetProperty: tProp }
+      } else if (kind === 'shader') {
+        if (!source || !source.style.shader) throw new Error('Choose a layer with a shader effect')
+        const tProp =
+          (targetProperty as
+            | 'speed'
+            | 'scale'
+            | 'rotation'
+            | 'frequency'
+            | 'octaves'
+            | 'turbulence'
+            | 'displacement'
+            | 'viewMode'
+            | 'blendMode') || 'speed'
+        let def: string | number | boolean = 1
+        if (tProp === 'speed') def = source.style.shader.speed ?? 1
+        else if (tProp === 'scale') def = source.style.shader.scale ?? 1
+        else if (tProp === 'rotation') def = source.style.shader.rotation ?? 0
+        else if (source.style.shader.params && tProp in source.style.shader.params) {
+          def = (source.style.shader.params as any)[tProp] ?? 1
+        }
+        property = { ...common, kind, sourceId: source.id, defaultValue: def, targetProperty: tProp }
+      } else {
+        throw new Error('Unsupported property kind')
+      }
+
+      store.setComponentProperties(master.id, [...properties, property])
+      setAdding(false)
+      setName('')
+    })
+
+  return (
+    <div className="component-properties" data-testid="component-properties">
+      <div className="component-section-heading">
+        <span className="section-caption">DYNAMIC PROPERTIES</span>
+        {!instance && (
+          <button
+            className="quiet-button"
+            title="Add component property"
+            aria-label="Add component property"
+            disabled={disabled}
+            onClick={() => setAdding(value => !value)}
+          >
+            <Plus size={13} />
+          </button>
+        )}
       </div>
-    })}
-    {!instance && properties.some(property => property.kind === 'variant') && <p>Edit the master, then capture an option. Captured tokens stay linked; uncaptured options inherit the master.</p>}
-    {!instance && <ComponentStateMachineEditor store={store} master={master} disabled={disabled} />}
-    {adding && !instance && <form className="component-property-form" onSubmit={event => { event.preventDefault(); add() }}>
-      <input className="property-input" autoFocus aria-label="Property name" placeholder="Property name" required maxLength={100} value={name} onChange={event => setName(event.currentTarget.value)} />
-      <select className="property-input" aria-label="Property kind" value={kind} onChange={event => { const next = event.currentTarget.value as ComponentProperty['kind']; setKind(next); if (next === 'text') setTarget(layers.find(layer => layer.type === 'text')?.id ?? master.id) }}><option value="variant">Variant switch</option><option value="boolean">Visibility switch</option><option value="text">Text slot</option></select>
-      {kind === 'variant' ? <input className="property-input" aria-label="Variant options" placeholder="Default, Accent" required value={options} onChange={event => setOptions(event.currentTarget.value)} /> : <select className="property-input" aria-label="Property layer" value={target} onChange={event => setTarget(event.currentTarget.value)}>{layers.filter(layer => kind !== 'text' || layer.type === 'text').map(layer => <option key={layer.id} value={layer.id}>{layer.name}</option>)}</select>}
-      <button className="component-action primary" disabled={disabled} type="submit"><Plus size={12} />Add property</button>
-    </form>}
-    {error && <p className="component-error" role="alert">{error}</p>}
-  </div>
+
+      {!properties.length && (
+        <p>
+          {instance
+            ? 'This master has no configurable properties.'
+            : 'Expose variants, kinetic typography, and shader parameters as reusable controls.'}
+        </p>
+      )}
+
+      {instance && (machine || (variantProp && variantProp.options.length > 1)) && (
+        <div className={`component-property ${instance.activeState ? 'is-local' : ''}`}>
+          <div className="component-property-heading">
+            <span>
+              Interactive State<small>Micro-interaction</small>
+            </span>
+            {instance.activeState && (
+              <button
+                className="quiet-button"
+                disabled={disabled}
+                aria-label="Reset interactive state"
+                title="Use default state"
+                onClick={() => perform(() => store.setComponentActiveState(root.id, null))}
+              >
+                <RotateCcw size={11} />
+              </button>
+            )}
+          </div>
+          <select
+            className="property-input"
+            aria-label="Interactive State"
+            disabled={disabled}
+            value={instance.activeState ?? 'default'}
+            onChange={event =>
+              perform(() =>
+                store.setComponentActiveState(
+                  root.id,
+                  event.currentTarget.value === 'default' ? null : event.currentTarget.value
+                )
+              )
+            }
+          >
+            {availableStates.map(stateName => (
+              <option key={stateName} value={stateName}>
+                {stateName} {stateName === (machine?.initial ?? 'default') ? '(Default)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {properties.map(property => {
+        const value = instance?.propertyValues?.[property.id] ?? property.defaultValue
+        const local = instance && Object.hasOwn(instance.propertyValues ?? {}, property.id)
+        const change = (next: ComponentPropertyValue) =>
+          perform(() =>
+            instance
+              ? store.setComponentProperty(root.id, property.id, next)
+              : replace({ ...property, defaultValue: next } as ComponentProperty)
+          )
+
+        return (
+          <div key={property.id} className={`component-property ${local ? 'is-local' : ''}`}>
+            <div className="component-property-heading">
+              <span>
+                {property.name}
+                <small>{propertySubtitle(property)}</small>
+              </span>
+              {instance ? (
+                <button
+                  className="quiet-button"
+                  disabled={!local || disabled}
+                  aria-label={`Reset ${property.name}`}
+                  title="Use master default"
+                  onClick={() => perform(() => store.setComponentProperty(root.id, property.id, null))}
+                >
+                  <RotateCcw size={11} />
+                </button>
+              ) : (
+                <button
+                  className="quiet-button"
+                  disabled={disabled}
+                  aria-label={`Remove ${property.name}`}
+                  onClick={() =>
+                    perform(() =>
+                      store.setComponentProperties(
+                        master.id,
+                        properties.filter(item => item.id !== property.id)
+                      )
+                    )
+                  }
+                >
+                  <Trash2 size={11} />
+                </button>
+              )}
+            </div>
+
+            <PropertyField
+              property={property}
+              value={value}
+              disabled={disabled}
+              onChange={change}
+            />
+
+            {!instance && property.kind === 'variant' && (
+              <div className="component-variant-capture">
+                {property.options.map(option => (
+                  <div key={option.value}>
+                    <span>
+                      {option.value}
+                      <small>
+                        {Object.keys(option.layers).length
+                          ? `${Object.keys(option.layers).length} captured layers`
+                          : 'Inherits master'}
+                      </small>
+                    </span>
+                    <button
+                      className="text-action"
+                      disabled={disabled}
+                      title="Save the current master’s appearance for this option"
+                      aria-label={`Capture ${property.name} ${option.value}`}
+                      onClick={() =>
+                        perform(() =>
+                          replace({
+                            ...property,
+                            options: property.options.map(item =>
+                              item.value === option.value
+                                ? {
+                                    ...item,
+                                    layers: Object.fromEntries(
+                                      layers.map(layer => [layer.id, capture(layer)])
+                                    ),
+                                  }
+                                : item
+                            ),
+                          })
+                        )
+                      }
+                    >
+                      Capture
+                    </button>
+                    {Object.keys(option.layers).length > 0 && (
+                      <button
+                        className="quiet-button"
+                        disabled={disabled}
+                        title="Restore inheritance"
+                        aria-label={`Clear ${property.name} ${option.value}`}
+                        onClick={() =>
+                          perform(() =>
+                            replace({
+                              ...property,
+                              options: property.options.map(item =>
+                                item.value === option.value ? { ...item, layers: {} } : item
+                              ),
+                            })
+                          )
+                        }
+                      >
+                        <RotateCcw size={11} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+
+      {!instance && properties.some(property => property.kind === 'variant') && (
+        <p>Edit the master, then capture an option. Captured tokens stay linked; uncaptured options inherit the master.</p>
+      )}
+
+      {!instance && <ComponentStateMachineEditor store={store} master={master} disabled={disabled} />}
+
+      {adding && !instance && (
+        <form
+          className="component-property-form"
+          onSubmit={event => {
+            event.preventDefault()
+            add()
+          }}
+        >
+          <input
+            className="property-input"
+            autoFocus
+            aria-label="Property name"
+            placeholder="Property name (e.g. Wave Amplitude, Tint, Speed)"
+            required
+            maxLength={100}
+            value={name}
+            onChange={event => setName(event.currentTarget.value)}
+          />
+
+          <select
+            className="property-input"
+            aria-label="Property kind"
+            value={kind}
+            onChange={event => {
+              const next = event.currentTarget.value as ComponentProperty['kind']
+              setKind(next)
+              if (next === 'text' || next === 'kinetic') {
+                const textLayer = layers.find(layer => layer.type === 'text')
+                setTarget(textLayer ? textLayer.id : master.id)
+                if (next === 'kinetic') setTargetProperty('amplitude')
+              } else if (next === 'shader') {
+                const shaderLayer = layers.find(layer => Boolean(layer.style.shader))
+                setTarget(shaderLayer ? shaderLayer.id : master.id)
+                setTargetProperty('speed')
+              } else if (next === 'color') {
+                setTargetProperty('fill')
+              } else if (next === 'number') {
+                setTargetProperty('opacity')
+              } else if (next === 'boolean') {
+                setTargetProperty('visible')
+              }
+            }}
+          >
+            <option value="variant">Variant switch</option>
+            <option value="boolean">Visibility / boolean switch</option>
+            <option value="text">Text slot</option>
+            <option value="color">Color override</option>
+            <option value="number">Numeric parameter</option>
+            <option value="kinetic">Kinetic typography</option>
+            <option value="shader">Shader parameter</option>
+          </select>
+
+          {kind === 'variant' && (
+            <input
+              className="property-input"
+              aria-label="Variant options"
+              placeholder="Default, Accent, Muted"
+              required
+              value={options}
+              onChange={event => setOptions(event.currentTarget.value)}
+            />
+          )}
+
+          {kind !== 'variant' && (
+            <select
+              className="property-input"
+              aria-label="Property layer"
+              value={target}
+              onChange={event => setTarget(event.currentTarget.value)}
+            >
+              {layers
+                .filter(layer => {
+                  if (kind === 'text' || kind === 'kinetic') return layer.type === 'text'
+                  if (kind === 'shader') return Boolean(layer.style.shader)
+                  return true
+                })
+                .map(layer => (
+                  <option key={layer.id} value={layer.id}>
+                    {layer.name} ({layer.type})
+                  </option>
+                ))}
+            </select>
+          )}
+
+          {kind === 'boolean' && (
+            <select
+              className="property-input"
+              aria-label="Target property"
+              value={targetProperty}
+              onChange={event => setTargetProperty(event.currentTarget.value)}
+            >
+              <option value="visible">Visibility</option>
+              <option value="kinetic.enabled">Kinetic Active</option>
+              <option value="clipContent">Clip Content</option>
+            </select>
+          )}
+
+          {kind === 'color' && (
+            <select
+              className="property-input"
+              aria-label="Target property"
+              value={targetProperty}
+              onChange={event => setTargetProperty(event.currentTarget.value)}
+            >
+              <option value="fill">Fill color</option>
+              <option value="stroke">Stroke color</option>
+              <option value="shader">Shader tint</option>
+            </select>
+          )}
+
+          {kind === 'number' && (
+            <select
+              className="property-input"
+              aria-label="Target property"
+              value={targetProperty}
+              onChange={event => setTargetProperty(event.currentTarget.value)}
+            >
+              <option value="opacity">Opacity (0 to 1)</option>
+              <option value="cornerRadius">Corner radius</option>
+              <option value="width">Width</option>
+              <option value="height">Height</option>
+              <option value="strokeWidth">Stroke width</option>
+              <option value="fontSize">Font size</option>
+              <option value="fontWeight">Font weight</option>
+              <option value="letterSpacing">Letter spacing</option>
+            </select>
+          )}
+
+          {kind === 'kinetic' && (
+            <select
+              className="property-input"
+              aria-label="Target property"
+              value={targetProperty}
+              onChange={event => setTargetProperty(event.currentTarget.value)}
+            >
+              <option value="amplitude">Amplitude (px)</option>
+              <option value="rotation">Rotation (°)</option>
+              <option value="duration">Duration (ms)</option>
+              <option value="stagger">Stagger delay (ms)</option>
+              <option value="waveShape">Wave shape</option>
+              <option value="staggerMode">Stagger mode</option>
+              <option value="weightModulation">Weight modulation</option>
+              <option value="slantModulation">Slant modulation</option>
+              <option value="scaleModulation">Scale modulation</option>
+              <option value="enabled">Active toggle</option>
+            </select>
+          )}
+
+          {kind === 'shader' && (
+            <select
+              className="property-input"
+              aria-label="Target property"
+              value={targetProperty}
+              onChange={event => setTargetProperty(event.currentTarget.value)}
+            >
+              <option value="speed">Animation speed</option>
+              <option value="scale">Texture scale</option>
+              <option value="rotation">Rotation (°)</option>
+              <option value="frequency">Noise frequency</option>
+              <option value="octaves">Noise octaves</option>
+              <option value="turbulence">Turbulence</option>
+              <option value="displacement">Displacement</option>
+              <option value="blendMode">Blend mode</option>
+              <option value="viewMode">View mode</option>
+            </select>
+          )}
+
+          <button className="component-action primary" disabled={disabled} type="submit">
+            <Plus size={12} />
+            Add property
+          </button>
+        </form>
+      )}
+
+      {error && (
+        <p className="component-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  )
 }

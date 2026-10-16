@@ -16,7 +16,7 @@ export interface PropertyMeta {
   readonly min: number
   readonly max: number
   readonly step: number
-  readonly category: 'transform' | 'shader'
+  readonly category: 'transform' | 'shader' | 'typography'
 }
 
 export const PROPERTY_META: Record<MotionProperty, PropertyMeta> = {
@@ -31,9 +31,25 @@ export const PROPERTY_META: Record<MotionProperty, PropertyMeta> = {
   shaderOffsetX: { label: 'Shader Offset X', shortLabel: 'Shd OffX', unit: '', from: 0, to: 0.3, min: -10, max: 10, step: 0.01, category: 'shader' },
   shaderOffsetY: { label: 'Shader Offset Y', shortLabel: 'Shd OffY', unit: '', from: 0, to: 0.3, min: -10, max: 10, step: 0.01, category: 'shader' },
   shaderOpacity: { label: 'Shader Opacity', shortLabel: 'Shd Opacity', unit: '', from: 0.2, to: 1, min: 0, max: 1, step: 0.01, category: 'shader' },
+  fontWeight: { label: 'Font Weight (wght)', shortLabel: 'Weight', unit: '', from: 400, to: 800, min: 1, max: 1000, step: 10, category: 'typography' },
+  fontWidth: { label: 'Font Width (wdth)', shortLabel: 'Width', unit: '%', from: 100, to: 130, min: 25, max: 200, step: 1, category: 'typography' },
+  fontSlant: { label: 'Font Slant (slnt)', shortLabel: 'Slant', unit: '°', from: 0, to: -14, min: -90, max: 90, step: 1, category: 'typography' },
+  fontOpticalSize: { label: 'Optical Size (opsz)', shortLabel: 'Opt Size', unit: 'px', from: 16, to: 64, min: 6, max: 144, step: 1, category: 'typography' },
+  fontSize: { label: 'Font Size', shortLabel: 'Size', unit: 'px', from: 32, to: 48, min: 1, max: 500, step: 1, category: 'typography' },
+  letterSpacing: { label: 'Tracking', shortLabel: 'Tracking', unit: 'px', from: 0, to: 4, min: -20, max: 100, step: 0.5, category: 'typography' },
+  lineHeight: { label: 'Line Height', shortLabel: 'Leading', unit: 'em', from: 1.2, to: 1.6, min: 0.1, max: 10, step: 0.1, category: 'typography' },
+  textPathOffset: { label: 'Text Path Offset', shortLabel: 'Path Off', unit: '%', from: 0, to: 100, min: -200, max: 200, step: 1, category: 'typography' },
+  kineticPhase: { label: 'Kinetic Phase', shortLabel: 'Phase', unit: '', from: 0, to: 1, min: 0, max: 1, step: 0.01, category: 'typography' },
+  kineticAmplitude: { label: 'Kinetic Amplitude', shortLabel: 'Ampl', unit: 'px', from: 18, to: 36, min: 0, max: 240, step: 1, category: 'typography' },
+  kineticRotation: { label: 'Kinetic Rotation', shortLabel: 'Rot', unit: '°', from: 8, to: 24, min: -180, max: 180, step: 1, category: 'typography' },
+  kineticStagger: { label: 'Kinetic Stagger', shortLabel: 'Stagger', unit: 'ms', from: 70, to: 140, min: 0, max: 1000, step: 5, category: 'typography' },
+  kineticWeightModulation: { label: 'Kinetic Weight Mod', shortLabel: 'Wght Mod', unit: '', from: 0, to: 200, min: -500, max: 500, step: 10, category: 'typography' },
+  kineticSlantModulation: { label: 'Kinetic Slant Mod', shortLabel: 'Slnt Mod', unit: '°', from: 0, to: 12, min: -30, max: 30, step: 1, category: 'typography' },
+  kineticScaleModulation: { label: 'Kinetic Scale Mod', shortLabel: 'Scale Mod', unit: '', from: 0, to: 0.3, min: 0, max: 1, step: 0.02, category: 'typography' },
 }
 
 export const isShaderProperty = (property: MotionProperty): boolean => PROPERTY_META[property]?.category === 'shader'
+export const isTypographyProperty = (property: MotionProperty): boolean => PROPERTY_META[property]?.category === 'typography'
 
 export const MOTION_BEZIER_PRESETS: Record<string, { label: string; curve: BezierCurve }> = {
   linear: { label: 'Linear', curve: [0, 0, 1, 1] },
@@ -100,6 +116,21 @@ export function getElementPropertyValue(element: SceneElement, property: MotionP
     case 'shaderOffsetX': return element.style.shader?.offsetX ?? 0
     case 'shaderOffsetY': return element.style.shader?.offsetY ?? 0
     case 'shaderOpacity': return element.style.shader?.composite?.opacity ?? 1
+    case 'fontWeight': return element.type === 'text' ? (element.variableAxes?.wght ?? element.fontWeight ?? 400) : 400
+    case 'fontWidth': return element.type === 'text' ? (element.variableAxes?.wdth ?? 100) : 100
+    case 'fontSlant': return element.type === 'text' ? (element.variableAxes?.slnt ?? 0) : 0
+    case 'fontOpticalSize': return element.type === 'text' ? (element.variableAxes?.opsz ?? element.fontSize ?? 16) : 16
+    case 'fontSize': return element.type === 'text' ? element.fontSize : 16
+    case 'letterSpacing': return element.type === 'text' ? element.letterSpacing : 0
+    case 'lineHeight': return element.type === 'text' ? element.lineHeight : 1.2
+    case 'textPathOffset': return element.type === 'text' ? (element.textOnPath?.offset ?? 0) : 0
+    case 'kineticPhase': return element.type === 'text' ? (element.kinetic?.phase ?? 0) : 0
+    case 'kineticAmplitude': return element.type === 'text' ? (element.kinetic?.amplitude ?? 18) : 18
+    case 'kineticRotation': return element.type === 'text' ? (element.kinetic?.rotation ?? 8) : 8
+    case 'kineticStagger': return element.type === 'text' ? (element.kinetic?.stagger ?? 70) : 70
+    case 'kineticWeightModulation': return element.type === 'text' ? (element.kinetic?.weightModulation ?? 0) : 0
+    case 'kineticSlantModulation': return element.type === 'text' ? (element.kinetic?.slantModulation ?? 0) : 0
+    case 'kineticScaleModulation': return element.type === 'text' ? (element.kinetic?.scaleModulation ?? 0) : 0
   }
 }
 
@@ -120,7 +151,7 @@ export function createTrack(
     } else if (property === 'opacity') {
       from = element.style.opacity ?? 1
       to = from < 0.5 ? 1 : 0.2
-    } else if (element.style.shader) {
+    } else if (element.style.shader && isShaderProperty(property)) {
       const shader = element.style.shader
       if (property === 'shaderSpeed') {
         from = shader.speed
@@ -140,6 +171,53 @@ export function createTrack(
       } else if (property === 'shaderOpacity') {
         from = shader.composite?.opacity ?? 1
         to = from < 0.5 ? 1 : 0.2
+      }
+    } else if (element.type === 'text') {
+      if (property === 'fontWeight') {
+        from = element.variableAxes?.wght ?? element.fontWeight ?? 400
+        to = from > 600 ? 200 : 800
+      } else if (property === 'fontWidth') {
+        from = element.variableAxes?.wdth ?? 100
+        to = from > 110 ? 75 : 135
+      } else if (property === 'fontSlant') {
+        from = element.variableAxes?.slnt ?? 0
+        to = from < -5 ? 0 : -14
+      } else if (property === 'fontOpticalSize') {
+        from = element.variableAxes?.opsz ?? element.fontSize ?? 16
+        to = Math.min(72, from * 2)
+      } else if (property === 'fontSize') {
+        from = element.fontSize
+        to = Math.round(from * 1.5)
+      } else if (property === 'letterSpacing') {
+        from = element.letterSpacing
+        to = from + 4
+      } else if (property === 'lineHeight') {
+        from = element.lineHeight
+        to = Number((from + 0.4).toFixed(1))
+      } else if (property === 'textPathOffset') {
+        from = element.textOnPath?.offset ?? 0
+        to = from + 50
+      } else if (property === 'kineticPhase') {
+        from = 0
+        to = 1
+      } else if (property === 'kineticAmplitude') {
+        from = element.kinetic?.amplitude ?? 18
+        to = from + 20
+      } else if (property === 'kineticRotation') {
+        from = element.kinetic?.rotation ?? 8
+        to = from + 20
+      } else if (property === 'kineticStagger') {
+        from = element.kinetic?.stagger ?? 70
+        to = from + 70
+      } else if (property === 'kineticWeightModulation') {
+        from = element.kinetic?.weightModulation ?? 0
+        to = 200
+      } else if (property === 'kineticSlantModulation') {
+        from = element.kinetic?.slantModulation ?? 0
+        to = 12
+      } else if (property === 'kineticScaleModulation') {
+        from = element.kinetic?.scaleModulation ?? 0
+        to = 0.3
       }
     }
   }

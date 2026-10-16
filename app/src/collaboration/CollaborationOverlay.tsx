@@ -78,9 +78,19 @@ export const CollaborationOverlay = memo(function CollaborationOverlay({ session
       if (event instanceof KeyboardEvent && event.key !== 'Escape' && (event.target as Element).closest('input, textarea, select, [contenteditable="true"]')) return
       if (session.getSnapshot().following) { session.follow(null); controller.stop() }
     }
+    const pointerDown = (event: PointerEvent) => {
+      if (!(event.target as Element).closest('.viewport-ui, button, input, textarea, select, [contenteditable="true"]')) {
+        session.setPointerDown(true)
+      }
+    }
+    const pointerUp = () => {
+      session.setPointerDown(false)
+    }
     viewport.addEventListener('pointermove', cursor, true)
     viewport.addEventListener('pointerleave', leave)
     viewport.addEventListener('pointerdown', interrupt, true)
+    viewport.addEventListener('pointerdown', pointerDown, true)
+    window.addEventListener('pointerup', pointerUp, true)
     viewport.addEventListener('wheel', interrupt, true)
     document.addEventListener('keydown', interrupt, true)
     window.addEventListener('blur', leave)
@@ -89,7 +99,9 @@ export const CollaborationOverlay = memo(function CollaborationOverlay({ session
       unsubscribe(); if (frame !== null) cancelAnimationFrame(frame)
       repaint.current = () => {}
       viewport.removeEventListener('pointermove', cursor, true); viewport.removeEventListener('pointerleave', leave)
-      viewport.removeEventListener('pointerdown', interrupt, true); viewport.removeEventListener('wheel', interrupt, true); document.removeEventListener('keydown', interrupt, true)
+      viewport.removeEventListener('pointerdown', interrupt, true); viewport.removeEventListener('pointerdown', pointerDown, true)
+      window.removeEventListener('pointerup', pointerUp, true)
+      viewport.removeEventListener('wheel', interrupt, true); document.removeEventListener('keydown', interrupt, true)
       window.removeEventListener('blur', leave)
     }
   }, [session, store, controller])
@@ -98,7 +110,7 @@ export const CollaborationOverlay = memo(function CollaborationOverlay({ session
     <div ref={root} className="collaboration-overlay" aria-hidden="true" data-testid="collaboration-overlay">
       {state.peers.filter(peer => peer.status !== 'away').map(peer => <div key={peer.id} style={{ '--presence-color': peer.color } as CSSProperties}>
         {peer.selection.filter(id => scene.elements[id] && store.isVisible(id)).map(id => <div key={id} ref={node => { const key = `${peer.id}:${id}`; if (node) selections.current.set(key, node); else selections.current.delete(key) }} className="remote-selection" data-selection-key={`${peer.id}:${id}`} data-remote-element-id={id}><span>{peer.name}</span></div>)}
-        {peer.cursor && <div ref={node => { if (node) cursors.current.set(peer.id, node); else cursors.current.delete(peer.id) }} className="remote-cursor" data-cursor-id={peer.id} data-testid="remote-cursor"><svg width="19" height="24" viewBox="0 0 19 24"><path d="M1.5 1.5v18l4.7-4.1 3.3 7.1 3.4-1.6-3.3-7.1 6.4-.4L1.5 1.5Z" fill={peer.color} stroke="#080808" strokeWidth="1.3" strokeLinejoin="round" /></svg><span>{peer.name}</span></div>}
+        {peer.cursor && <div ref={node => { if (node) cursors.current.set(peer.id, node); else cursors.current.delete(peer.id) }} className={`remote-cursor${peer.pointerDown ? ' pointer-down' : ''}`} data-cursor-id={peer.id} data-testid="remote-cursor"><svg width="19" height="24" viewBox="0 0 19 24"><path d="M1.5 1.5v18l4.7-4.1 3.3 7.1 3.4-1.6-3.3-7.1 6.4-.4L1.5 1.5Z" fill={peer.color} stroke="#080808" strokeWidth="1.3" strokeLinejoin="round" /></svg><span>{peer.name}{peer.activity ? ` • ${peer.activity}` : ''}</span>{peer.chat && <div className="remote-cursor-chat">{peer.chat}</div>}</div>}
       </div>)}
     </div>
     {following && <div className="follow-banner viewport-ui" role="status"><span style={{ background: following.color }} /><span>Following <strong>{following.name}</strong></span><button onClick={() => session.follow(null)}>Stop following <kbd>Esc</kbd></button></div>}

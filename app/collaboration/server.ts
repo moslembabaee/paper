@@ -16,7 +16,19 @@ const reply = (response: ServerResponse, status: number, value: unknown) => {
 function presence(value: unknown, id: string): Presence {
   if (!record(value) || typeof value.name !== 'string' || !['active', 'idle', 'away'].includes(String(value.status)) || (value.cursor !== null && !point(value.cursor)) || !Array.isArray(value.selection) || value.selection.length > 500 || value.selection.some(id => typeof id !== 'string' || id.length > 200) || !record(value.viewport) || !point(value.viewport.center) || typeof value.viewport.zoom !== 'number' || !Number.isFinite(value.viewport.zoom) || value.viewport.zoom < .02 || value.viewport.zoom > 64 || !record(value.viewport.size) || typeof value.viewport.size.width !== 'number' || typeof value.viewport.size.height !== 'number' || !Number.isFinite(value.viewport.size.width) || !Number.isFinite(value.viewport.size.height) || value.viewport.size.width < 0 || value.viewport.size.height < 0 || (value.following !== null && typeof value.following !== 'string')) throw new Error('Invalid presence')
   const color = PRESENCE_COLORS[parseInt(id.replace(/-/g, '').slice(0, 6), 16) % PRESENCE_COLORS.length] ?? PRESENCE_COLORS[0]
-  return { ...value, id, name: value.name.trim().slice(0, 80) || 'Designer', color } as unknown as Presence
+  const pointerDown = Boolean(value.pointerDown)
+  const activity = typeof value.activity === 'string' ? value.activity.slice(0, 50) : undefined
+  const chat = typeof value.chat === 'string' ? value.chat.slice(0, 200) : undefined
+  const chatTimestamp = typeof value.chatTimestamp === 'number' && Number.isFinite(value.chatTimestamp) ? value.chatTimestamp : undefined
+  return {
+    ...value,
+    id,
+    name: value.name.trim().slice(0, 80) || 'Designer',
+    color,
+    ...(pointerDown ? { pointerDown: true } : {}),
+    ...(activity ? { activity } : {}),
+    ...(chat ? { chat, chatTimestamp } : {}),
+  } as unknown as Presence
 }
 async function read(request: IncomingMessage, parsed?: unknown): Promise<Record<string, unknown>> {
   if (!request.headers['content-type']?.startsWith('application/json')) throw new Error('Expected JSON')
@@ -134,7 +146,7 @@ export class CollaborationServer {
       if (data.changes !== undefined) {
         if (!Array.isArray(data.changes) || data.changes.length > 100_000) throw new Error('Invalid changes')
         const changes = data.changes as Register[]
-        if (changes.some(change => change.actor !== id || !Array.isArray(change.path) || (change.path[0] === 'elements' ? change.path.length < 3 : change.path[0] === 'comments' ? !((change.path.length === 3 && ['id', 'anchor', 'createdAt', 'status', '$alive'].includes(change.path[2])) || (change.path.length === 4 && change.path[2] === 'messages')) : change.path.length !== 1 || !['tokens', 'styleLibrary', 'prototype', 'backgroundShader'].includes(change.path[0])))) throw new Error('Invalid change actor or document field')
+        if (changes.some(change => change.actor !== id || !Array.isArray(change.path) || (change.path[0] === 'elements' ? change.path.length < 3 : change.path[0] === 'comments' ? !((change.path.length === 3 && ['id', 'anchor', 'createdAt', 'status', '$alive'].includes(change.path[2])) || (change.path.length === 4 && change.path[2] === 'messages')) : change.path.length !== 1 || !['tokens', 'styleLibrary', 'motion', 'prototype', 'backgroundShader'].includes(change.path[0])))) throw new Error('Invalid change actor or document field')
         const candidate = new SceneReplica('server', room.replica.export()); candidate.merge(changes)
         try { const validator = new SceneStore(); validator.load(candidate.document()) }
         catch (error) { reply(response, 409, { error: `Shared edit rejected: ${error instanceof Error ? error.message : 'invalid document'}`, registers: room.replica.export() }); return }

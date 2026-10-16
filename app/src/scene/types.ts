@@ -219,6 +219,9 @@ export interface TextOnPath {
 
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize'
 
+export type KineticStaggerMode = 'cascade' | 'wave' | 'center-out' | 'random' | 'elastic'
+export type KineticWaveShape = 'triangle' | 'sine' | 'bounce' | 'spring'
+
 export interface KineticTypography {
   readonly enabled: boolean
   readonly playing: boolean
@@ -229,6 +232,14 @@ export interface KineticTypography {
   /** Phase delay per shaped glyph, in milliseconds. */
   readonly stagger: number
   readonly phase: number
+  readonly staggerMode?: KineticStaggerMode
+  readonly waveShape?: KineticWaveShape
+  /** Real-time variable font weight modulation delta undulating across glyphs */
+  readonly weightModulation?: number
+  /** Oblique shear slant modulation delta across glyphs */
+  readonly slantModulation?: number
+  /** Proportional scale modulation across glyphs (0 to 1) */
+  readonly scaleModulation?: number
 }
 
 export interface TextElement extends BaseElement {
@@ -281,8 +292,15 @@ export interface ComponentOverrides {
   /** Only local bindings are stored. Null releases a binding while retaining its value. */
   readonly tokenBindings?: Readonly<Partial<Record<TokenProperty, string | null>>>
 }
-export type ComponentPropertyValue = string | boolean
-export type ComponentStateTrigger = 'on-click' | 'on-hover' | 'while-pressed'
+export type ComponentPropertyValue = string | boolean | number
+export type ComponentStateTrigger =
+  | 'on-click'
+  | 'on-hover'
+  | 'while-pressed'
+  | 'on-pointerdown'
+  | 'on-pointerup'
+  | 'on-hover-end'
+  | 'after-delay'
 export type InteractiveStateType = 'default' | 'hover' | 'pressed' | 'active'
 
 export interface ComponentStateTransition {
@@ -291,6 +309,7 @@ export interface ComponentStateTransition {
   readonly trigger: ComponentStateTrigger
   readonly targetState: string
   readonly spring: SpringParameters
+  readonly delay?: number
 }
 
 export interface ComponentStateMachine {
@@ -301,7 +320,11 @@ export interface ComponentStateMachine {
 
 export type ComponentProperty = Readonly<{ id: string; name: string }> & (
   | { readonly kind: 'text'; readonly sourceId: string; readonly defaultValue: string }
-  | { readonly kind: 'boolean'; readonly sourceId: string; readonly defaultValue: boolean }
+  | { readonly kind: 'boolean'; readonly sourceId: string; readonly defaultValue: boolean; readonly targetProperty?: 'visible' | 'kinetic.enabled' | 'clipContent' }
+  | { readonly kind: 'color'; readonly sourceId: string; readonly defaultValue: string; readonly targetProperty?: 'fill' | 'stroke' | 'shader' }
+  | { readonly kind: 'number'; readonly sourceId: string; readonly defaultValue: number; readonly min?: number; readonly max?: number; readonly step?: number; readonly targetProperty?: string }
+  | { readonly kind: 'kinetic'; readonly sourceId: string; readonly defaultValue: string | number | boolean; readonly targetProperty: 'enabled' | 'amplitude' | 'rotation' | 'duration' | 'stagger' | 'waveShape' | 'staggerMode' | 'weightModulation' | 'slantModulation' | 'scaleModulation' }
+  | { readonly kind: 'shader'; readonly sourceId: string; readonly defaultValue: string | number | boolean; readonly targetProperty: 'speed' | 'scale' | 'rotation' | 'frequency' | 'octaves' | 'turbulence' | 'displacement' | 'viewMode' | 'blendMode' }
   | { readonly kind: 'variant'; readonly defaultValue: string; readonly options: readonly ComponentVariant[]; readonly stateMachine?: ComponentStateMachine }
 )
 export interface ComponentVariant {

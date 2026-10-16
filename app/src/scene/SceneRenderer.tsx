@@ -31,7 +31,7 @@ function Paint({ node, pathD, paintId }: { node: SceneElement; pathD: string; pa
   const shadowStyle = shadow ? { filter: `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` } : undefined
   if (node.type === 'frame') return null
   if (node.type === 'text') {
-    if (node.kinetic?.enabled && node.fontSource) return <KineticText node={node} pathD={pathD} />
+    if (node.kinetic?.enabled) return <KineticText node={node} pathD={pathD} />
     if (node.textOnPath?.enabled) {
       const pathNode = { ...node, textOnPath: { ...node.textOnPath, pathId: null, preset: 'custom' as const, pathData: pathD, reverse: false, side: 'left' as const } }
       return <svg className="scene-text-on-path" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" style={shadowStyle} role="img" aria-label={node.text}>
@@ -89,7 +89,7 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
     {hasEffects && <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }} aria-hidden="true"><defs dangerouslySetInnerHTML={{ __html: effectMarkup }} /></svg>}
     <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity, filter: hasEffects ? `url(#${effectId})` : undefined }}>
       {node.type === 'text' && node.fontSource && <style>{embeddedFontCSS(node)}</style>}
-      {node.style.shader && !(node.type === 'text' && node.kinetic?.enabled && node.fontSource) && <ShapeShader node={node} textPathD={pathD} />}
+      {node.style.shader && !(node.type === 'text' && node.kinetic?.enabled) && <ShapeShader node={node} textPathD={pathD} />}
       <Paint node={node} pathD={pathD} paintId={`${effectId}-text`} />
       {selected && !presentation && node.type === 'text' && node.textOnPath?.enabled && <svg className="scene-text-path-guide" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true"><path d={pathD} fill="none" stroke="#81adec" strokeWidth="1" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" /></svg>}
       {isFrame && mask && <svg width="0" height="0" className="scene-mask-defs" aria-hidden="true"><defs><clipPath id={`${effectId}-mask`} clipPathUnits="userSpaceOnUse"><path d={maskPathData(mask)} clipRule={maskFillRule(mask)} /></clipPath></defs></svg>}

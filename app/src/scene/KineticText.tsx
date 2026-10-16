@@ -21,14 +21,83 @@ export function KineticText({ node, pathD }: { node: TextElement; pathD: string 
     try { return { glyphs: placeGlyphs(node, shaped, loaded.font.unitsPerEm, pathD) } }
     catch { return null }
   }, [loaded, shaped, node, pathD])
-  if (!layout) return <>{node.style.shader && <ShapeShader node={node} textPathD={pathD} />}<div className="scene-text" style={{ ...compileTypographyStyles(node), color: node.style.shader ? 'transparent' : node.style.fill ?? 'transparent' }}>{node.text}</div></>
   const k = node.kinetic!
+
+  if (!layout) {
+    const chars = Array.from(node.text)
+    const charCount = Math.max(1, chars.length)
+    const baseAxes = node.variableAxes ?? {}
+    const baseWght = baseAxes.wght ?? node.fontWeight ?? 400
+    const baseSlnt = baseAxes.slnt ?? 0
+    const baseStyles = compileTypographyStyles(node)
+    const fill = node.style.fill
+    const stroke = node.style.stroke
+    const shadow = !node.style.effects?.some(e => e.enabled) ? node.style.shadow : null
+    const shadowStyle = shadow ? { filter: `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` } : undefined
+
+    return (
+      <>
+        {node.style.shader && <ShapeShader node={node} textPathD={pathD} />}
+        <div
+          className="scene-text scene-kinetic-html"
+          data-playing={k.playing}
+          style={{
+            ...shadowStyle,
+            ...baseStyles,
+            color: node.style.shader ? 'transparent' : fill ?? 'transparent',
+            WebkitTextStroke: stroke ? `${stroke.width}px ${stroke.color}` : undefined,
+          }}
+        >
+          {chars.map((char, index) => {
+            if (char === '\n') return <br key={index} />
+            const offset = cascadeOffset(k, index, charCount)
+            const scale = offset.scale ?? 1
+            const wghtDelta = offset.weightDelta ?? 0
+            const slntDelta = offset.slantDelta ?? 0
+
+            let charVariation = baseStyles.fontVariationSettings
+            if (wghtDelta !== 0 || slntDelta !== 0) {
+              const effWght = Math.max(1, Math.min(1000, baseWght + wghtDelta))
+              const effSlnt = Math.max(-20, Math.min(20, baseSlnt + slntDelta))
+              const parts = [`'wght' ${Number(effWght.toFixed(1))}`, `'slnt' ${Number(effSlnt.toFixed(1))}`]
+              if (baseAxes.wdth) parts.push(`'wdth' ${baseAxes.wdth}`)
+              if (baseAxes.opsz) parts.push(`'opsz' ${baseAxes.opsz}`)
+              charVariation = parts.join(', ')
+            }
+
+            const charStyle: CSSProperties = {
+              display: 'inline-block',
+              whiteSpace: 'pre',
+              willChange: 'transform',
+              '--cascade-amplitude': `${k.amplitude}px`,
+              '--cascade-rotation': `${k.rotation}deg`,
+              animationDuration: `${k.duration}s`,
+              animationDelay: `${-(k.phase * k.duration + (index * k.stagger) / 1000)}s`,
+              transform: `translateY(${offset.y}px) rotate(${offset.angle}deg)${scale !== 1 ? ` scale(${scale})` : ''}`,
+              ...(charVariation ? { fontVariationSettings: charVariation } : {}),
+            } as CSSProperties
+
+            return (
+              <span key={index} className="kinetic-glyph-char" data-glyph-index={index} style={charStyle}>
+                {char}
+              </span>
+            )
+          })}
+        </div>
+      </>
+    )
+  }
+
+  const glyphCount = layout.glyphs.length
   const glyphStyle = (index: number): CSSProperties => {
-    const offset = cascadeOffset(k, index)
+    const offset = cascadeOffset(k, index, glyphCount)
+    const scale = offset.scale ?? 1
     return {
-      '--cascade-amplitude': `${k.amplitude}px`, '--cascade-rotation': `${k.rotation}deg`,
-      animationDuration: `${k.duration}s`, animationDelay: `${-(k.phase * k.duration + index * k.stagger / 1000)}s`,
-      transform: `translateY(${offset.y}px) rotate(${offset.angle}deg)`,
+      '--cascade-amplitude': `${k.amplitude}px`,
+      '--cascade-rotation': `${k.rotation}deg`,
+      animationDuration: `${k.duration}s`,
+      animationDelay: `${-(k.phase * k.duration + (index * k.stagger) / 1000)}s`,
+      transform: `translateY(${offset.y}px) rotate(${offset.angle}deg)${scale !== 1 ? ` scale(${scale})` : ''}`,
     } as CSSProperties
   }
   return <svg className="scene-text-on-path scene-kinetic-text" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" role="img" aria-label={node.text}

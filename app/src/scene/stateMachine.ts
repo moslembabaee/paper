@@ -18,13 +18,42 @@ export const DEFAULT_STATE_TRIGGERS: readonly ComponentStateTrigger[] = Object.f
   'on-click',
   'on-hover',
   'while-pressed',
+  'on-pointerdown',
+  'on-pointerup',
+  'on-hover-end',
+  'after-delay',
 ])
 
 export const STATE_TRIGGER_LABELS: Readonly<Record<ComponentStateTrigger, string>> = Object.freeze({
   'on-click': 'On Click',
   'on-hover': 'On Hover',
   'while-pressed': 'While Pressed',
+  'on-pointerdown': 'On Pointer Down',
+  'on-pointerup': 'On Pointer Up',
+  'on-hover-end': 'On Hover End',
+  'after-delay': 'After Delay',
 })
+
+export function normalizeTrigger(raw: string): ComponentStateTrigger | undefined {
+  const map: Record<string, ComponentStateTrigger> = {
+    'click': 'on-click',
+    'on-click': 'on-click',
+    'hover': 'on-hover',
+    'on-hover': 'on-hover',
+    'pressed': 'while-pressed',
+    'while-pressed': 'while-pressed',
+    'pointerdown': 'on-pointerdown',
+    'on-pointerdown': 'on-pointerdown',
+    'pointerup': 'on-pointerup',
+    'on-pointerup': 'on-pointerup',
+    'hover-end': 'on-hover-end',
+    'on-hover-end': 'on-hover-end',
+    'leave': 'on-hover-end',
+    'delay': 'after-delay',
+    'after-delay': 'after-delay',
+  }
+  return map[raw.toLowerCase().trim()]
+}
 
 const safeId = (id: unknown): id is string =>
   typeof id === 'string' && !!id && id.length <= 200 && !['__proto__', 'constructor', 'prototype'].includes(id)
@@ -143,6 +172,13 @@ export function validateStateMachine(
       throw new Error(`Transition targetState '${transition.targetState}' is unknown`)
     }
     const spring = validateSpring(transition.spring ?? DEFAULT_SPRING)
+    let delay: number | undefined = undefined
+    if (transition.delay !== undefined) {
+      if (typeof transition.delay !== 'number' || !Number.isFinite(transition.delay) || transition.delay < 0 || transition.delay > 60000) {
+        throw new Error('Transition delay must be a number between 0 and 60000 ms')
+      }
+      delay = Math.round(transition.delay)
+    }
 
     return Object.freeze({
       id,
@@ -150,6 +186,7 @@ export function validateStateMachine(
       trigger: transition.trigger,
       targetState: transition.targetState,
       spring,
+      ...(delay !== undefined ? { delay } : {}),
     })
   })
 
@@ -168,12 +205,26 @@ export function findStateTransition(
   return machine.transitions.find(t => t.fromState === fromState && t.trigger === trigger)
 }
 
+export function findDelayedTransition(
+  machine: ComponentStateMachine,
+  currentState: string
+): ComponentStateTransition | undefined {
+  return machine.transitions.find(t => t.fromState === currentState && t.trigger === 'after-delay')
+}
+
 export function resolveNextState(
   machine: ComponentStateMachine,
   currentState: string,
   trigger: ComponentStateTrigger
 ): { targetState: string; transition: ComponentStateTransition } | null {
-  const transition = findStateTransition(machine, currentState, trigger)
+  let transition = findStateTransition(machine, currentState, trigger)
+  if (!transition) {
+    if (trigger === 'on-pointerdown') {
+      transition = findStateTransition(machine, currentState, 'while-pressed')
+    } else if (trigger === 'while-pressed') {
+      transition = findStateTransition(machine, currentState, 'on-pointerdown')
+    }
+  }
   if (!transition) return null
   return { targetState: transition.targetState, transition }
 }

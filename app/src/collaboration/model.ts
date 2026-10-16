@@ -1,6 +1,7 @@
 import { equalValue } from '../scene/history.ts'
 import type { SceneDocument, SceneElement } from '../scene/types.ts'
 import type { Register } from './types.ts'
+import { VectorClock, LWWRegister } from './crdt/index.ts'
 
 const reserved = new Set(['__proto__', 'constructor', 'prototype'])
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -75,12 +76,37 @@ export function normalizeHierarchy(document: SceneDocument): SceneDocument {
   return { ...document, elements, rootIds: siblings.get(null) ?? [] }
 }
 
+/** Lookup an arbitrary nested value in a document using a collaboration path. */
+export function getValueAtPath(doc: unknown, path: readonly string[]): unknown {
+  if (!doc || typeof doc !== 'object') return undefined
+  let target = doc as Record<string, unknown>
+  for (let i = 0; i < path.length; i++) {
+    const part = path[i]
+    if (part === '$alive') {
+      return target !== undefined && target !== null
+    }
+    if (target === undefined || target === null || typeof target !== 'object') return undefined
+    if (i === path.length - 1) return target[part]
+    target = target[part] as Record<string, unknown>
+  }
+  return undefined
+}
+
 /** Idempotent, order-independent field registers, including deletion tombstones. */
 export class SceneReplica {
   private fields = new Map<string, Register>()
   private clock = 0
+  private vectorClock = new VectorClock()
   readonly actor: string
   constructor(actor = 'local', registers: readonly Register[] = []) { this.actor = actor; this.merge(registers) }
+  getClock(): number { return this.clock }
+  nextClock(): number { return ++this.clock }
+  getVectorClock(): VectorClock { return this.vectorClock.clone() }
+  getRegister(path: readonly string[]): Register | undefined { return this.fields.get(key(path)) }
+  getLWWRegister<T = unknown>(path: readonly string[]): LWWRegister<T> | undefined {
+    const reg = this.fields.get(key(path))
+    return reg ? LWWRegister.fromRegister<T>(reg) : undefined
+  }
   export(): Register[] { return [...this.fields.values()] }
   merge(registers: readonly Register[]): void {
     for (const entry of registers) {
@@ -88,6 +114,7 @@ export class SceneReplica {
       const name = key(entry.path), previous = this.fields.get(name)
       if (!previous || newer(entry, previous)) this.fields.set(name, structuredClone(entry))
       this.clock = Math.max(this.clock, entry.clock)
+      this.vectorClock.merge({ [entry.actor]: entry.clock })
     }
   }
   change(before: SceneDocument, after: SceneDocument): Register[] {
@@ -96,6 +123,7 @@ export class SceneReplica {
     const commentsChanged = before.comments !== after.comments
     const old = flatten(before, changedIds, commentsChanged), next = flatten(after, changedIds, commentsChanged), changes: Register[] = []
     const clock = ++this.clock
+    this.vectorClock.tick(this.actor)
     for (const name of new Set([...old.keys(), ...next.keys()])) {
       const previous = old.get(name), value = next.get(name)
       if (previous && value && equalValue(previous.value, value.value)) continue

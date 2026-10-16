@@ -103,3 +103,153 @@ test('SVG uses selected-phase outlines without clipping and reserves motion boun
   const bounds = exportBounds(store.getSnapshot(), 'canvas')
   assert.ok(bounds.width > node.width && bounds.height > node.height)
 })
+
+test('kinetic stagger modes: cascade, wave, center-out, random, and elastic', () => {
+  const base = { ...DEFAULT_KINETIC, phase: 0.1, amplitude: 24, rotation: 12, stagger: 50, duration: 2.0 }
+  const total = 5
+
+  // 1. Center-out: symmetric glyphs around center have equal displacement
+  const centerOutKinetic = { ...base, staggerMode: 'center-out' }
+  const left = cascadeOffset(centerOutKinetic, 0, total)
+  const right = cascadeOffset(centerOutKinetic, 4, total)
+  assert.ok(Math.abs(left.y - right.y) < 1e-4, 'Left and right symmetric glyphs have equal y displacement')
+  assert.ok(Math.abs(left.angle - right.angle) < 1e-4, 'Left and right symmetric glyphs have equal angle')
+
+  // Midpoint glyph (index 2 in 5 glyphs) has delay = 0
+  const mid = cascadeOffset(centerOutKinetic, 2, total)
+  const zeroDelay = cascadeOffset({ ...base, stagger: 0 }, 0, total)
+  assert.ok(Math.abs(mid.y - zeroDelay.y) < 1e-4, 'Center glyph has zero stagger delay')
+
+  // 2. Wave stagger: sinusoidal distribution
+  const waveKinetic = { ...base, staggerMode: 'wave' }
+  const w0 = cascadeOffset(waveKinetic, 0, total)
+  const w4 = cascadeOffset(waveKinetic, 4, total)
+  // At index 0 and index (total - 1), sin(0) = 0 and sin(PI) = 0, so delays match
+  assert.ok(Math.abs(w0.y - w4.y) < 1e-4, 'Wave ends have matching delay')
+
+  // 3. Random stagger: deterministic pseudo-random distribution
+  const randKinetic = { ...base, staggerMode: 'random' }
+  const r0 = cascadeOffset(randKinetic, 0, total)
+  const r1 = cascadeOffset(randKinetic, 1, total)
+  const r0Again = cascadeOffset(randKinetic, 0, total)
+  assert.deepEqual(r0, r0Again, 'Random stagger is deterministic for identical index')
+  assert.notDeepEqual(r0, r1, 'Different indices produce distinct offsets in random mode')
+
+  // 4. Elastic stagger: harmonic cosine
+  const elasticKinetic = { ...base, staggerMode: 'elastic' }
+  const e0 = cascadeOffset(elasticKinetic, 0, total)
+  const e1 = cascadeOffset(elasticKinetic, 1, total)
+  assert.notDeepEqual(e0, e1)
+})
+
+test('kinetic waveforms: triangle, sine, bounce, and spring dynamics', () => {
+  const base = { ...DEFAULT_KINETIC, phase: 0.25, amplitude: 30, rotation: 15, stagger: 0, duration: 2.0 }
+
+  // 1. Triangle waveform: at cycle = 0.25, wave = -4 * 0.25 = -1 -> y = -30
+  const tri = cascadeOffset({ ...base, waveShape: 'triangle', phase: 0.25 }, 0, 1)
+  assert.ok(Math.abs(tri.y - (-30)) < 1e-3)
+  assert.ok(Math.abs(tri.angle - (-15)) < 1e-3)
+
+  // 2. Sine waveform: at cycle = 0.25, wave = -sin(0.25 * 2PI) = -1 -> y = -30
+  const sin = cascadeOffset({ ...base, waveShape: 'sine', phase: 0.25 }, 0, 1)
+  assert.ok(Math.abs(sin.y - (-30)) < 1e-3)
+
+  // At cycle = 0, wave = -sin(0) = 0 -> y = 0
+  const sin0 = cascadeOffset({ ...base, waveShape: 'sine', phase: 0 }, 0, 1)
+  assert.ok(Math.abs(sin0.y) < 1e-3)
+
+  // 3. Bounce waveform: rectified wave
+  const bounce = cascadeOffset({ ...base, waveShape: 'bounce', phase: 0.25 }, 0, 1)
+  // wave = |sin(0.25 * 2PI)| * 2 - 1 = 1 * 2 - 1 = 1 -> y = 30
+  assert.ok(Math.abs(bounce.y - 30) < 1e-3)
+
+  // 4. Spring waveform: damped harmonic oscillation
+  const spr = cascadeOffset({ ...base, waveShape: 'spring', phase: 0.1 }, 0, 1)
+  assert.ok(Number.isFinite(spr.y))
+  assert.ok(Number.isFinite(spr.angle))
+})
+
+test('variable font dynamics modulation across glyph cascade (weight, slant, scale)', () => {
+  const k = {
+    ...DEFAULT_KINETIC,
+    phase: 0.25, // wave = -1 in triangle
+    amplitude: 20,
+    rotation: 5,
+    stagger: 0,
+    weightModulation: 200,
+    slantModulation: 10,
+    scaleModulation: 0.25,
+  }
+
+  const offset = cascadeOffset(k, 0, 1)
+  assert.equal(offset.y, -20)
+  assert.equal(offset.angle, -5)
+  // wave = -1 -> weightDelta = -200, slantDelta = -10, scale = 1 + (-1 * 0.25) = 0.75
+  assert.ok(Math.abs((offset.weightDelta ?? 0) - (-200)) < 1e-3)
+  assert.ok(Math.abs((offset.slantDelta ?? 0) - (-10)) < 1e-3)
+  assert.ok(Math.abs((offset.scale ?? 1) - 0.75) < 1e-3)
+
+  // Inverted phase: phase = 0.75 -> wave = 1
+  const kInvert = { ...k, phase: 0.75 }
+  const offsetInv = cascadeOffset(kInvert, 0, 1)
+  assert.ok(Math.abs((offsetInv.weightDelta ?? 0) - 200) < 1e-3)
+  assert.ok(Math.abs((offsetInv.slantDelta ?? 0) - 10) < 1e-3)
+  assert.ok(Math.abs((offsetInv.scale ?? 1) - 1.25) < 1e-3)
+
+  // Vector outlines reflect scale modulation
+  const node = text({ text: 'O', textOnPath: { enabled: true, align: 'center' } })
+  const glyphs = geometry(node)
+  const dNormal = glyphOutlines(glyphs, { ...DEFAULT_KINETIC, phase: 0.75, scaleModulation: 0 })
+  const dScaled = glyphOutlines(glyphs, { ...DEFAULT_KINETIC, phase: 0.75, scaleModulation: 0.5 })
+  assert.notEqual(dNormal, dScaled, 'Scale modulation affects baked glyph outline geometry')
+})
+
+test('closed-loop Bézier baseline loops seamlessly and multi-contour paths compute length', () => {
+  // Closed loop: circle path M 0 0 C ... Z
+  const circleD = 'M 50 0 C 100 0 100 100 50 100 C 0 100 0 0 50 0 Z'
+  const closedBase = createBaseline(circleD)
+  assert.ok(closedBase.closed)
+  assert.ok(closedBase.length > 0)
+
+  // Distance beyond length wraps around modulo length
+  const p0 = closedBase.at(0)
+  const pWrapped = closedBase.at(closedBase.length)
+  const pDoubleWrapped = closedBase.at(closedBase.length * 2)
+  assert.ok(Math.abs(p0.x - pWrapped.x) < 0.1)
+  assert.ok(Math.abs(p0.y - pWrapped.y) < 0.1)
+  assert.ok(Math.abs(p0.x - pDoubleWrapped.x) < 0.1)
+  assert.ok(Math.abs(p0.y - pDoubleWrapped.y) < 0.1)
+
+  // Multi-contour baseline: two disconnected segments
+  const multiD = 'M 0 0 L 100 0 M 200 0 L 300 0'
+  const multiBase = createBaseline(multiD)
+  assert.ok(multiBase.length >= 200)
+})
+
+test('element validator validates and persists extended kinetic typography properties', () => {
+  const store = new SceneStore()
+  const validKinetic = {
+    ...DEFAULT_KINETIC,
+    staggerMode: 'elastic',
+    waveShape: 'spring',
+    weightModulation: 150,
+    slantModulation: -10,
+    scaleModulation: 0.4,
+  }
+
+  store.add('text', { id: 'type-advanced', kinetic: validKinetic })
+  const saved = store.getSnapshot().elements['type-advanced'].kinetic
+  assert.deepEqual(saved, validKinetic)
+
+  // Reject invalid staggerMode
+  assert.throws(() => store.update('type-advanced', 'text', { kinetic: { ...validKinetic, staggerMode: 'invalid' } }))
+  // Reject invalid waveShape
+  assert.throws(() => store.update('type-advanced', 'text', { kinetic: { ...validKinetic, waveShape: 'square' } }))
+  // Reject out-of-bounds weight modulation (> 500)
+  assert.throws(() => store.update('type-advanced', 'text', { kinetic: { ...validKinetic, weightModulation: 600 } }))
+  // Reject out-of-bounds slant modulation (> 30)
+  assert.throws(() => store.update('type-advanced', 'text', { kinetic: { ...validKinetic, slantModulation: 45 } }))
+  // Reject out-of-bounds scale modulation (> 1)
+  assert.throws(() => store.update('type-advanced', 'text', { kinetic: { ...validKinetic, scaleModulation: 1.5 } }))
+})
+

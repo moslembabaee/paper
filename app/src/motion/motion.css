@@ -554,6 +554,11 @@
   background: var(--motion-shader-soft);
 }
 
+.motion-prop-kind-badge.is-typography {
+  color: #81adec;
+  background: rgba(129, 172, 236, 0.16);
+}
+
 .motion-track-name strong {
   font-size: 11px;
   font-weight: 500;

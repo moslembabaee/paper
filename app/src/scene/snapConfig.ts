@@ -11,12 +11,20 @@ export interface SnapConfig {
   snapToDimensions: boolean
   /** Snap to engineering grid lines */
   snapToGrid: boolean
+  /** Snap to rotation angles (cardinal 0, 45, 90... and 15° increments) */
+  snapToRotation: boolean
+  /** Snap to artboard boundaries and centers */
+  snapToArtboards: boolean
   /** Major grid size in world pixels */
   gridMajor: number
   /** Minor grid subdivision size in world pixels */
   gridMinor: number
   /** Snap threshold in screen pixels (converted by threshold / zoom into world units) */
   screenThreshold: number
+  /** Rotation snap threshold in degrees */
+  rotationThreshold: number
+  /** Default rotation step interval in degrees */
+  rotationStep: number
   /** Maximum number of active guide lines to display simultaneously */
   maxGuides: number
 }
@@ -28,9 +36,13 @@ export const DEFAULT_SNAP_CONFIG: Readonly<SnapConfig> = Object.freeze({
   snapToDistribution: true,
   snapToDimensions: true,
   snapToGrid: false,
+  snapToRotation: true,
+  snapToArtboards: true,
   gridMajor: 120,
   gridMinor: 24,
   screenThreshold: 8,
+  rotationThreshold: 3,
+  rotationStep: 15,
   maxGuides: 16,
 })
 
@@ -92,6 +104,24 @@ export function toggleSnapEnabled(): boolean {
 export function toggleDistributionSnap(): boolean {
   const updated = setSnapConfig({ snapToDistribution: !currentConfig.snapToDistribution })
   return updated.snapToDistribution
+}
+
+/** Toggle grid snapping on/off. */
+export function toggleGridSnap(): boolean {
+  const updated = setSnapConfig({ snapToGrid: !currentConfig.snapToGrid })
+  return updated.snapToGrid
+}
+
+/** Toggle rotation snapping on/off. */
+export function toggleRotationSnap(): boolean {
+  const updated = setSnapConfig({ snapToRotation: !currentConfig.snapToRotation })
+  return updated.snapToRotation
+}
+
+/** Toggle artboard boundaries snapping on/off. */
+export function toggleArtboardSnap(): boolean {
+  const updated = setSnapConfig({ snapToArtboards: !currentConfig.snapToArtboards })
+  return updated.snapToArtboards
 }
 
 /** Reset snap configuration to defaults. */

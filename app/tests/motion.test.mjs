@@ -19,6 +19,7 @@ import {
   formatTime,
   getElementPropertyValue,
   isShaderProperty,
+  isTypographyProperty,
   MOTION_BEZIER_PRESETS,
   patchKeyframe,
   PROPERTY_META,
@@ -475,3 +476,120 @@ test('Bézier presets and spring curve evaluation', () => {
   const bounce = MOTION_BEZIER_PRESETS.bounce
   assert.ok(bounce.curve[1] < 0 || bounce.curve[3] > 1)
 })
+
+test('variable font and kinetic typography motion tracks with spring physics', () => {
+  const store = fixture()
+  store.add('text', {
+    id: 'text1',
+    parentId: 'frame1',
+    text: 'Variable Kinetic Motion',
+    fontFamily: 'Inter',
+    fontSize: 48,
+    fontWeight: 300,
+    variableAxes: { wght: 300, wdth: 85, slnt: -5, opsz: 36 },
+    letterSpacing: 2,
+    lineHeight: 1.3,
+    textOnPath: { enabled: true, preset: 'wave', offset: 10 },
+    kinetic: {
+      enabled: true,
+      playing: true,
+      amplitude: 24,
+      rotation: 12,
+      duration: 2.0,
+      stagger: 60,
+      phase: 0.15,
+      weightModulation: 120,
+      slantModulation: 8,
+      scaleModulation: 0.2,
+    },
+  })
+
+  const elements = store.getSnapshot().elements
+  const textElem = elements.text1
+
+  // 1. isTypographyProperty tests
+  assert.equal(isTypographyProperty('fontWeight'), true)
+  assert.equal(isTypographyProperty('fontWidth'), true)
+  assert.equal(isTypographyProperty('fontSlant'), true)
+  assert.equal(isTypographyProperty('fontOpticalSize'), true)
+  assert.equal(isTypographyProperty('fontSize'), true)
+  assert.equal(isTypographyProperty('letterSpacing'), true)
+  assert.equal(isTypographyProperty('lineHeight'), true)
+  assert.equal(isTypographyProperty('textPathOffset'), true)
+  assert.equal(isTypographyProperty('kineticPhase'), true)
+  assert.equal(isTypographyProperty('kineticAmplitude'), true)
+  assert.equal(isTypographyProperty('kineticRotation'), true)
+  assert.equal(isTypographyProperty('kineticStagger'), true)
+  assert.equal(isTypographyProperty('kineticWeightModulation'), true)
+  assert.equal(isTypographyProperty('kineticSlantModulation'), true)
+  assert.equal(isTypographyProperty('kineticScaleModulation'), true)
+  assert.equal(isTypographyProperty('x'), false)
+  assert.equal(isTypographyProperty('shaderSpeed'), false)
+
+  // 2. getElementPropertyValue reads variable axes & typography state
+  assert.equal(getElementPropertyValue(textElem, 'fontWeight'), 300)
+  assert.equal(getElementPropertyValue(textElem, 'fontWidth'), 85)
+  assert.equal(getElementPropertyValue(textElem, 'fontSlant'), -5)
+  assert.equal(getElementPropertyValue(textElem, 'fontOpticalSize'), 36)
+  assert.equal(getElementPropertyValue(textElem, 'fontSize'), 48)
+  assert.equal(getElementPropertyValue(textElem, 'letterSpacing'), 2)
+  assert.equal(getElementPropertyValue(textElem, 'lineHeight'), 1.3)
+  assert.equal(getElementPropertyValue(textElem, 'textPathOffset'), 10)
+  assert.equal(getElementPropertyValue(textElem, 'kineticPhase'), 0.15)
+  assert.equal(getElementPropertyValue(textElem, 'kineticAmplitude'), 24)
+  assert.equal(getElementPropertyValue(textElem, 'kineticWeightModulation'), 120)
+
+  // 3. createTrack with initial element properties
+  const trackWght = createTrack('text1', 'fontWeight', 2000, textElem)
+  assert.equal(trackWght.keyframes[0].value, 300)
+  assert.equal(trackWght.keyframes[1].value, 800)
+
+  const trackWdth = createTrack('text1', 'fontWidth', 2000, textElem)
+  assert.equal(trackWdth.keyframes[0].value, 85)
+
+  const trackPhase = createTrack('text1', 'kineticPhase', 2000, textElem)
+  assert.equal(trackPhase.keyframes[0].value, 0)
+  assert.equal(trackPhase.keyframes[1].value, 1)
+
+  // 4. Spring physics integration with variable font weight track
+  const springEasing = { kind: 'spring', spring: SPRING_PRESETS.bouncy.spring }
+  const springTrack = {
+    ...trackWght,
+    keyframes: [
+      { id: 'k1', time: 0, value: 300, easing: springEasing },
+      { id: 'k2', time: 1000, value: 800, easing: springEasing },
+    ],
+  }
+
+  // Spring overshoot: value should overshoot target 800 before settling
+  const sampleTimesList = Array.from({ length: 41 }, (_, i) => i * 25)
+  const springValues = sampleTimesList.map(t => trackValue(springTrack, t))
+  const maxVal = Math.max(...springValues)
+  assert.ok(maxVal > 800, `Spring physics on variable font weight must produce overshoot (got ${maxVal} > 800)`)
+
+  // 5. Validation of motion doc with typography tracks
+  const doc = {
+    duration: 2000,
+    tracks: [springTrack, trackWdth, trackPhase],
+  }
+  const validated = validateMotion(doc, elements)
+  assert.equal(validated.tracks.length, 3)
+
+  // 6. Code export for variable typography
+  const css = exportMotion(doc, elements, 'css')
+  assert.ok(css.includes('font-weight:'))
+  assert.ok(css.includes('font-stretch:'))
+  assert.ok(css.includes('--kinetic-phase:'))
+  assert.ok(css.includes('Spring { stiffness:'))
+
+  const framer = exportMotion(doc, elements, 'framer')
+  assert.ok(framer.includes('"fontWeight":'))
+  assert.ok(framer.includes('"fontWidth":'))
+  assert.ok(framer.includes('"--kinetic-phase":'))
+
+  const waapi = exportMotion(doc, elements, 'waapi')
+  assert.ok(waapi.includes('fontWeight'))
+  assert.ok(waapi.includes('fontStretch'))
+  assert.ok(waapi.includes('--kinetic-phase'))
+})
+

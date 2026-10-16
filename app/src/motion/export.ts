@@ -12,6 +12,9 @@ const fmProperty = (property: MotionProperty) => {
   if (property === 'shaderOffsetX') return '--shader-offset-x'
   if (property === 'shaderOffsetY') return '--shader-offset-y'
   if (property === 'shaderSpeed') return '--shader-speed'
+  if (property === 'kineticPhase') return '--kinetic-phase'
+  if (property === 'kineticAmplitude') return '--cascade-amplitude'
+  if (property === 'kineticRotation') return '--cascade-rotation'
   return property
 }
 
@@ -91,6 +94,14 @@ export function exportMotion(
           if ('shaderOffsetX' in values) frame['--shader-offset-x'] = String(values.shaderOffsetX)
           if ('shaderOffsetY' in values) frame['--shader-offset-y'] = String(values.shaderOffsetY)
           if ('shaderSpeed' in values) frame['--shader-speed'] = String(values.shaderSpeed)
+          if ('fontWeight' in values) frame.fontWeight = String(values.fontWeight)
+          if ('fontWidth' in values) frame.fontStretch = `${values.fontWidth}%`
+          if ('fontSize' in values) frame.fontSize = `${values.fontSize}px`
+          if ('letterSpacing' in values) frame.letterSpacing = `${values.letterSpacing}px`
+          if ('lineHeight' in values) frame.lineHeight = String(values.lineHeight)
+          if ('kineticPhase' in values) frame['--kinetic-phase'] = String(values.kineticPhase)
+          if ('kineticAmplitude' in values) frame['--cascade-amplitude'] = `${values.kineticAmplitude}px`
+          if ('kineticRotation' in values) frame['--cascade-rotation'] = `${values.kineticRotation}deg`
           return frame
         })
         return `\n// Layer ${JSON.stringify(id)}\nexport function animateLayer${index + 1}(element: HTMLElement) {\n  return element.animate(\n    ${JSON.stringify(keyframes, null, 2)},\n    {\n      duration: ${motion.duration},\n      fill: 'both',\n      easing: 'linear',\n      iterations: ${motion.loop ? 'Infinity' : '1'},\n    }\n  );\n}`
@@ -118,6 +129,14 @@ export function exportMotion(
         if ('shaderOffsetX' in values) declarations.push(`--shader-offset-x: ${values.shaderOffsetX}`)
         if ('shaderOffsetY' in values) declarations.push(`--shader-offset-y: ${values.shaderOffsetY}`)
         if ('shaderSpeed' in values) declarations.push(`--shader-speed: ${values.shaderSpeed}`)
+        if ('fontWeight' in values) declarations.push(`font-weight: ${values.fontWeight}`)
+        if ('fontWidth' in values) declarations.push(`font-stretch: ${values.fontWidth}%`)
+        if ('fontSize' in values) declarations.push(`font-size: ${values.fontSize}px`)
+        if ('letterSpacing' in values) declarations.push(`letter-spacing: ${values.letterSpacing}px`)
+        if ('lineHeight' in values) declarations.push(`line-height: ${values.lineHeight}`)
+        if ('kineticPhase' in values) declarations.push(`--kinetic-phase: ${values.kineticPhase}`)
+        if ('kineticAmplitude' in values) declarations.push(`--cascade-amplitude: ${values.kineticAmplitude}px`)
+        if ('kineticRotation' in values) declarations.push(`--cascade-rotation: ${values.kineticRotation}deg`)
         percentageMap.set(pct, `  ${pct}% { ${declarations.join('; ')}; }`)
       }
       const frames = Array.from(percentageMap.values())

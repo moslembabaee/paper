@@ -4,7 +4,7 @@ import type { Point } from '../canvas/types.ts'
 import type { SceneStore } from './store.ts'
 import { componentRoot } from './components.ts'
 import { measurementHit } from './measurementGeometry.ts'
-import { getEffectiveStateMachine, resolveNextState } from './stateMachine.ts'
+import { findDelayedTransition, getEffectiveStateMachine, resolveNextState } from './stateMachine.ts'
 import { springCSS, springDuration } from '../prototype/spring.ts'
 import type { ComponentLink, ComponentStateMachine, ComponentStateTransition, SceneElement } from './types.ts'
 
@@ -26,6 +26,7 @@ export function InteractiveCanvasOverlay({
   const pressedInstanceId = useRef<string | null>(null)
   const originalStates = useRef<Map<string, string | null>>(new Map())
   const activeTransitions = useRef<Map<string, number>>(new Map())
+  const delayedTimers = useRef<Map<string, number>>(new Map())
   const [hoveredBadge, setHoveredBadge] = useState<{ id: string; name: string; state: string } | null>(null)
 
   // Apply spring styling to instance DOM node
@@ -42,6 +43,34 @@ export function InteractiveCanvasOverlay({
       activeTransitions.current.delete(instanceId)
     }, duration + 50)
     activeTransitions.current.set(instanceId, timeout)
+  }
+
+  const cancelDelay = (instanceId: string) => {
+    const timer = delayedTimers.current.get(instanceId)
+    if (timer) {
+      window.clearTimeout(timer)
+      delayedTimers.current.delete(instanceId)
+    }
+  }
+
+  const scheduleDelay = (
+    instanceId: string,
+    master: SceneElement,
+    machine: ComponentStateMachine,
+    state: string
+  ) => {
+    cancelDelay(instanceId)
+    const delayed = findDelayedTransition(machine, state)
+    if (!delayed) return
+    const delayMs = delayed.delay ?? 300
+    const timer = window.setTimeout(() => {
+      delayedTimers.current.delete(instanceId)
+      applySpringStyle(instanceId, delayed)
+      store.setComponentActiveState(instanceId, delayed.targetState, false)
+      setHoveredBadge({ id: instanceId, name: master.name, state: delayed.targetState })
+      scheduleDelay(instanceId, master, machine, delayed.targetState)
+    }, delayMs)
+    delayedTimers.current.set(instanceId, timer)
   }
 
   useLayoutEffect(() => {
@@ -72,15 +101,24 @@ export function InteractiveCanvasOverlay({
       if (!instance) {
         if (currentHoveredId) {
           // Exiting previous instance
+          cancelDelay(currentHoveredId)
           const prevInstance = store.getSnapshot().elements[currentHoveredId]
           if (prevInstance && prevInstance.component?.kind === 'instance') {
             const master = store.getSnapshot().elements[prevInstance.component.masterId]
             const machine = getEffectiveStateMachine(master)
             if (machine) {
-              const baseState = originalStates.current.get(currentHoveredId) ?? machine.initial
-              const exitTransition = machine.transitions.find(t => t.fromState === 'hover' && t.targetState === baseState)
-              if (exitTransition) applySpringStyle(currentHoveredId, exitTransition)
-              store.setComponentActiveState(currentHoveredId, baseState, false)
+              const currentHoverState = prevInstance.component.activeState ?? machine.initial
+              const exitTransition = resolveNextState(machine, currentHoverState, 'on-hover-end')
+              if (exitTransition) {
+                applySpringStyle(currentHoveredId, exitTransition.transition)
+                store.setComponentActiveState(currentHoveredId, exitTransition.targetState, false)
+                scheduleDelay(currentHoveredId, master, machine, exitTransition.targetState)
+              } else {
+                const baseState = originalStates.current.get(currentHoveredId) ?? machine.initial
+                const fallbackTransition = machine.transitions.find(t => t.fromState === currentHoverState && t.targetState === baseState)
+                if (fallbackTransition) applySpringStyle(currentHoveredId, fallbackTransition)
+                store.setComponentActiveState(currentHoveredId, baseState, false)
+              }
             }
           }
           hoveredInstanceId.current = null
@@ -93,6 +131,7 @@ export function InteractiveCanvasOverlay({
       if (currentHoveredId !== root.id) {
         // Exiting old instance if any
         if (currentHoveredId && currentHoveredId !== root.id) {
+          cancelDelay(currentHoveredId)
           const prevInstance = store.getSnapshot().elements[currentHoveredId]
           if (prevInstance && prevInstance.component?.kind === 'instance') {
             const prevMaster = store.getSnapshot().elements[prevInstance.component.masterId]
@@ -115,8 +154,10 @@ export function InteractiveCanvasOverlay({
           applySpringStyle(root.id, next.transition)
           store.setComponentActiveState(root.id, next.targetState, false)
           setHoveredBadge({ id: root.id, name: master.name, state: next.targetState })
+          scheduleDelay(root.id, master, machine, next.targetState)
         } else {
           setHoveredBadge({ id: root.id, name: master.name, state: currentState })
+          scheduleDelay(root.id, master, machine, currentState)
         }
       }
     }
@@ -127,12 +168,14 @@ export function InteractiveCanvasOverlay({
       if (!instance) return
       const { root, master, machine } = instance
       pressedInstanceId.current = root.id
+      cancelDelay(root.id)
       const currentState = root.component.activeState ?? machine.initial
-      const next = resolveNextState(machine, currentState, 'while-pressed')
+      const next = resolveNextState(machine, currentState, 'on-pointerdown') ?? resolveNextState(machine, currentState, 'while-pressed')
       if (next) {
         applySpringStyle(root.id, next.transition)
         store.setComponentActiveState(root.id, next.targetState, false)
         setHoveredBadge({ id: root.id, name: master.name, state: next.targetState })
+        scheduleDelay(root.id, master, machine, next.targetState)
       }
     }
 
@@ -142,6 +185,7 @@ export function InteractiveCanvasOverlay({
       const instance = findInstance(event)
       if (!instance || (pressedId && instance.root.id !== pressedId)) {
         if (pressedId) {
+          cancelDelay(pressedId)
           const pressedEl = store.getSnapshot().elements[pressedId]
           if (pressedEl && pressedEl.component?.kind === 'instance') {
             const master = store.getSnapshot().elements[pressedEl.component.masterId]
@@ -158,12 +202,13 @@ export function InteractiveCanvasOverlay({
       const { root, master, machine } = instance
       const currentState = root.component.activeState ?? machine.initial
 
-      // Check on-click transition
-      const nextClick = resolveNextState(machine, currentState, 'on-click')
-      if (nextClick) {
-        applySpringStyle(root.id, nextClick.transition)
-        store.setComponentActiveState(root.id, nextClick.targetState, false)
-        setHoveredBadge({ id: root.id, name: master.name, state: nextClick.targetState })
+      // Check on-click transition first, then on-pointerup
+      const nextTransition = resolveNextState(machine, currentState, 'on-click') ?? resolveNextState(machine, currentState, 'on-pointerup')
+      if (nextTransition) {
+        applySpringStyle(root.id, nextTransition.transition)
+        store.setComponentActiveState(root.id, nextTransition.targetState, false)
+        setHoveredBadge({ id: root.id, name: master.name, state: nextTransition.targetState })
+        scheduleDelay(root.id, master, machine, nextTransition.targetState)
       } else if (currentState === 'pressed') {
         // Return to hover or initial
         const returnState = machine.states.includes('hover') ? 'hover' : machine.initial
@@ -171,6 +216,7 @@ export function InteractiveCanvasOverlay({
         if (returnTransition) applySpringStyle(root.id, returnTransition)
         store.setComponentActiveState(root.id, returnState, false)
         setHoveredBadge({ id: root.id, name: master.name, state: returnState })
+        scheduleDelay(root.id, master, machine, returnState)
       }
     }
 
@@ -197,6 +243,9 @@ export function InteractiveCanvasOverlay({
         store.setComponentActiveState(id, original, false)
       }
       for (const timeout of activeTransitions.current.values()) {
+        window.clearTimeout(timeout)
+      }
+      for (const timeout of delayedTimers.current.values()) {
         window.clearTimeout(timeout)
       }
     }

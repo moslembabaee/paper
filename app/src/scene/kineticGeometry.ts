@@ -5,12 +5,25 @@ import type { ShapedText } from './fontEngine.ts'
 import type { KineticTypography, TextElement } from './types.ts'
 import { textAnchorForPath, textPathOffset } from './typography.ts'
 
-export const DEFAULT_KINETIC: KineticTypography = Object.freeze({ enabled: true, playing: true, amplitude: 18, rotation: 8, duration: 2.4, stagger: 70, phase: 0 })
+export const DEFAULT_KINETIC: KineticTypography = Object.freeze({
+  enabled: true,
+  playing: true,
+  amplitude: 18,
+  rotation: 8,
+  duration: 2.4,
+  stagger: 70,
+  phase: 0,
+  staggerMode: 'cascade',
+  waveShape: 'triangle',
+  weightModulation: 0,
+  slantModulation: 0,
+  scaleModulation: 0,
+})
 interface Sample extends Point { distance: number }
 
 /** Adaptive arc-length table: handle arbitrary cubic, quadratic and SVG arc baselines. */
 export function createBaseline(d: string) {
-  const contour = parsePath(d)[0]
+  const contours = parsePath(d)
   const samples: Sample[] = []
   let length = 0
   const append = (p: Point, connect = true) => {
@@ -26,21 +39,27 @@ export function createBaseline(d: string) {
     const ab = middle(a, b), bc = middle(b, c), ce = middle(c, e), abc = middle(ab, bc), bce = middle(bc, ce), mid = middle(abc, bce)
     flatten(a, ab, abc, mid, depth + 1); flatten(mid, bce, ce, e, depth + 1)
   }
-  if (contour?.anchors.length) {
-    append(contour.anchors[0], false)
-    const count = contour.anchors.length - (contour.closed ? 0 : 1)
-    for (let i = 0; i < count; i++) {
-      const a = contour.anchors[i], b = contour.anchors[(i + 1) % contour.anchors.length]
-      if (a.out || b.in) flatten(a, a.out ?? a, b.in ?? b, b, 0)
-      else append(b)
+  const isClosed = contours[0]?.closed ?? false
+  for (const contour of contours) {
+    if (contour?.anchors.length) {
+      append(contour.anchors[0], samples.length > 0)
+      const count = contour.anchors.length - (contour.closed ? 0 : 1)
+      for (let i = 0; i < count; i++) {
+        const a = contour.anchors[i], b = contour.anchors[(i + 1) % contour.anchors.length]
+        if (a.out || b.in) flatten(a, a.out ?? a, b.in ?? b, b, 0)
+        else append(b)
+      }
     }
   }
   return {
     length,
+    closed: isClosed,
     at(distance: number) {
       if (samples.length < 2) return { x: samples[0]?.x ?? 0, y: samples[0]?.y ?? 0, angle: 0 }
       let low = 1, high = samples.length - 1
-      const clamped = Math.max(0, Math.min(length, distance))
+      const clamped = isClosed && length > 0
+        ? ((distance % length) + length) % length
+        : Math.max(0, Math.min(length, distance))
       while (low < high) { const mid = (low + high) >> 1; if (samples[mid].distance < clamped) low = mid + 1; else high = mid }
       const a = samples[low - 1], b = samples[low]
       const t = (clamped - a.distance) / (b.distance - a.distance || 1)
@@ -68,23 +87,69 @@ export function placeGlyphs(node: TextElement, shaped: ShapedText, unitsPerEm: n
   return result
 }
 
-/** Matches the quarter-cycle CSS keyframes, so the phase slider and outlines agree. */
-export function cascadeOffset(kinetic: KineticTypography | undefined, index: number) {
+export interface CascadeOffsetResult {
+  readonly y: number
+  readonly angle: number
+  readonly scale?: number
+  readonly weightDelta?: number
+  readonly slantDelta?: number
+}
+
+/** Matches the quarter-cycle CSS keyframes, with selectable stagger modes, waveforms, and axis dynamics. */
+export function cascadeOffset(kinetic: KineticTypography | undefined, index: number, totalGlyphs = 1): CascadeOffsetResult {
   if (!kinetic?.enabled) return { y: 0, angle: 0 }
-  const cycle = ((kinetic.phase + index * kinetic.stagger / (kinetic.duration * 1000)) % 1 + 1) % 1
-  const wave = cycle < .25 ? -4 * cycle : cycle < .75 ? 4 * cycle - 2 : 4 - 4 * cycle
-  return { y: wave * kinetic.amplitude, angle: wave * kinetic.rotation }
+  const total = Math.max(1, totalGlyphs)
+  let delay = index * kinetic.stagger
+  if (kinetic.staggerMode === 'wave') {
+    delay = Math.sin((index / Math.max(1, total - 1)) * Math.PI) * kinetic.stagger * 1.5
+  } else if (kinetic.staggerMode === 'center-out') {
+    delay = Math.abs(index - (total - 1) / 2) * kinetic.stagger
+  } else if (kinetic.staggerMode === 'random') {
+    delay = ((((index + 1) * 9301 + 49297) % 233280) / 233280) * kinetic.stagger * Math.max(1, total / 2)
+  } else if (kinetic.staggerMode === 'elastic') {
+    const norm = index / Math.max(1, total - 1)
+    delay = Math.abs(Math.cos(norm * Math.PI * 2.5)) * kinetic.stagger * 2
+  }
+
+  const cycle = ((kinetic.phase + delay / (kinetic.duration * 1000)) % 1 + 1) % 1
+  let wave: number
+  if (kinetic.waveShape === 'sine') {
+    wave = -Math.sin(cycle * Math.PI * 2)
+  } else if (kinetic.waveShape === 'bounce') {
+    wave = Math.abs(Math.sin(cycle * Math.PI * 2)) * 2 - 1
+  } else if (kinetic.waveShape === 'spring') {
+    wave = -Math.sin(cycle * Math.PI * 3) * (1 - cycle * 0.7)
+  } else {
+    // Default 'triangle' matching Paper quarter-cycle keyframes
+    wave = cycle < .25 ? -4 * cycle : cycle < .75 ? 4 * cycle - 2 : 4 - 4 * cycle
+  }
+
+  const result: { y: number; angle: number; scale?: number; weightDelta?: number; slantDelta?: number } = {
+    y: wave * kinetic.amplitude,
+    angle: wave * kinetic.rotation,
+  }
+  if (kinetic.scaleModulation && kinetic.scaleModulation > 0) {
+    result.scale = Math.max(0.1, 1 + wave * kinetic.scaleModulation)
+  }
+  if (kinetic.weightModulation && kinetic.weightModulation !== 0) {
+    result.weightDelta = wave * kinetic.weightModulation
+  }
+  if (kinetic.slantModulation && kinetic.slantModulation !== 0) {
+    result.slantDelta = wave * kinetic.slantModulation
+  }
+  return result
 }
 
 /** Bake the displayed phase into native editable cubic outlines, preserving glyph holes. */
 export function glyphOutlines(glyphs: readonly GlyphPlacement[], kinetic?: KineticTypography): string {
   const contours: PathContour[] = []
   for (const glyph of glyphs) {
-    const offset = cascadeOffset(kinetic, glyph.index)
+    const offset = cascadeOffset(kinetic, glyph.index, glyphs.length)
     const angle = glyph.angle * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle)
     const spin = offset.angle * Math.PI / 180, sc = Math.cos(spin), ss = Math.sin(spin)
+    const effectiveScale = glyph.scale * (offset.scale ?? 1)
     const transform = (point: Point): Point => {
-      const gx = point.x * glyph.scale + glyph.origin + glyph.dx, gy = -point.y * glyph.scale + glyph.dy
+      const gx = point.x * effectiveScale + glyph.origin + glyph.dx, gy = -point.y * effectiveScale + glyph.dy
       const x = gx * sc - gy * ss, y = gx * ss + gy * sc + offset.y
       return { x: glyph.x + x * cos - y * sin, y: glyph.y + x * sin + y * cos }
     }

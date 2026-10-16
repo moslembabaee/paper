@@ -30,7 +30,7 @@ LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "orchestrator.log"
 
-AGENT_CHAIN = ["claude"]
+AGENT_CHAIN = ["codex", "claude", "antigravity"]
 
 def log(msg: str):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -148,6 +148,116 @@ Please analyze the root cause, fix the issue, and ensure the verification passes
 """
     return prompt.strip()
 
+def is_big_task(task: dict) -> bool:
+    """Heuristic: a task is 'big' when its description is long or multi-part, which
+    routinely blows past agent turn/time budgets. Such tasks must be decomposed."""
+    desc = task.get("description", "") or ""
+    has_subsections = ("####" in desc) or (desc.count("###") >= 3) or (
+        "1." in desc and "2." in desc and "3." in desc
+    )
+    return len(desc) > 600 or has_subsections
+
+
+def decompose_task(roadmap: dict, task: dict) -> bool:
+    """Split an approved big task into 2-4 child tasks, keep the parent in the roadmap
+    as a verification checkpoint, and link every child to the parent. Returns True only
+    when decomposition actually happened (>=2 children)."""
+    try:
+        from issue_bot import decompose_issue_into_subtasks
+    except Exception:
+        decompose_issue_into_subtasks = None
+
+    subtasks = None
+    if decompose_issue_into_subtasks is not None:
+        issue = {"title": task.get("title", ""), "body": task.get("description", "")}
+        subtasks = decompose_issue_into_subtasks(issue)
+    if not subtasks or len(subtasks) < 2:
+        return False
+
+    parent_id = task["id"]
+    child_ids: list[str] = []
+    phase = task.get("phase", "")
+    verify_cmd = task.get(
+        "verification_cmd", "cd /root/projects/paper/app && npm run build"
+    )
+    for idx, sub in enumerate(subtasks):
+        child_id = f"{parent_id}-{idx + 1}"
+        child_ids.append(child_id)
+        child = {
+            "id": child_id,
+            "phase": phase,
+            "title": f"[{parent_id} #{idx + 1}/{len(subtasks)}] {sub.get('title', '')}",
+            "description": sub.get("description", ""),
+            "assigned_agent": task.get("assigned_agent", "claude"),
+            "status": "approved",
+            "retry_count": 0,
+            "verification_cmd": verify_cmd,
+            "parent_id": parent_id,
+            "subtask_index": idx + 1,
+            "total_subtasks": len(subtasks),
+            "github_issue_number": task.get("github_issue_number"),
+        }
+        roadmap["tasks"].insert(0, child)
+
+    task["status"] = "decomposed"
+    task["children"] = child_ids
+    log(f"🔀 Task {parent_id} decomposed into {len(child_ids)} children; parent kept as final verification checkpoint.")
+    return True
+
+
+def maybe_finalize_parent(roadmap: dict, parent_id: str):
+    """After a child completes, check whether ALL children of the parent are done.
+    If so, run the parent's verification gate ONCE: pass -> parent completed (goal
+    achieved, issue closed); fail -> parent blocked. The parent is never re-dispatched."""
+    parent = next((t for t in roadmap["tasks"] if t.get("id") == parent_id), None)
+    if not parent or parent.get("status") not in ("decomposed",):
+        return
+    child_ids = parent.get("children", [])
+    if not child_ids:
+        return
+    children = [t for t in roadmap["tasks"] if t.get("id") in child_ids]
+    if any(t.get("status") != "completed" for t in children):
+        log(f"⏳ Parent {parent_id}: {sum(1 for t in children if t.get('status')=='completed')}/{len(child_ids)} children done; waiting for the rest.")
+        return
+
+    # All children completed -> single verification of the parent's original goal
+    verify_cmd = parent.get(
+        "verification_cmd", "cd /root/projects/paper/app && npm run build"
+    )
+    log(f"🔍 All children of {parent_id} completed. Verifying parent goal once: '{verify_cmd}'")
+    v_code, v_out = run_cmd(verify_cmd, timeout=600)
+    if v_code == 0:
+        parent["status"] = "completed"
+        parent["completed_at"] = datetime.now(timezone.utc).isoformat()
+        save_roadmap(roadmap)
+        run_cmd("git add .")
+        commit_msg = f"feat({parent.get('phase', '').split('.')[0]}): {parent['title']}"
+        run_cmd(f'git commit -m "{commit_msg}"')
+        run_cmd("git push origin main")
+        pnum = parent.get("github_issue_number")
+        if pnum:
+            try:
+                run_cmd(f'gh issue comment {pnum} --repo moslembabaee/paper -b {shlex.quote(f"✅ **Parent goal verified!** All sub-tasks completed and the original requirement of Issue #{pnum} passed its verification gate (`{verify_cmd}`). Closing.")}')
+                run_cmd(f'gh issue close {pnum} --repo moslembabaee/paper')
+                run_cmd(f'gh issue edit {pnum} --repo moslembabaee/paper --remove-label "in-progress,blocked"')
+            except Exception as ex:
+                log(f"Warning: Failed to close parent issue #{pnum}: {ex}")
+        log(f"✅ Parent {parent_id} goal achieved and verified; marked completed.")
+    else:
+        parent["status"] = "blocked"
+        parent["blocked_reason"] = v_out[-500:] if v_out else "parent verification failed"
+        save_roadmap(roadmap)
+        pnum = parent.get("github_issue_number")
+        if pnum:
+            try:
+                err = (v_out[-400:] if v_out else "Parent verification failed after all sub-tasks.").replace("```", "'''")
+                run_cmd(f'gh issue edit {pnum} --repo moslembabaee/paper --remove-label "in-progress,approved" --add-label "blocked"')
+                run_cmd(f'gh issue comment {pnum} --repo moslembabaee/paper -b {shlex.quote(f"⚠️ **Parent goal NOT achieved** after all sub-tasks completed. Verification failed:\n```text\n{err}\n```\nReview required.")}')
+            except Exception as ex:
+                log(f"Warning: Failed to mark parent issue #{pnum} blocked: {ex}")
+        log(f"❌ Parent {parent_id} goal NOT met after all children; marked blocked.")
+
+
 def run_loop():
     log("=== Starting Tri-Agent Orchestrator Loop ===")
     
@@ -167,7 +277,17 @@ def run_loop():
             if stop_flag.exists():
                 log("🛑 Stop flag detected (STOP_IMPROVEMENTS). Pausing continuous improvement loop.")
                 break
-                
+
+        # Decompose big tasks BEFORE dispatch: keep the parent as a verification
+        # checkpoint, queue children one-by-one. Prevents 10-minute timeouts.
+        if pending_task and is_big_task(pending_task) and not pending_task.get("children") and not pending_task.get("parent_id"):
+            if decompose_task(roadmap, pending_task):
+                save_roadmap(roadmap)
+                log(f"🔀 Queued decomposed children of {pending_task['id']}; will execute them one by one.")
+                time.sleep(3)
+                continue
+
+        if not pending_task:
             waiting_tasks = [t for t in roadmap["tasks"] if t.get("status") in ("waiting_approval", "pending_approval")]
             if waiting_tasks:
                 for t in waiting_tasks:
@@ -365,6 +485,11 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
                         log(f"Closed GitHub Issue #{issue_num} for completed task {pending_task['id']}")
                 except Exception as ex:
                     log(f"Warning: Failed to update GitHub issue #{issue_num}: {ex}")
+
+            # If this task is a child, check whether the parent's goal is now fully
+            # achieved (all children done) and verify the parent exactly once.
+            if pending_task.get("parent_id"):
+                maybe_finalize_parent(roadmap, pending_task["parent_id"])
         else:
             log(f"⚠️ Task {task_id} failed across all agents.")
             pending_task["status"] = "failed"

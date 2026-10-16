@@ -1,7 +1,7 @@
 import { TOKEN_META } from '../tokens/model.ts'
 import { motionControls, shaderCatalog, shaderKinds } from '../shaders/catalog.ts'
 import type { ShaderControl } from '../shaders/types.ts'
-import { grainBlendModes, meshInterpolationModes, shaderBlendModes } from '../shaders/types.ts'
+import { grainBlendModes, meshInterpolationModes, noiseGenerators, shaderBlendModes } from '../shaders/types.ts'
 import { modulatorWaveforms, pipelinePassTypes } from '../shaders/pipeline/types.ts'
 import { audioSignals } from '../shaders/audio/types.ts'
 import { postProcessDefinitions, MAX_POST_PROCESS_PASSES } from '../canvas/postprocessing/model.ts'
@@ -57,6 +57,11 @@ const meshProperties = {
   grainBlend: { type: 'string', enum: grainBlendModes } as JsonSchema,
   interpolation: { type: 'string', enum: meshInterpolationModes } as JsonSchema,
   warpModulation: unitInterval,
+  noiseType: { type: 'string', enum: noiseGenerators } as JsonSchema,
+  lacunarity: { type: 'number', minimum: 1, maximum: 5 } as JsonSchema,
+  octaves: { type: 'integer', minimum: 1, maximum: 6 } as JsonSchema,
+  normalPerturbation: unitInterval,
+  grainDisplacement: unitInterval,
 }
 const pipelinePassProperties = {
   id: str(),
@@ -183,9 +188,10 @@ const springSchema = object({
 const componentStateTransitionSchema = object({
   id: str(),
   fromState: str(),
-  trigger: { type: 'string', enum: ['on-click', 'on-hover', 'while-pressed'] },
+  trigger: { type: 'string', enum: ['on-click', 'on-hover', 'while-pressed', 'on-pointerdown', 'on-pointerup', 'on-hover-end', 'after-delay'] },
   targetState: str(),
   spring: springSchema,
+  delay: positive,
 }, ['id', 'fromState', 'trigger', 'targetState', 'spring'])
 
 export const componentStateMachineSchema = object({
@@ -196,12 +202,16 @@ export const componentStateMachineSchema = object({
 
 export const componentPropertySchema: JsonSchema = { anyOf: [
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['text'] }, sourceId: str(), defaultValue: { type: 'string' } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
-  object({ ...propertyIdentity, kind: { type: 'string', enum: ['boolean'] }, sourceId: str(), defaultValue: flag }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['boolean'] }, sourceId: str(), defaultValue: flag, targetProperty: { type: 'string', enum: ['visible', 'kinetic.enabled', 'clipContent'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['color'] }, sourceId: str(), defaultValue: str(), targetProperty: { type: 'string', enum: ['fill', 'stroke', 'shader'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['number'] }, sourceId: str(), defaultValue: num, min: num, max: num, step: positive, targetProperty: str() }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['kinetic'] }, sourceId: str(), defaultValue: { anyOf: [str(), num, flag] }, targetProperty: { type: 'string', enum: ['enabled', 'amplitude', 'rotation', 'duration', 'stagger', 'waveShape', 'staggerMode', 'weightModulation', 'slantModulation', 'scaleModulation'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue', 'targetProperty']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['shader'] }, sourceId: str(), defaultValue: { anyOf: [str(), num, flag] }, targetProperty: { type: 'string', enum: ['speed', 'scale', 'rotation', 'frequency', 'octaves', 'turbulence', 'displacement', 'viewMode', 'blendMode'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue', 'targetProperty']),
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['variant'] }, defaultValue: str(), options: { ...list(object({ value: { ...str(), maxLength: 100 }, layers: { type: 'object', additionalProperties: componentOverridesSchema } }, ['value', 'layers'])), minItems: 1, maxItems: 100 }, stateMachine: componentStateMachineSchema }, ['id', 'name', 'kind', 'defaultValue', 'options']),
 ] }
 export const componentSchema: JsonSchema = { anyOf: [
   object({ kind: { type: 'string', enum: ['master'] }, properties: { ...list(componentPropertySchema), maxItems: 100 }, stateMachine: componentStateMachineSchema }, ['kind']),
-  object({ kind: { type: 'string', enum: ['instance'] }, masterId: str(), sourceId: str(), instanceId: str(), overrides: componentOverridesSchema, propertyValues: { type: 'object', additionalProperties: { anyOf: [{ type: 'string' }, flag] } }, activeState: str() }, ['kind', 'masterId', 'sourceId', 'instanceId', 'overrides']),
+  object({ kind: { type: 'string', enum: ['instance'] }, masterId: str(), sourceId: str(), instanceId: str(), overrides: componentOverridesSchema, propertyValues: { type: 'object', additionalProperties: { anyOf: [{ type: 'string' }, num, flag] } }, activeState: str() }, ['kind', 'masterId', 'sourceId', 'instanceId', 'overrides']),
 ] }
 export const elementSchema: JsonSchema = {
   anyOf: Object.entries(specific).map(([type, fields]) => {

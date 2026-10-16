@@ -5,6 +5,7 @@ import type { RefObject } from 'react'
 import type { ShaderPaint } from './types'
 import { meshUniforms } from './mesh'
 import { meshFragmentShader } from './meshFragment'
+import { proceduralNoiseFragmentShader, proceduralNoiseUniforms } from './noise/noiseFragment'
 import { createMultiPassUniformUpdater, multiPassFragmentShader, multiPassUniforms } from './pipeline/multiPassFragment'
 import { audioAnalysis } from './audio/engine'
 import { PostProcessingSurface } from '../canvas/postprocessing/PostProcessingSurface'
@@ -135,5 +136,6 @@ function ShaderSource({ paint, paused, onError, captureScale, capturePixelCount 
     case 'liquid-distortion': return <Warp {...common} {...placement} {...paint.params} colors={[...paint.params.colors]} />
     case 'glass-refraction': return <ImageGlass {...common} {...placement} {...paint.params} source={paint.params.image} onError={onError} fit="cover" />
     case 'multi-pass': return <MultiPassShaderMount paint={paint} common={common} paused={paused} />
+    case 'procedural-noise': return <ShaderMount {...common} {...placement} fragmentShader={proceduralNoiseFragmentShader} uniforms={proceduralNoiseUniforms(paint)} />
   }
 }

@@ -2,9 +2,10 @@ import type { ViewportController } from '../canvas/ViewportController.ts'
 import type { Point } from '../canvas/types.ts'
 import type { SceneStore } from '../scene/store.ts'
 import { equalValue } from '../scene/history.ts'
-import { SceneReplica } from './model.ts'
+import { SceneReplica, getValueAtPath } from './model.ts'
 import { COLLAB_PATH, PRESENCE_COLORS } from './types.ts'
 import type { ConnectionStatus, Presence, Register, RoomState } from './types.ts'
+import { CollaborativeUndoManager, type CRDTOperation } from './crdt/index.ts'
 
 export const BACKOFF_INITIAL_MS = 2000
 export const BACKOFF_MAX_MS = 30000
@@ -62,8 +63,11 @@ export class CollaborationSession {
   private lastActivity = Date.now()
   private lastFollow = ''
 
+  readonly undoManager: CollaborativeUndoManager
+
   constructor(room: string, store: SceneStore, controller: ViewportController, name: string) {
     this.room = room; this.store = store; this.controller = controller
+    this.undoManager = new CollaborativeUndoManager(this.id)
     this.previous = store.toJSON(); this.replica = new SceneReplica(this.id); this.replica.seed(this.previous)
     const { camera, size } = controller.getSnapshot()
     this.own = { id: this.id, name, color: PRESENCE_COLORS[parseInt(this.id.slice(0, 6), 16) % PRESENCE_COLORS.length], status: 'active', cursor: null, selection: store.getSnapshot().selection, viewport: { center: controller.screenToWorld({ x: size.width / 2, y: size.height / 2 }), zoom: camera.zoom, size }, following: null }
@@ -101,7 +105,23 @@ export class CollaborationSession {
       if (this.applying) return
       const next = this.store.toJSON()
       const changes = this.replica.change(this.previous, next)
-      if (changes.length) { this.lastActivity = Date.now(); this.own.status = 'active' }
+      if (changes.length) {
+        this.lastActivity = Date.now()
+        this.own.status = 'active'
+        const ops: CRDTOperation[] = []
+        for (const change of changes) {
+          const beforeVal = getValueAtPath(this.previous, change.path)
+          ops.push({
+            path: change.path,
+            beforeValue: beforeVal,
+            afterValue: change.value,
+            beforeDeleted: beforeVal === undefined,
+            afterDeleted: Boolean(change.deleted),
+            clock: change.clock,
+          })
+        }
+        this.undoManager.recordOperations(ops)
+      }
       for (const change of changes) this.pending.set(JSON.stringify(change.path), change)
       this.previous = next
       this.own.selection = this.store.getSnapshot().selection
@@ -160,7 +180,12 @@ export class CollaborationSession {
       })
       source.addEventListener('changes', event => {
         if (this.stopped || connection !== this.connection) return
-        try { this.replica.merge(JSON.parse((event as MessageEvent<string>).data) as Register[]); this.apply() }
+        try {
+          const incoming = JSON.parse((event as MessageEvent<string>).data) as Register[]
+          this.replica.merge(incoming)
+          this.undoManager.rebase(incoming)
+          this.apply()
+        }
         catch { this.disconnected() }
       })
       source.addEventListener('peers', event => {
@@ -173,6 +198,7 @@ export class CollaborationSession {
   private receiveState(state: RoomState) {
     this.replica = new SceneReplica(this.id, state.registers)
     this.replica.merge([...this.pending.values()])
+    this.undoManager.rebase(state.registers)
     this.apply(); this.receivePeers(state.peers)
   }
   private receivePeers(peers: Presence[]) {
@@ -252,6 +278,46 @@ export class CollaborationSession {
     finally { this.sending = false; if (this.pending.size || this.dirtyPresence) this.schedule() }
   }
   setName(name: string) { this.own.name = name; this.dirtyPresence = true; this.schedule() }
+  setPointerDown(pointerDown: boolean) {
+    if (this.own.pointerDown !== pointerDown) {
+      this.own.pointerDown = pointerDown
+      this.dirtyPresence = true
+      this.schedule()
+    }
+  }
+  setActivity(activity?: string) {
+    if (this.own.activity !== activity) {
+      this.own.activity = activity
+      this.dirtyPresence = true
+      this.schedule()
+    }
+  }
+  setChat(chat: string | null) {
+    this.own.chat = chat
+    this.own.chatTimestamp = chat ? Date.now() : undefined
+    this.dirtyPresence = true
+    this.schedule()
+  }
+  undo = (): boolean => {
+    const inverse = this.undoManager.undo(() => this.replica.nextClock())
+    if (!inverse.length) return false
+    this.replica.merge(inverse)
+    for (const reg of inverse) this.pending.set(JSON.stringify(reg.path), reg)
+    this.apply()
+    this.dirtyPresence = true
+    this.schedule()
+    return true
+  }
+  redo = (): boolean => {
+    const forward = this.undoManager.redo(() => this.replica.nextClock())
+    if (!forward.length) return false
+    this.replica.merge(forward)
+    for (const reg of forward) this.pending.set(JSON.stringify(reg.path), reg)
+    this.apply()
+    this.dirtyPresence = true
+    this.schedule()
+    return true
+  }
   setCursor(cursor: Point | null) {
     this.own.cursor = cursor
     if (cursor) { this.lastActivity = Date.now(); this.own.status = 'active' }

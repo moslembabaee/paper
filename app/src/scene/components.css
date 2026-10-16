@@ -119,3 +119,8 @@
 .interactive-instance-pill .pill-arrow { color: #edebe166; }
 .interactive-instance-pill .pill-state { color: #81adec; font-weight: 600; }
 
+.component-color-field { display: flex; align-items: center; gap: 8px; }
+.component-color-swatch { width: 30px; height: 30px; padding: 0; border: 1px solid var(--paper-border); border-radius: 4px; background: transparent; cursor: pointer; flex-shrink: 0; }
+.component-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+.component-color-swatch::-webkit-color-swatch { border: none; border-radius: 3px; }
+

@@ -8,9 +8,25 @@ export type MotionShaderProperty =
   | 'shaderOffsetX'
   | 'shaderOffsetY'
   | 'shaderOpacity'
+export type MotionTypographyProperty =
+  | 'fontWeight'
+  | 'fontWidth'
+  | 'fontSlant'
+  | 'fontOpticalSize'
+  | 'fontSize'
+  | 'letterSpacing'
+  | 'lineHeight'
+  | 'textPathOffset'
+  | 'kineticPhase'
+  | 'kineticAmplitude'
+  | 'kineticRotation'
+  | 'kineticStagger'
+  | 'kineticWeightModulation'
+  | 'kineticSlantModulation'
+  | 'kineticScaleModulation'
 
-/** Translations and rotation are offsets from the design; scale is a multiplier; shader parameters modulate material uniforms. */
-export type MotionProperty = MotionTransformProperty | MotionShaderProperty
+/** Translations and rotation are offsets from the design; scale is a multiplier; shader parameters modulate material uniforms; typography modulates variable axes and kinetics. */
+export type MotionProperty = MotionTransformProperty | MotionShaderProperty | MotionTypographyProperty
 export type MotionEasing = { readonly kind: 'bezier'; readonly curve: BezierCurve } | { readonly kind: 'spring'; readonly spring: SpringParameters }
 export interface MotionKeyframe {
   readonly id: string

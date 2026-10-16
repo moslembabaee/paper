@@ -38,7 +38,7 @@ export function validateComponent(link: ComponentLink): void {
   }
   if (Object.keys(link).some(key => !['kind', 'masterId', 'sourceId', 'instanceId', 'overrides', 'propertyValues', 'activeState'].includes(key)) || ![link.masterId, link.sourceId, link.instanceId].every(id => typeof id === 'string' && id.length > 0 && !['__proto__', 'constructor', 'prototype'].includes(id))) throw new Error('Invalid component reference')
   if (link.activeState !== undefined && (typeof link.activeState !== 'string' || !link.activeState.trim())) throw new Error('Invalid active component state')
-  if (link.propertyValues !== undefined && (!record(link.propertyValues) || Object.entries(link.propertyValues).some(([id, value]) => !id || ['__proto__', 'constructor', 'prototype'].includes(id) || !['string', 'boolean'].includes(typeof value)))) throw new Error('Invalid component property values')
+  if (link.propertyValues !== undefined && (!record(link.propertyValues) || Object.entries(link.propertyValues).some(([id, value]) => !id || ['__proto__', 'constructor', 'prototype'].includes(id) || !['string', 'boolean', 'number'].includes(typeof value) || (typeof value === 'number' && !Number.isFinite(value))))) throw new Error('Invalid component property values')
   checkKeys(link.overrides, OVERRIDE_KEYS)
   if (link.overrides.properties !== undefined) checkKeys(link.overrides.properties, PROPERTY_KEYS)
   if (link.overrides.style !== undefined) {
@@ -78,7 +78,25 @@ export function recordComponentEdit(node: SceneElement, updated: SceneElement, p
   const style = { ...link.overrides.style }
   for (const [key, value] of Object.entries(patch)) {
     if (node.id === link.instanceId && ['x', 'y', 'rotation'].includes(key)) continue
-    if (PROPERTY_KEYS.has(key) && !equalValue(node[key as keyof SceneElement], value)) properties[key] = updated[key as keyof SceneElement]
+    if (key === 'kinetic' && value && node.type === 'text' && updated.type === 'text' && updated.kinetic) {
+      const kineticOverrides = { ...(properties.kinetic as Record<string, unknown> ?? {}) }
+      const nextKinetic = updated.kinetic as unknown as Record<string, unknown>
+      if (!node.kinetic) {
+        properties.kinetic = nextKinetic
+      } else {
+        const baseKinetic = node.kinetic as unknown as Record<string, unknown>
+        for (const channel of ['enabled', 'playing', 'amplitude', 'rotation', 'duration', 'stagger', 'phase', 'staggerMode', 'waveShape', 'weightModulation', 'slantModulation', 'scaleModulation'] as const) {
+          if (!equalValue(baseKinetic[channel], nextKinetic[channel])) {
+            kineticOverrides[channel] = nextKinetic[channel]
+          }
+        }
+        properties.kinetic = kineticOverrides
+      }
+    } else if (key === 'kinetic' && value === null && node.type === 'text') {
+      properties.kinetic = null
+    } else if (PROPERTY_KEYS.has(key) && !equalValue(node[key as keyof SceneElement], value)) {
+      properties[key] = updated[key as keyof SceneElement]
+    }
   }
   // Resizing a hug/fill layer implicitly changes its sizing, too.
   if (!equalValue(node.sizing, updated.sizing)) properties.sizing = updated.sizing
@@ -91,6 +109,33 @@ export function recordComponentEdit(node: SceneElement, updated: SceneElement, p
       const nextStroke = updated.style.stroke!
       for (const channel of ['color', 'width', 'dash'] as const) if (!equalValue(node.style.stroke[channel], nextStroke[channel])) Object.assign(stroke, { [channel]: nextStroke[channel] })
       style.stroke = stroke
+    } else if (key === 'shader' && value && node.style.shader && updated.style.shader && node.style.shader.kind === updated.style.shader.kind) {
+      const existingShaderOverrides = (style.shader ?? {}) as Record<string, unknown>
+      const shaderPatch: Record<string, unknown> = { ...existingShaderOverrides, kind: updated.style.shader.kind }
+      for (const prop of ['animated', 'speed', 'scale', 'rotation', 'frame', 'offsetX', 'offsetY'] as const) {
+        if (!equalValue(node.style.shader[prop], updated.style.shader[prop])) {
+          shaderPatch[prop] = updated.style.shader[prop]
+        }
+      }
+      if (updated.style.shader.composite && !equalValue(node.style.shader.composite, updated.style.shader.composite)) {
+        shaderPatch.composite = updated.style.shader.composite
+      }
+      if (updated.style.shader.params && !equalValue(node.style.shader.params, updated.style.shader.params)) {
+        const paramOverrides = { ...((existingShaderOverrides.params as Record<string, unknown>) ?? {}) }
+        for (const [pKey, pVal] of Object.entries(updated.style.shader.params as Record<string, unknown>)) {
+          if (!equalValue((node.style.shader.params as Record<string, unknown>)[pKey], pVal)) {
+            paramOverrides[pKey] = pVal
+          }
+        }
+        shaderPatch.params = paramOverrides
+      }
+      if (updated.style.shader.mesh && !equalValue(node.style.shader.mesh, updated.style.shader.mesh)) {
+        shaderPatch.mesh = updated.style.shader.mesh
+      }
+      if (updated.style.shader.postProcessing && !equalValue(node.style.shader.postProcessing, updated.style.shader.postProcessing)) {
+        shaderPatch.postProcessing = updated.style.shader.postProcessing
+      }
+      style.shader = shaderPatch as unknown as typeof style.shader
     } else Object.assign(style, { [key]: value })
   }
   const tokenBindings = { ...link.overrides.tokenBindings }
@@ -125,6 +170,18 @@ export function applyComponentOverrides(source: SceneElement, link: Extract<Comp
   const { properties = {}, style = {} } = link.overrides
   // A partial stroke can survive a master removing its stroke, too.
   const stroke = Object.hasOwn(style, 'stroke') ? style.stroke === null ? null : { color: '#080808', width: 1, dash: [], ...source.style.stroke, ...style.stroke } : source.style.stroke
+  const shader = Object.hasOwn(style, 'shader')
+    ? (style.shader === null ? null : (source.style.shader && style.shader && (style.shader as any).kind === source.style.shader.kind
+        ? {
+            ...source.style.shader,
+            ...style.shader,
+            params: { ...source.style.shader.params, ...((style.shader as any).params ?? {}) },
+            ...(source.style.shader.mesh || (style.shader as any).mesh ? { mesh: { ...source.style.shader.mesh, ...((style.shader as any).mesh ?? {}) } } : {}),
+            ...(source.style.shader.composite || (style.shader as any).composite ? { composite: { ...source.style.shader.composite, ...((style.shader as any).composite ?? {}) } } : {}),
+            ...(source.style.shader.postProcessing || (style.shader as any).postProcessing ? { postProcessing: { ...source.style.shader.postProcessing, ...((style.shader as any).postProcessing ?? {}) } } : {}),
+          }
+        : style.shader))
+    : source.style.shader
   const tokenBindings = { ...detachEditedBindings(source.tokenBindings, { ...properties, style }, source) }
   // An explicit stroke color remains local even when the master happens to match it.
   if (style.stroke === null || (style.stroke && Object.hasOwn(style.stroke, 'color'))) delete tokenBindings.stroke
@@ -140,7 +197,29 @@ export function applyComponentOverrides(source: SceneElement, link: Extract<Comp
   if (sharedStyleBindings.effects) delete tokenBindings.shadow
   if (sharedStyleBindings.color) delete tokenBindings.fill
   if (sharedStyleBindings.typography) for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing'] as const) delete tokenBindings[key]
-  const node = { ...source, ...(source.sharedStyleBindings || Object.keys(sharedStyleBindings).length ? { sharedStyleBindings } : {}), ...properties, component: link, tokenBindings, style: { ...source.style, ...style, stroke } } as SceneElement
+
+  const propRecord = (properties ?? {}) as Record<string, unknown>
+  let kinetic = source.type === 'text' ? source.kinetic : undefined
+  if (source.type === 'text' && Object.hasOwn(propRecord, 'kinetic')) {
+    const overrideKinetic = propRecord.kinetic as any
+    if (overrideKinetic === null || overrideKinetic === undefined) {
+      kinetic = undefined
+    } else if (source.kinetic && overrideKinetic) {
+      kinetic = { ...source.kinetic, ...overrideKinetic }
+    } else {
+      kinetic = overrideKinetic
+    }
+  }
+
+  const node = {
+    ...source,
+    ...(source.sharedStyleBindings || Object.keys(sharedStyleBindings).length ? { sharedStyleBindings } : {}),
+    ...properties,
+    ...(source.type === 'text' && (Object.hasOwn(propRecord, 'kinetic') || source.kinetic) ? { kinetic } : {}) as any,
+    component: link,
+    tokenBindings,
+    style: { ...source.style, ...style, stroke, ...(Object.hasOwn(style, 'shader') || source.style.shader ? { shader } : {}) }
+  } as SceneElement
   if (!source.tokenBindings && !Object.keys(tokenBindings).length) delete (node as { tokenBindings?: unknown }).tokenBindings
   if (node.type === 'path' && Object.hasOwn(properties, 'd') && !Object.hasOwn(properties, 'nodes')) delete (node as { nodes?: unknown }).nodes
   return resolveTokenBindings(resolveSharedStyles(node, library, tokens), tokens)
@@ -229,7 +308,7 @@ export function validateComponentGraph(elements: Readonly<Record<string, SceneEl
       }
       const configured = resolveComponentProperties(source, definitions, root.component.propertyValues ?? {}, tokens, library, root.component.activeState)
       const resolved = applyComponentOverrides(configured, link, tokens, library)
-      for (const key of Object.keys(link.overrides.properties ?? {})) if (!(key in source) && key !== 'sizing' && !(source.type === 'frame' && key === 'layout') && !(source.type === 'path' && key === 'nodes')) throw new Error('Unsupported component override')
+      for (const key of Object.keys(link.overrides.properties ?? {})) if (!(key in source) && key !== 'sizing' && !(source.type === 'frame' && key === 'layout') && !(source.type === 'path' && key === 'nodes') && !(source.type === 'text' && ['kinetic', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'].includes(key))) throw new Error('Unsupported component override')
       validateElement(resolved)
     } else if (node.parentId && componentRoot(elements, node.parentId)?.component?.kind === 'instance') throw new Error('Unlinked instance child')
   }

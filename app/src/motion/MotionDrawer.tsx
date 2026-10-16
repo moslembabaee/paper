@@ -40,6 +40,7 @@ import {
   formatTime,
   getElementPropertyValue,
   isShaderProperty,
+  isTypographyProperty,
   patchKeyframe,
   PROPERTY_META,
   trackValue,
@@ -146,7 +147,9 @@ export function MotionDrawer({
   const canAddSelectedProperty =
     !!currentLayer &&
     !motion.tracks.some(item => item.elementId === currentLayer.id && item.property === property) &&
-    motion.tracks.length < 200
+    motion.tracks.length < 200 &&
+    (!isShaderProperty(property) || currentLayerHasShader) &&
+    (!isTypographyProperty(property) || currentLayer.type === 'text')
 
   const updateTrack = (next: MotionTrack) => {
     store.setMotion({
@@ -261,7 +264,7 @@ export function MotionDrawer({
   }
 
   // Quick Starter Templates for Empty State
-  const applyStarterTemplate = (type: 'position' | 'scale-fade' | 'shader') => {
+  const applyStarterTemplate = (type: 'position' | 'scale-fade' | 'shader' | 'kinetic-typography') => {
     const targetId = currentLayer?.id ?? availableLayerIds[0]
     if (!targetId || !elements[targetId]) return
 
@@ -288,6 +291,21 @@ export function MotionDrawer({
       }
       if (!motion.tracks.some(t => t.elementId === targetId && t.property === 'shaderSpeed')) {
         created.push(createTrack(targetId, 'shaderSpeed', motion.duration, targetElem))
+      }
+    } else if (type === 'kinetic-typography') {
+      if (targetElem.type === 'text') {
+        if (!motion.tracks.some(t => t.elementId === targetId && t.property === 'fontWeight')) {
+          created.push(createTrack(targetId, 'fontWeight', motion.duration, targetElem))
+        }
+        if (!motion.tracks.some(t => t.elementId === targetId && t.property === 'fontWidth')) {
+          created.push(createTrack(targetId, 'fontWidth', motion.duration, targetElem))
+        }
+        if (!motion.tracks.some(t => t.elementId === targetId && t.property === 'letterSpacing')) {
+          created.push(createTrack(targetId, 'letterSpacing', motion.duration, targetElem))
+        }
+        if (!motion.tracks.some(t => t.elementId === targetId && t.property === 'kineticPhase')) {
+          created.push(createTrack(targetId, 'kineticPhase', motion.duration, targetElem))
+        }
       }
     }
 
@@ -536,6 +554,23 @@ export function MotionDrawer({
                 <option value="shaderOffsetY">Shader Offset Y</option>
                 <option value="shaderSpeed">Shader Speed</option>
               </optgroup>
+              <optgroup label={`Variable Typography & Kinetics ${currentLayer?.type === 'text' ? '(Active)' : '(Requires Text Layer)'}`}>
+                <option value="fontWeight" disabled={currentLayer?.type !== 'text'}>Font Weight (wght)</option>
+                <option value="fontWidth" disabled={currentLayer?.type !== 'text'}>Font Width (wdth)</option>
+                <option value="fontSlant" disabled={currentLayer?.type !== 'text'}>Font Slant (slnt)</option>
+                <option value="fontOpticalSize" disabled={currentLayer?.type !== 'text'}>Optical Size (opsz)</option>
+                <option value="fontSize" disabled={currentLayer?.type !== 'text'}>Font Size</option>
+                <option value="letterSpacing" disabled={currentLayer?.type !== 'text'}>Tracking</option>
+                <option value="lineHeight" disabled={currentLayer?.type !== 'text'}>Line Height</option>
+                <option value="textPathOffset" disabled={currentLayer?.type !== 'text'}>Text Path Offset</option>
+                <option value="kineticPhase" disabled={currentLayer?.type !== 'text'}>Kinetic Phase</option>
+                <option value="kineticAmplitude" disabled={currentLayer?.type !== 'text'}>Kinetic Amplitude</option>
+                <option value="kineticRotation" disabled={currentLayer?.type !== 'text'}>Kinetic Rotation</option>
+                <option value="kineticStagger" disabled={currentLayer?.type !== 'text'}>Kinetic Stagger</option>
+                <option value="kineticWeightModulation" disabled={currentLayer?.type !== 'text'}>Kinetic Weight Mod</option>
+                <option value="kineticSlantModulation" disabled={currentLayer?.type !== 'text'}>Kinetic Slant Mod</option>
+                <option value="kineticScaleModulation" disabled={currentLayer?.type !== 'text'}>Kinetic Scale Mod</option>
+              </optgroup>
             </select>
 
             <button
@@ -626,6 +661,7 @@ export function MotionDrawer({
                       const isCurrent = track?.id === item.id
                       const liveVal = trackValue(item, currentTimeMs)
                       const isShader = isShaderProperty(item.property)
+                      const isTypo = isTypographyProperty(item.property)
 
                       return (
                         <div
@@ -651,8 +687,12 @@ export function MotionDrawer({
                               }}
                             >
                               <div className="motion-prop-name-row">
-                                <span className={`motion-prop-kind-badge ${isShader ? 'is-shader' : 'is-transform'}`}>
-                                  {isShader ? 'SH' : 'TR'}
+                                <span
+                                  className={`motion-prop-kind-badge ${
+                                    isShader ? 'is-shader' : isTypo ? 'is-typography' : 'is-transform'
+                                  }`}
+                                >
+                                  {isShader ? 'SH' : isTypo ? 'TY' : 'TR'}
                                 </span>
                                 <strong>{meta.label}</strong>
                               </div>
@@ -813,6 +853,16 @@ export function MotionDrawer({
                       <Sparkles size={11} />
                       Animate Shader Params
                     </button>
+                    {currentLayer?.type === 'text' && (
+                      <button
+                        type="button"
+                        className="motion-starter-btn"
+                        onClick={() => applyStarterTemplate('kinetic-typography')}
+                      >
+                        <Type size={11} />
+                        Animate Kinetic Typography
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

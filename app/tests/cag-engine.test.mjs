@@ -234,3 +234,62 @@ test('createSyntheticVectorPath creates well-formed PathElement from SVG path', 
   assert.equal(el.height, 100)
   assert.deepEqual(el.viewBox, [10, 20, 100, 100])
 })
+
+test('evaluateCAG handles disjoint shapes cleanly for union, difference, intersection and exclusion', () => {
+  const r1 = createElement('rectangle', { id: 'r1', x: 0, y: 0, width: 50, height: 50 })
+  const r2 = createElement('rectangle', { id: 'r2', x: 100, y: 100, width: 50, height: 50 })
+
+  const union = evaluateCAG([r1, r2], 'union')
+  close(union.metrics.area, 5000)
+  assert.equal(union.metrics.contourCount, 2)
+
+  const diff = evaluateCAG([r1, r2], 'difference')
+  close(diff.metrics.area, 2500)
+  assert.equal(diff.metrics.contourCount, 1)
+
+  const inter = evaluateCAG([r1, r2], 'intersection')
+  close(inter.metrics.area, 0)
+  assert.equal(inter.cleanD, '')
+
+  const excl = evaluateCAG([r1, r2], 'exclusion')
+  close(excl.metrics.area, 5000)
+  assert.equal(excl.metrics.contourCount, 2)
+})
+
+test('exportCleanSVGGeometry formats clean SVG directly from compound PathElement', () => {
+  const r1 = createElement('rectangle', { id: 'r1', x: 0, y: 0, width: 100, height: 100 })
+  const r2 = createElement('rectangle', { id: 'r2', x: 50, y: 50, width: 100, height: 100 })
+  const union = evaluateCAG([r1, r2], 'union')
+
+  const compoundElement = createElement('path', {
+    id: 'compound-1',
+    name: 'Compound Union',
+    x: union.bounds.x,
+    y: union.bounds.y,
+    width: union.bounds.width,
+    height: union.bounds.height,
+    d: union.cleanD,
+    viewBox: union.viewBox,
+    fillRule: union.fillRule,
+    boolean: {
+      operation: 'union',
+      operands: [r1, r2],
+    },
+    style: {
+      fill: '#81adec',
+      stroke: { color: '#080808', width: 1.5, dash: [] },
+      opacity: 1,
+      shadow: null,
+    },
+  })
+
+  const standaloneSvg = exportCleanSVGGeometry(compoundElement, {
+    standalone: true,
+  })
+
+  assert.match(standaloneSvg, /<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/)
+  assert.match(standaloneSvg, /<path d="M 0 0/)
+  assert.match(standaloneSvg, /fill="#81adec"/)
+  assert.match(standaloneSvg, /stroke="#080808"/)
+  assert.match(standaloneSvg, /stroke-width="1.5"/)
+})

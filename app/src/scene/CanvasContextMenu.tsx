@@ -7,6 +7,9 @@ import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
   AlignEndHorizontal,
+  Boxes,
+  CircleDot,
+  Combine,
   Copy,
   Scissors,
   ClipboardPaste,
@@ -23,9 +26,12 @@ import {
   Code2,
   FileCode,
   Frame,
+  MinusCircle,
   Square,
   Circle,
+  Split,
   Type,
+  Unlink,
   Maximize,
   ZoomIn,
   LayoutGrid,
@@ -37,7 +43,8 @@ import { alignSelection, createAutoLayoutSelection, deleteSelection, duplicateSe
 import type { Alignment, LayerOrder } from './arrange'
 import { selectionRoots } from './selectionGeometry'
 import type { SceneStore } from './store'
-import type { ElementType } from './types'
+import type { BooleanOperation, ElementType } from './types'
+import { cleanSvgPathGeometry } from './cagEngine'
 import { sceneToSVG } from '../io/svg'
 import { buildReactComponent } from '../tokens/codegen'
 import { importClipboard, insertImportedScene } from '../io/import'
@@ -244,6 +251,52 @@ export function CanvasContextMenu({ store, controller, position, onClose }: Canv
     onClose()
   }
 
+  const isCompound = isSingle && firstNode?.type === 'path' && !!firstNode.boolean
+  const canBoolean = selectedRoots.length >= 2 && !store.booleanSelectionReason(selectedRoots)
+
+  const handleBoolean = (operation: BooleanOperation) => {
+    try {
+      store.booleanSelection(operation, false, selectedRoots)
+    } catch (e) {
+      console.error('Failed to perform boolean operation:', e)
+    }
+    onClose()
+  }
+
+  const handleFlattenCompound = () => {
+    if (firstNode && isCompound) {
+      try {
+        store.flattenBoolean(firstNode.id)
+      } catch (e) {
+        console.error('Failed to flatten compound:', e)
+      }
+    }
+    onClose()
+  }
+
+  const handleReleaseCompound = () => {
+    if (firstNode && isCompound) {
+      try {
+        store.releaseBoolean(firstNode.id)
+      } catch (e) {
+        console.error('Failed to release compound sources:', e)
+      }
+    }
+    onClose()
+  }
+
+  const handleCopyCleanPath = async () => {
+    if (firstNode && firstNode.type === 'path') {
+      try {
+        const cleanD = cleanSvgPathGeometry(firstNode.d, { precision: 4 })
+        await copyToClipboard(cleanD)
+      } catch (e) {
+        console.error('Failed to copy clean SVG path:', e)
+      }
+    }
+    onClose()
+  }
+
   const handleAddElement = (type: ElementType) => {
     const w = type === 'frame' ? 720 : type === 'text' ? 240 : 120
     const h = type === 'frame' ? 480 : type === 'text' ? 48 : 120
@@ -321,6 +374,27 @@ export function CanvasContextMenu({ store, controller, position, onClose }: Canv
           <MenuItem icon={<Frame size={14} />} label="Group Selection" shortcut={`${modKey}G`} onClick={handleGroupInFrame} />
           {selectedRoots.some(id => state.elements[id]?.type === 'frame') && (
             <MenuItem icon={<Ungroup size={14} />} label="Ungroup" shortcut={`${modKey}Shift+G`} onClick={handleUngroup} />
+          )}
+
+          {canBoolean && (
+            <>
+              <div className="context-menu-separator" />
+              <div className="context-menu-header">Boolean (CAG)</div>
+              <MenuItem icon={<Combine size={14} />} label="Union (∪)" onClick={() => handleBoolean('union')} />
+              <MenuItem icon={<MinusCircle size={14} />} label="Subtract (∖)" onClick={() => handleBoolean('subtract')} />
+              <MenuItem icon={<Boxes size={14} />} label="Intersect (∩)" onClick={() => handleBoolean('intersect')} />
+              <MenuItem icon={<CircleDot size={14} />} label="Exclude (⊕)" onClick={() => handleBoolean('exclude')} />
+            </>
+          )}
+
+          {isCompound && (
+            <>
+              <div className="context-menu-separator" />
+              <div className="context-menu-header">Compound Shape</div>
+              <MenuItem icon={<Copy size={14} />} label="Copy Clean SVG Path" onClick={handleCopyCleanPath} />
+              <MenuItem icon={<Split size={14} />} label="Flatten Compound Path" onClick={handleFlattenCompound} />
+              <MenuItem icon={<Unlink size={14} />} label="Release Compound Sources" onClick={handleReleaseCompound} />
+            </>
           )}
 
           <div className="context-menu-separator" />

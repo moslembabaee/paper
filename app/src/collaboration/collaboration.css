@@ -58,10 +58,12 @@
 .presence-stop span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .collaboration-overlay { position: absolute; inset: var(--ruler-size) 0 0 var(--ruler-size); overflow: hidden; z-index: 6; pointer-events: none; }
 .remote-cursor { position: absolute; top: 0; left: 0; will-change: transform; visibility: hidden; }
-.remote-cursor svg { display: block; filter: drop-shadow(0 1px 2px #08080820); }
-.remote-cursor > span { position: absolute; top: 22px; left: 14px; max-width: 150px; padding: 4px 7px; color: #080808; background: var(--presence-color); font: 500 10px/1.3 var(--font-sans); border-radius: 0 4px 4px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 5px #08080815; }
-.remote-selection { position: absolute; top: 0; left: 0; transform-origin: 0 0; border: 1px solid var(--presence-color); box-sizing: border-box; visibility: hidden; }
-.remote-selection > span { position: absolute; top: -19px; left: -1px; max-width: 150px; padding: 3px 6px; background: var(--presence-color); color: #080808; font: 500 9px/12px var(--font-sans); border-radius: 3px 3px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.remote-cursor svg { display: block; filter: drop-shadow(0 1px 2px #08080820); transition: transform 0.08s ease; }
+.remote-cursor.pointer-down svg { transform: scale(0.9); transform-origin: 1.5px 1.5px; }
+.remote-cursor > span { position: absolute; top: 22px; left: 14px; max-width: 180px; padding: 4px 7px; color: #080808; background: var(--presence-color); font: 500 10px/1.3 var(--font-sans); border-radius: 0 4px 4px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 5px #08080815; }
+.remote-cursor-chat { position: absolute; bottom: calc(100% + 4px); left: 14px; max-width: 200px; padding: 5px 9px; background: var(--presence-surface, #222222); color: var(--presence-ink, #edebe1); border: 1px solid var(--presence-color); border-radius: 6px; font: 500 11px/1.3 var(--font-sans); white-space: normal; word-break: break-word; pointer-events: none; box-shadow: 0 4px 12px rgba(8, 8, 8, 0.4); }
+.remote-selection { position: absolute; top: 0; left: 0; transform-origin: 0 0; border: 1.5px solid var(--presence-color); box-shadow: 0 0 0 1px rgba(8, 8, 8, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.08); box-sizing: border-box; visibility: hidden; pointer-events: none; }
+.remote-selection > span { position: absolute; top: -19px; left: -1.5px; max-width: 150px; padding: 3px 6px; background: var(--presence-color); color: #080808; font: 500 9px/12px var(--font-sans); border-radius: 3px 3px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 1px 3px rgba(8, 8, 8, 0.2); }
 .follow-banner { position: absolute; top: 83px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #81adec50; border-radius: 6px; background: var(--paper-surface); box-shadow: var(--paper-shadow-sm); color: var(--paper-text-secondary); font-size: 10px; white-space: nowrap; }
 .follow-banner > span:first-child { width: 5px; height: 5px; border-radius: 50%; }
 .follow-banner strong { font-weight: 500; color: var(--paper-text); }

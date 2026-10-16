@@ -15,9 +15,28 @@ function overrideCount(overrides: ComponentOverrides): number {
 }
 function overrideLabels(node: SceneElement): string[] {
   if (node.component?.kind !== 'instance') return []
-  const { properties, style, tokenBindings } = node.component.overrides
-  const names: Record<string, string> = { fill: 'Fill', stroke: 'Stroke', opacity: 'Opacity', text: 'Text', name: 'Name', fontFamily: 'Font', fontSize: 'Text size', fontWeight: 'Weight', cornerRadius: 'Radius', tokenBindings: 'Tokens' }
-  return [...Object.keys(properties ?? {}), ...Object.keys(style ?? {}), ...(tokenBindings && Object.keys(tokenBindings).length ? ['tokenBindings'] : [])].map(key => names[key] ?? key[0].toUpperCase() + key.slice(1))
+  const { properties, style, tokenBindings, sharedStyleBindings } = node.component.overrides
+  const names: Record<string, string> = {
+    fill: 'Fill',
+    stroke: 'Stroke',
+    opacity: 'Opacity',
+    text: 'Text',
+    name: 'Name',
+    fontFamily: 'Font',
+    fontSize: 'Text size',
+    fontWeight: 'Weight',
+    cornerRadius: 'Radius',
+    tokenBindings: 'Tokens',
+    sharedStyleBindings: 'Styles',
+    shader: 'Shader FX',
+    kinetic: 'Kinetic Motion',
+  }
+  return [
+    ...Object.keys(properties ?? {}),
+    ...Object.keys(style ?? {}),
+    ...(tokenBindings && Object.keys(tokenBindings).length ? ['tokenBindings'] : []),
+    ...(sharedStyleBindings && Object.keys(sharedStyleBindings).length ? ['sharedStyleBindings'] : []),
+  ].map(key => names[key] ?? key[0].toUpperCase() + key.slice(1))
 }
 
 export function ComponentInspector({ store, controller, node }: { store: SceneStore; controller: ViewportController; node: SceneElement }) {

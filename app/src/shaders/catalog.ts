@@ -94,6 +94,46 @@ export const shaderCatalog = {
       number('modulatorDepth', 'Modulator depth'),
     ],
   },
+  'procedural-noise': {
+    label: 'Procedural Noise',
+    description: 'Multi-octave Simplex, Perlin, and Worley noise with normal-map displacement.',
+    defaults: {
+      noiseType: 'simplex',
+      frequency: 3.5,
+      octaves: 3,
+      lacunarity: 2.0,
+      persistence: 0.5,
+      turbulence: 0.2,
+      displacement: 0.35,
+      normalPerturbation: 0.4,
+      grainMixer: 0.12,
+      grainOverlay: 0.08,
+      colorFront: '#edebe1',
+      colorMid: '#81adec',
+      colorBack: '#080808',
+      lightAngle: 45,
+      specularStrength: 0.35,
+      viewMode: 'shaded',
+    },
+    controls: [
+      select('noiseType', 'Generator', ['simplex', 'perlin', 'worley']),
+      number('frequency', 'Frequency', 0.5, 20, 0.1),
+      number('octaves', 'Octaves', 1, 8, 1, true),
+      number('lacunarity', 'Lacunarity', 1.0, 5.0, 0.1),
+      number('persistence', 'Roughness', 0.1, 1.0, 0.05),
+      number('turbulence', 'Turbulence'),
+      number('displacement', 'Displacement'),
+      number('normalPerturbation', 'Normal bump'),
+      number('grainMixer', 'Grain mixer'),
+      number('grainOverlay', 'Grain overlay'),
+      color('colorFront', 'Highlight'),
+      color('colorMid', 'Midtone'),
+      color('colorBack', 'Base'),
+      number('lightAngle', 'Light angle', 0, 360, 1),
+      number('specularStrength', 'Specular'),
+      select('viewMode', 'View mode', ['shaded', 'normal-map', 'heightmap']),
+    ],
+  },
 } satisfies { [K in ShaderKind]: ShaderDefinition<K> }
 
 export const shaderKinds = Object.keys(shaderCatalog) as ShaderKind[]
@@ -118,7 +158,7 @@ export function freezeShader(paint: ShaderPaint): ShaderPaint {
   if (
     Object.isFrozen(paint) &&
     (!paint.postProcessing || (Object.isFrozen(paint.postProcessing) && Object.isFrozen(paint.postProcessing.passes) && paint.postProcessing.passes.every(pass => Object.isFrozen(pass) && Object.isFrozen(pass.params)))) &&
-    (!paint.mesh || (Object.isFrozen(paint.mesh) && Object.isFrozen(paint.mesh.anchors) && paint.mesh.anchors.every(Object.isFrozen))) &&
+    (!paint.mesh || (Object.isFrozen(paint.mesh) && Object.isFrozen(paint.mesh.anchors) && paint.mesh.anchors.every(Object.isFrozen) && (!paint.mesh.grid || (Object.isFrozen(paint.mesh.grid) && Object.isFrozen(paint.mesh.grid.vertices) && paint.mesh.grid.vertices.every(Object.isFrozen))))) &&
     (!paint.pipeline ||
       (Object.isFrozen(paint.pipeline) &&
         Object.isFrozen(paint.pipeline.passes) &&
@@ -158,7 +198,14 @@ export function freezeShader(paint: ShaderPaint): ShaderPaint {
   return Object.freeze({
     ...paint,
     ...(paint.postProcessing ? { postProcessing: freezePostProcessing(paint.postProcessing) } : {}),
-    ...(paint.mesh ? { mesh: Object.freeze({ ...paint.mesh, anchors: Object.freeze(paint.mesh.anchors.map(anchor => Object.freeze({ ...anchor }))) }) } : {}),
+    ...(paint.mesh ? { mesh: Object.freeze({
+      ...paint.mesh,
+      anchors: Object.freeze(paint.mesh.anchors.map(anchor => Object.freeze({ ...anchor }))),
+      ...(paint.mesh.grid ? { grid: Object.freeze({
+        ...paint.mesh.grid,
+        vertices: Object.freeze(paint.mesh.grid.vertices.map(v => Object.freeze({ ...v }))),
+      }) } : {}),
+    }) } : {}),
     ...(pipeline ? { pipeline } : {}),
     ...(paint.composite ? { composite: Object.freeze({ ...paint.composite }) } : {}),
     params: Object.freeze(params),

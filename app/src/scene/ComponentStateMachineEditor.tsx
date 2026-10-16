@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   ArrowRight,
   ChevronDown,
@@ -23,7 +23,9 @@ import {
   DEFAULT_INTERACTIVE_STATES,
   DEFAULT_STATE_TRIGGERS,
   STATE_TRIGGER_LABELS,
+  findDelayedTransition,
   getEffectiveStateMachine,
+  resolveNextState,
 } from './stateMachine.ts'
 
 export function ComponentStateMachineEditor({
@@ -41,6 +43,7 @@ export function ComponentStateMachineEditor({
   const [fromState, setFromState] = useState<string>('default')
   const [trigger, setTrigger] = useState<ComponentStateTrigger>('on-hover')
   const [targetState, setTargetState] = useState<string>('hover')
+  const [delay, setDelay] = useState<number>(300)
   const [sandboxState, setSandboxState] = useState<string>('default')
   const [error, setError] = useState('')
 
@@ -52,6 +55,17 @@ export function ComponentStateMachineEditor({
     (variantProp && variantProp.kind === 'variant'
       ? variantProp.options.map(o => o.value)
       : DEFAULT_INTERACTIVE_STATES)
+
+  // Auto-advance sandbox state when entering a state with an after-delay transition
+  useEffect(() => {
+    if (!machine) return
+    const delayed = findDelayedTransition(machine, sandboxState)
+    if (!delayed) return
+    const timeout = setTimeout(() => {
+      setSandboxState(delayed.targetState)
+    }, delayed.delay ?? 300)
+    return () => clearTimeout(timeout)
+  }, [machine, sandboxState])
 
   const perform = (action: () => void) => {
     try {
@@ -91,6 +105,7 @@ export function ComponentStateMachineEditor({
         trigger,
         targetState,
         spring: DEFAULT_SPRING,
+        ...(trigger === 'after-delay' ? { delay: Math.max(0, Math.min(60000, delay || 300)) } : {}),
       }
       updateMachine({
         ...machine,
@@ -124,11 +139,19 @@ export function ComponentStateMachineEditor({
   // Interactive sandbox trigger handler
   const handleSandboxTrigger = (eventTrigger: ComponentStateTrigger) => {
     if (!machine) return
-    const transition = machine.transitions.find(
-      t => t.fromState === sandboxState && t.trigger === eventTrigger
-    )
-    if (transition) {
-      setSandboxState(transition.targetState)
+    const resolved = resolveNextState(machine, sandboxState, eventTrigger)
+    if (resolved) {
+      setSandboxState(resolved.targetState)
+    }
+  }
+
+  const handleSandboxLeave = () => {
+    if (!machine) return
+    const exit = resolveNextState(machine, sandboxState, 'on-hover-end')
+    if (exit) {
+      setSandboxState(exit.targetState)
+    } else if (sandboxState === 'hover' || sandboxState === 'pressed') {
+      setSandboxState(machine.initial)
     }
   }
 
@@ -213,14 +236,10 @@ export function ComponentStateMachineEditor({
             <div
               className="sandbox-stage"
               onMouseEnter={() => handleSandboxTrigger('on-hover')}
-              onMouseLeave={() => {
-                // If in hover or pressed, return to default
-                if (sandboxState === 'hover' || sandboxState === 'pressed') {
-                  setSandboxState(machine.initial)
-                }
-              }}
-              onMouseDown={() => handleSandboxTrigger('while-pressed')}
+              onMouseLeave={handleSandboxLeave}
+              onMouseDown={() => handleSandboxTrigger('on-pointerdown')}
               onMouseUp={() => {
+                handleSandboxTrigger('on-pointerup')
                 if (sandboxState === 'pressed') {
                   const clickTransition = machine.transitions.find(
                     t => t.fromState === 'pressed' && t.trigger === 'on-click'
@@ -289,6 +308,7 @@ export function ComponentStateMachineEditor({
                   <div className="transition-spring-pill">
                     <span>
                       k: {t.spring.stiffness} · c: {t.spring.damping} · m: {t.spring.mass} · {duration}ms
+                      {t.delay !== undefined ? ` · ${t.delay}ms delay` : ''}
                     </span>
                   </div>
 
@@ -351,6 +371,20 @@ export function ComponentStateMachineEditor({
                     ))}
                   </select>
                 </label>
+                {trigger === 'after-delay' && (
+                  <label className="prototype-field">
+                    Delay (ms)
+                    <input
+                      type="number"
+                      className="property-input"
+                      value={delay}
+                      min={0}
+                      max={60000}
+                      step={50}
+                      onChange={e => setDelay(e.currentTarget.valueAsNumber || 0)}
+                    />
+                  </label>
+                )}
               </div>
               <div className="add-transition-actions">
                 <button

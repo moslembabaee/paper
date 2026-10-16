@@ -1,7 +1,14 @@
 import type { Point } from '../canvas/types.ts'
 
 export type HandleType = 'mirrored' | 'asymmetric' | 'disconnected'
-export interface PathAnchor extends Point { in?: Point; out?: Point; handleType?: HandleType; cornerRadius?: number }
+export type CurveMode = 'cubic' | 'quadratic'
+export interface PathAnchor extends Point {
+  in?: Point
+  out?: Point
+  handleType?: HandleType
+  cornerRadius?: number
+  curveMode?: CurveMode
+}
 export interface PathContour { anchors: PathAnchor[]; closed: boolean }
 export interface PathNodes { readonly anchors: readonly PathAnchor[]; readonly closed: boolean }
 export interface AnchorSelection { contour: number; anchor: number }
@@ -237,3 +244,135 @@ export function nearestPathSegment(contours: readonly PathNodes[], target: Point
   })
   return hit
 }
+
+/** Converts a quadratic control point (Q) into equivalent cubic Bézier incoming/outgoing handles. */
+export function quadToCubicHandles(p0: Point, q: Point, p1: Point): { out: Point; in: Point } {
+  return {
+    out: point(p0.x + (2 / 3) * (q.x - p0.x), p0.y + (2 / 3) * (q.y - p0.y)),
+    in: point(p1.x + (2 / 3) * (q.x - p1.x), p1.y + (2 / 3) * (q.y - p1.y)),
+  }
+}
+
+/** Computes the quadratic Bézier apex control point Q from endpoints and cubic handles. */
+export function cubicHandlesToQuadApex(p0: Point, out: Point, in_: Point, p1: Point): Point {
+  const q1 = point(p0.x + 1.5 * (out.x - p0.x), p0.y + 1.5 * (out.y - p0.y))
+  const q2 = point(p1.x + 1.5 * (in_.x - p1.x), p1.y + 1.5 * (in_.y - p1.y))
+  return point((q1.x + q2.x) / 2, (q1.y + q2.y) / 2)
+}
+
+/** Interactively bends a path segment to match a target pointer point in cubic or quadratic mode. */
+export function bendSegment(
+  a: PathAnchor,
+  b: PathAnchor,
+  t: number,
+  dragPoint: Point,
+  mode: CurveMode = 'cubic'
+): { out: Point; in: Point; quadApex?: Point } {
+  const clampedT = Math.max(0.05, Math.min(0.95, t))
+  if (mode === 'quadratic' || (!a.out && !b.in)) {
+    // Solve for quadratic control point Q: P(t) = (1-t)^2*P0 + 2*(1-t)*t*Q + t^2*P1
+    const denom = 2 * (1 - clampedT) * clampedT
+    const qx = (dragPoint.x - (1 - clampedT) ** 2 * a.x - clampedT ** 2 * b.x) / denom
+    const qy = (dragPoint.y - (1 - clampedT) ** 2 * a.y - clampedT ** 2 * b.y) / denom
+    const quadApex = point(qx, qy)
+    const { out, in: in_ } = quadToCubicHandles(a, quadApex, b)
+    return { out, in: in_, quadApex }
+  } else {
+    // Cubic Bézier curvature distribution:
+    const current = segmentPoint(a, b, clampedT)
+    const delta = point(dragPoint.x - current.x, dragPoint.y - current.y)
+    const factor = 4 / 3
+    const w1 = factor * 2 * (1 - clampedT)
+    const w2 = factor * 2 * clampedT
+    const out = point((a.out?.x ?? a.x) + delta.x * w1, (a.out?.y ?? a.y) + delta.y * w1)
+    const in_ = point((b.in?.x ?? b.x) + delta.x * w2, (b.in?.y ?? b.y) + delta.y * w2)
+    return { out, in: in_ }
+  }
+}
+
+/** Toggles an anchor between sharp corner (no handles) and smooth continuous curvature (mirrored handles). */
+export function toggleNodeCornerSmooth(anchor: PathAnchor, contour: PathNodes, index: number): PathAnchor {
+  if (anchor.in || anchor.out) {
+    return {
+      x: anchor.x,
+      y: anchor.y,
+      cornerRadius: anchor.cornerRadius ?? 0,
+      handleType: 'disconnected',
+    }
+  } else {
+    return setHandleType(contour, index, 'mirrored')
+  }
+}
+
+/** Checks whether a path anchor represents a smooth continuous curvature node. */
+export function isSmoothNode(anchor: PathAnchor): boolean {
+  if (!anchor.in && !anchor.out) return false
+  const type = getHandleType(anchor)
+  return type === 'mirrored' || type === 'asymmetric'
+}
+
+/** Snaps a world point to 120px major or 24px minor engineering grid lines within screen tolerance. */
+export function snapToGrid(
+  p: Point,
+  enabled: boolean,
+  major = 120,
+  minor = 24,
+  screenTolerance = 8,
+  zoom = 1
+): { point: Point; snapped: boolean; type?: 'major' | 'minor' } {
+  if (!enabled) return { point: p, snapped: false }
+  const worldTol = screenTolerance / Math.max(zoom, 0.001)
+
+  const snapCoord = (val: number, step: number): { value: number; snapped: boolean } => {
+    const nearest = Math.round(val / step) * step
+    if (Math.abs(val - nearest) <= worldTol) {
+      return { value: nearest, snapped: true }
+    }
+    return { value: val, snapped: false }
+  }
+
+  const snapMajorX = snapCoord(p.x, major)
+  const snapMajorY = snapCoord(p.y, major)
+
+  if (snapMajorX.snapped || snapMajorY.snapped) {
+    return {
+      point: point(snapMajorX.value, snapMajorY.value),
+      snapped: true,
+      type: 'major',
+    }
+  }
+
+  const snapMinorX = snapCoord(p.x, minor)
+  const snapMinorY = snapCoord(p.y, minor)
+
+  if (snapMinorX.snapped || snapMinorY.snapped) {
+    return {
+      point: point(snapMinorX.value, snapMinorY.value),
+      snapped: true,
+      type: 'minor',
+    }
+  }
+
+  return { point: p, snapped: false }
+}
+
+/** Euclidean length between two points. */
+export function segmentLength(a: Point, b: Point): number {
+  return Math.hypot(b.x - a.x, b.y - a.y)
+}
+
+/** Angle in degrees [0, 360) from a to b. */
+export function segmentAngle(a: Point, b: Point): number {
+  return ((Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI) + 360) % 360
+}
+
+/** Estimates curvature radius (Menger curvature) through three points. */
+export function curveRadius(p0: Point, p1: Point, p2: Point): number {
+  const d01 = segmentLength(p0, p1)
+  const d12 = segmentLength(p1, p2)
+  const d02 = segmentLength(p0, p2)
+  const area2 = Math.abs((p1.x - p0.x) * (p2.y - p0.y) - (p1.y - p0.y) * (p2.x - p0.x))
+  if (area2 < 1e-6) return Infinity
+  return (d01 * d12 * d02) / (2 * area2)
+}
+

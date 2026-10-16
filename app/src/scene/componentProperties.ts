@@ -28,12 +28,60 @@ export function validateComponentProperties(properties: readonly ComponentProper
       if (property.stateMachine !== undefined) {
         validateStateMachine(property.stateMachine, Array.from(values))
       }
-    } else if ((property.kind !== 'boolean' && property.kind !== 'text') || !safeId(property.sourceId) || typeof property.defaultValue !== (property.kind === 'boolean' ? 'boolean' : 'string')) throw new Error('Invalid component property')
+    } else if (property.kind === 'boolean') {
+      if (!safeId(property.sourceId) || typeof property.defaultValue !== 'boolean') throw new Error('Invalid component property')
+      if (property.targetProperty && !['visible', 'kinetic.enabled', 'clipContent'].includes(property.targetProperty)) throw new Error('Invalid boolean target property')
+    } else if (property.kind === 'text') {
+      if (!safeId(property.sourceId) || typeof property.defaultValue !== 'string') throw new Error('Invalid component property')
+    } else if (property.kind === 'color') {
+      if (!safeId(property.sourceId) || typeof property.defaultValue !== 'string') throw new Error('Invalid component property')
+      if (property.targetProperty && !['fill', 'stroke', 'shader'].includes(property.targetProperty)) throw new Error('Invalid color target property')
+    } else if (property.kind === 'number') {
+      if (!safeId(property.sourceId) || typeof property.defaultValue !== 'number' || !Number.isFinite(property.defaultValue)) throw new Error('Invalid component property')
+    } else if (property.kind === 'kinetic') {
+      if (!safeId(property.sourceId) || !property.targetProperty) throw new Error('Invalid component property')
+      const validTargets = ['enabled', 'amplitude', 'rotation', 'duration', 'stagger', 'waveShape', 'staggerMode', 'weightModulation', 'slantModulation', 'scaleModulation']
+      if (!validTargets.includes(property.targetProperty)) throw new Error('Invalid kinetic target property')
+    } else if (property.kind === 'shader') {
+      if (!safeId(property.sourceId) || !property.targetProperty) throw new Error('Invalid component property')
+      const validTargets = ['speed', 'scale', 'rotation', 'frequency', 'octaves', 'turbulence', 'displacement', 'viewMode', 'blendMode']
+      if (!validTargets.includes(property.targetProperty)) throw new Error('Invalid shader target property')
+    } else {
+      throw new Error('Invalid component property')
+    }
   }
 }
 
 export function validPropertyValue(property: ComponentProperty, value: ComponentPropertyValue): boolean {
-  return property.kind === 'boolean' ? typeof value === 'boolean' : typeof value === 'string' && (property.kind === 'text' || property.options.some(option => option.value === value))
+  if (property.kind === 'boolean') {
+    return typeof value === 'boolean'
+  }
+  if (property.kind === 'variant') {
+    return typeof value === 'string' && (
+      property.options.some(option => option.value === value) ||
+      Boolean(property.stateMachine?.states.includes(value))
+    )
+  }
+  if (property.kind === 'text' || property.kind === 'color') {
+    return typeof value === 'string'
+  }
+  if (property.kind === 'number') {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return false
+    if (property.min !== undefined && value < property.min) return false
+    if (property.max !== undefined && value > property.max) return false
+    return true
+  }
+  if (property.kind === 'kinetic') {
+    if (property.targetProperty === 'enabled') return typeof value === 'boolean'
+    if (property.targetProperty === 'waveShape') return typeof value === 'string' && ['triangle', 'sine', 'bounce', 'spring'].includes(value)
+    if (property.targetProperty === 'staggerMode') return typeof value === 'string' && ['cascade', 'wave', 'center-out', 'random', 'elastic'].includes(value)
+    return typeof value === 'number' && Number.isFinite(value)
+  }
+  if (property.kind === 'shader') {
+    if (property.targetProperty === 'blendMode' || property.targetProperty === 'viewMode') return typeof value === 'string'
+    return typeof value === 'number' && Number.isFinite(value)
+  }
+  return false
 }
 
 /** Variants compose first; slots then win over variants, and local layer edits win last. */
@@ -54,7 +102,75 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
   for (const property of properties) {
     if (property.kind === 'variant' || property.sourceId !== source.id) continue
     const value = values[property.id] ?? property.defaultValue
-    apply({ properties: property.kind === 'text' ? { text: value as string } : { visible: value as boolean } })
+    if (property.kind === 'text') {
+      apply({ properties: { text: String(value) } })
+    } else if (property.kind === 'boolean') {
+      const boolVal = Boolean(value)
+      if (property.targetProperty === 'clipContent' && source.type === 'frame') {
+        apply({ properties: { clipContent: boolVal } })
+      } else if (property.targetProperty === 'kinetic.enabled' && source.type === 'text') {
+        const kineticOverrides = { ...(source.kinetic ?? { enabled: true, playing: true, amplitude: 16, rotation: 0, duration: 800, stagger: 40, phase: 0 }), enabled: boolVal }
+        apply({ properties: { kinetic: kineticOverrides } as any })
+      } else {
+        apply({ properties: { visible: boolVal } })
+      }
+    } else if (property.kind === 'color') {
+      const colorVal = String(value)
+      if (property.targetProperty === 'stroke') {
+        apply({ style: { stroke: { color: colorVal, width: source.style.stroke?.width ?? 1, dash: source.style.stroke?.dash ?? [] } } })
+      } else if (property.targetProperty === 'shader') {
+        if (source.style.shader) {
+          apply({ style: { shader: { ...source.style.shader, params: { ...source.style.shader.params, color: colorVal, tint: colorVal } as any } } })
+        }
+      } else {
+        apply({ style: { fill: colorVal } })
+      }
+    } else if (property.kind === 'number') {
+      const numVal = Number(value)
+      if (Number.isFinite(numVal)) {
+        const target = property.targetProperty ?? 'opacity'
+        if (target === 'opacity') {
+          apply({ style: { opacity: numVal } })
+        } else if (target === 'cornerRadius' && ('cornerRadius' in source)) {
+          apply({ properties: { cornerRadius: numVal } as any })
+        } else if (target === 'width') {
+          apply({ properties: { width: numVal } })
+        } else if (target === 'height') {
+          apply({ properties: { height: numVal } })
+        } else if (target === 'strokeWidth') {
+          apply({ style: { stroke: { color: source.style.stroke?.color ?? '#080808', width: numVal, dash: source.style.stroke?.dash ?? [] } } })
+        } else if (target === 'fontSize' && source.type === 'text') {
+          apply({ properties: { fontSize: numVal } })
+        } else if (target === 'fontWeight' && source.type === 'text') {
+          apply({ properties: { fontWeight: numVal } })
+        } else if (target === 'letterSpacing' && source.type === 'text') {
+          apply({ properties: { letterSpacing: numVal } })
+        } else if (target === 'lineHeight' && source.type === 'text') {
+          apply({ properties: { lineHeight: numVal } })
+        }
+      }
+    } else if (property.kind === 'kinetic' && source.type === 'text') {
+      const currentKinetic = source.kinetic ?? {
+        enabled: true,
+        playing: true,
+        amplitude: 16,
+        rotation: 0,
+        duration: 800,
+        stagger: 40,
+        phase: 0,
+        staggerMode: 'cascade',
+        waveShape: 'sine',
+      }
+      apply({ properties: { kinetic: { ...currentKinetic, [property.targetProperty]: value } } as any })
+    } else if (property.kind === 'shader' && source.style.shader) {
+      const prop = property.targetProperty
+      const existingShader = source.style.shader
+      if (['speed', 'scale', 'rotation'].includes(prop)) {
+        apply({ style: { shader: { ...existingShader, [prop]: typeof value === 'number' ? value : Number(value) } } })
+      } else {
+        apply({ style: { shader: { ...existingShader, params: { ...existingShader.params, [prop]: value } as any } } })
+      }
+    }
   }
   return next
 }
@@ -66,11 +182,18 @@ export function validatePropertyTargets(master: SceneElement, elements: Readonly
   for (const property of properties) {
     if (property.kind !== 'variant') {
       const source = sources.get(property.sourceId)
-      if (!source || (property.kind === 'text' && source.type !== 'text')) throw new Error('Choose a compatible layer inside this master')
+      if (!source) throw new Error('Choose a compatible layer inside this master')
+      if (property.kind === 'text' && source.type !== 'text') throw new Error('Choose a text layer for a text slot')
+      if (property.kind === 'kinetic' && source.type !== 'text') throw new Error('Choose a text layer for kinetic typography')
+      if (property.kind === 'shader' && !source.style.shader) throw new Error('Choose a layer with a shader for shader properties')
     } else for (const option of property.options) for (const [id, overrides] of Object.entries(option.layers)) {
       const source = sources.get(id)
       if (!source) throw new Error('Variant layer is outside this master')
-      for (const key of Object.keys(overrides.properties ?? {})) if (!(key in source) && key !== 'sizing' && !(source.type === 'frame' && key === 'layout') && !(source.type === 'path' && key === 'nodes')) throw new Error('Unsupported variant override')
+      for (const key of Object.keys(overrides.properties ?? {})) {
+        if (!(key in source) && key !== 'sizing' && !(source.type === 'frame' && key === 'layout') && !(source.type === 'path' && key === 'nodes') && !(source.type === 'text' && ['kinetic', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'].includes(key))) {
+          throw new Error('Unsupported variant override')
+        }
+      }
       validateElement(applyComponentOverrides(source, { kind: 'instance', masterId: master.id, sourceId: id, instanceId: master.id, overrides }, tokens, library))
     }
   }
