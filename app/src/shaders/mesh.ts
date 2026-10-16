@@ -1,7 +1,7 @@
 import type { MeshAnchor, MeshMaterial, ShaderPaint } from './types.ts'
 import { grainBlendModes } from './types.ts'
 
-export const clampUnit = (value: number) => Math.max(0, Math.min(1, value))
+export const clampUnit = (value: number) => Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0
 
 export function defaultMeshAnchor(index: number): MeshAnchor {
   const angle = index * 2.3999632297 - Math.PI / 2

@@ -17,6 +17,8 @@ interface Props {
   onSelect?: (index: number) => void
   onColorChange?: (color: string) => void
   onRadiusChange?: (radius: number) => void
+  onRadiusStart?: () => void
+  onRadiusEnd?: () => void
   onDelete?: () => void
   showCanvasControls?: boolean
 }
@@ -32,8 +34,11 @@ export function MeshAnchorHandle(props: Props) {
 
   useLayoutEffect(() => {
     latest.current = props
-    setHexInput(props.color.toUpperCase())
   })
+
+  useLayoutEffect(() => {
+    setHexInput(props.color.toUpperCase())
+  }, [props.color])
 
   useLayoutEffect(() => {
     if (props.selected) {
@@ -163,7 +168,7 @@ export function MeshAnchorHandle(props: Props) {
         aria-label={`Pick color for vertex ${props.index + 1}`}
         value={props.color.slice(0, 7)}
         style={{ display: 'none' }}
-        onChange={event => latest.current.onColorChange?.(event.currentTarget.value)}
+        onChange={event => latest.current.onColorChange?.(event.currentTarget.value + latest.current.color.slice(7))}
       />
 
       {canShowControls && (
@@ -184,7 +189,7 @@ export function MeshAnchorHandle(props: Props) {
                   type="color"
                   value={props.color.slice(0, 7)}
                   aria-label={`Color for vertex ${props.index + 1}`}
-                  onChange={event => latest.current.onColorChange?.(event.currentTarget.value)}
+                  onChange={event => latest.current.onColorChange?.(event.currentTarget.value + latest.current.color.slice(7))}
                 />
               </label>
               <input
@@ -240,6 +245,9 @@ export function MeshAnchorHandle(props: Props) {
                 step={0.05}
                 value={props.anchor.radius}
                 aria-label={`Spread influence for vertex ${props.index + 1}`}
+                onPointerDown={() => latest.current.onRadiusStart?.()}
+                onPointerUp={() => latest.current.onRadiusEnd?.()}
+                onBlur={() => latest.current.onRadiusEnd?.()}
                 onChange={event => latest.current.onRadiusChange?.(event.currentTarget.valueAsNumber)}
               />
               <output htmlFor={radiusId}>{props.anchor.radius.toFixed(2)}</output>

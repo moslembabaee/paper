@@ -21,6 +21,7 @@ export function MeshCanvasOverlay({ store, controller }: { store: SceneStore; co
   const [surfaceSize, setSurfaceSize] = useState({ width: 0, height: 0 })
   const host = useRef<HTMLDivElement>(null)
   const ownsGesture = useRef(false)
+  const ownsRadiusGesture = useRef(false)
   const activeAnchor = useMeshActiveAnchor()
   const placementMode = useMeshPlacementMode()
 
@@ -131,6 +132,19 @@ export function MeshCanvasOverlay({ store, controller }: { store: SceneStore; co
     store.endTransaction()
   }
 
+  const handleRadiusStart = () => {
+    if (store.getHistorySnapshot().active) return
+    ownsRadiusGesture.current = true
+    store.beginTransaction('Change mesh anchor radius')
+  }
+
+  const handleRadiusEnd = () => {
+    if (ownsRadiusGesture.current) {
+      ownsRadiusGesture.current = false
+      store.endTransaction()
+    }
+  }
+
   const handleRadiusChange = (index: number, radius: number) => {
     const currentNode = node ? store.getSnapshot().elements[node.id] : undefined
     const current = node ? currentNode?.style.shader : store.getSnapshot().backgroundShader
@@ -213,6 +227,8 @@ export function MeshCanvasOverlay({ store, controller }: { store: SceneStore; co
             onSelect={idx => setMeshActiveAnchor(idx)}
             onColorChange={color => handleColorChange(index, color)}
             onRadiusChange={radius => handleRadiusChange(index, radius)}
+            onRadiusStart={handleRadiusStart}
+            onRadiusEnd={handleRadiusEnd}
             onDelete={mesh.anchors.length > 2 ? () => handleDelete(index) : undefined}
             project={(clientX, clientY) => {
               const rect = host.current!.getBoundingClientRect()

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import ts from 'typescript'
 import { SceneStore } from '../src/scene/store.ts'
 import { createShader, freezeShader, updateShaderParameter, validateShader } from '../src/shaders/catalog.ts'
-import { meshToSurface, surfaceToMesh, meshUniforms, parseHexColor, toHexColor, interpolateMeshColor, interpolatePaletteColors, smoothMeshColors, generateGridLayout, generateRadialLayout, generateSpiralLayout, MESH_PALETTE_PRESETS } from '../src/shaders/mesh.ts'
+import { clampUnit, meshToSurface, surfaceToMesh, meshUniforms, parseHexColor, toHexColor, interpolateMeshColor, interpolatePaletteColors, smoothMeshColors, generateGridLayout, generateRadialLayout, generateSpiralLayout, MESH_PALETTE_PRESETS } from '../src/shaders/mesh.ts'
 import { getMeshActiveAnchor, setMeshActiveAnchor, getMeshPlacementMode, setMeshPlacementMode, subscribeMeshState } from '../src/shaders/meshState.ts'
 import { exportMeshReact } from '../src/shaders/shaderExport.ts'
 import { createProject } from '../src/io/project.ts'
@@ -122,6 +122,12 @@ test('mesh color parser and hex conversion roundtrip faithfully', () => {
   assert.ok(Math.abs(semiTrans.a - 128 / 255) < 0.01)
   const roundtripped = toHexColor(semiTrans)
   assert.ok(roundtripped.startsWith('#123456'))
+
+  assert.equal(clampUnit(0.5), 0.5)
+  assert.equal(clampUnit(-5), 0)
+  assert.equal(clampUnit(10), 1)
+  assert.equal(clampUnit(NaN), 0)
+  assert.equal(clampUnit(Infinity), 0)
 })
 
 test('multi-point mesh RBF color interpolation smoothly samples the gradient field', () => {
