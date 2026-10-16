@@ -219,6 +219,18 @@ export interface TextOnPath {
 
 export type TextTransform = 'none' | 'uppercase' | 'lowercase' | 'capitalize'
 
+export interface KineticTypography {
+  readonly enabled: boolean
+  readonly playing: boolean
+  /** Displacement in the baseline's normal direction, in canvas pixels. */
+  readonly amplitude: number
+  readonly rotation: number
+  readonly duration: number
+  /** Phase delay per shaped glyph, in milliseconds. */
+  readonly stagger: number
+  readonly phase: number
+}
+
 export interface TextElement extends BaseElement {
   readonly type: 'text'
   readonly text: string
@@ -243,6 +255,7 @@ export interface TextElement extends BaseElement {
   readonly textOnPath?: TextOnPath
   /** Text capitalization transformation */
   readonly textTransform?: TextTransform
+  readonly kinetic?: KineticTypography
 }
 
 export interface ImageElement extends BaseElement {

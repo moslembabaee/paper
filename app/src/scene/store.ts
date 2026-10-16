@@ -302,6 +302,26 @@ export class SceneStore {
   }
 
   /** Flags are editable even for a locked layer, so it can always be unlocked. */
+  convertTextToOutlines(id: string, d: string): PathElement {
+    const source = this.require(id)
+    if (source.type !== 'text') throw new Error('Select a text layer')
+    if (this.isLocked(id)) throw new Error('Element is locked')
+    if (this.history.getSnapshot().active) throw new Error('Finish the active edit first')
+    if (source.component) throw new Error('Detach the component before converting text')
+    this.requireEditableStructure(source.parentId)
+    if (!d.trim()) throw new Error('There are no visible glyph outlines to convert')
+    const node = createElement('path', {
+      id, name: `${source.name} outlines`, parentId: source.parentId,
+      x: source.x, y: source.y, width: source.width, height: source.height, rotation: source.rotation,
+      visible: source.visible, locked: source.locked, style: source.style,
+      sizing: source.sizing, physics: source.physics,
+      d, viewBox: [0, 0, source.width, source.height], fillRule: 'nonzero',
+    })
+    validateElement(node)
+    this.commit({ ...this.state.elements, [id]: freezeElement({ ...node, zIndex: source.zIndex }) }, this.state.rootIds, [id], 'Convert text to outlines')
+    return this.state.elements[id] as PathElement
+  }
+
   setLocked(id: string, locked: boolean): void { this.setFlag(id, 'locked', locked) }
   setVisible(id: string, visible: boolean): void { this.setFlag(id, 'visible', visible) }
   private setFlag(id: string, key: 'locked' | 'visible', value: boolean) {

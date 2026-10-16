@@ -8,6 +8,7 @@ import type {
   UniformModulator,
 } from './types.ts'
 import { modulatorWaveforms, pipelinePassTypes } from './types.ts'
+import { audioSignals } from '../audio/types.ts'
 
 const within = (val: unknown, min: number, max: number): boolean =>
   typeof val === 'number' && Number.isFinite(val) && val >= min && val <= max
@@ -42,6 +43,7 @@ export function validatePipeline(pipeline: unknown, _paint?: ShaderPaint): void 
     if (!within(mod.amplitude, 0, 1)) throw new Error('Invalid modulator amplitude')
     if (typeof mod.offset !== 'number' || !Number.isFinite(mod.offset)) throw new Error('Invalid modulator offset')
     if (typeof mod.enabled !== 'boolean') throw new Error('Invalid modulator enabled flag')
+    if (mod.source !== undefined && mod.source !== 'lfo' && !audioSignals.includes(mod.source)) throw new Error('Invalid modulator source')
   }
 }
 

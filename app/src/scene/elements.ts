@@ -34,6 +34,7 @@ export function freezeElement(element: SceneElement): SceneElement {
   if (element.component) element = { ...element, component: freezeComponent(element.component) }
   if (element.type === 'text') element = { ...element, ...(element.variableAxes ? { variableAxes: Object.freeze({ ...element.variableAxes }) } : {}), ...(element.openTypeFeatures ? { openTypeFeatures: Object.freeze({ ...element.openTypeFeatures }) } : {}), ...(element.textOnPath ? { textOnPath: Object.freeze({ ...element.textOnPath }) } : {}) }
   if (element.mask) element = { ...element, mask: Object.freeze({ ...element.mask }) }
+  if (element.type === 'text' && element.kinetic) element = { ...element, kinetic: Object.freeze({ ...element.kinetic }) }
   if (element.sizing) element = { ...element, sizing: Object.freeze({ ...element.sizing }) }
   if (element.physics) element = { ...element, physics: Object.freeze({ ...element.physics }) }
   if (element.type === 'frame' && element.layout) element = { ...element, layout: Object.freeze({ ...element.layout, padding: Object.freeze({ ...element.layout.padding }) }) }
@@ -122,6 +123,10 @@ export function validateElement(element: SceneElement, depth = 0): void {
     }
   }
   if (element.type === 'text') {
+    if (element.kinetic !== undefined) {
+      const k = element.kinetic
+      if (!k || typeof k.enabled !== 'boolean' || typeof k.playing !== 'boolean' || ![k.amplitude, k.rotation, k.duration, k.stagger, k.phase].every(Number.isFinite) || k.amplitude < 0 || k.amplitude > 240 || Math.abs(k.rotation) > 180 || k.duration < .2 || k.duration > 30 || k.stagger < 0 || k.stagger > 1000 || k.phase < 0 || k.phase > 1) throw new Error('Invalid kinetic typography')
+    }
     if (typeof element.text !== 'string' || typeof element.fontFamily !== 'string' || ![element.fontSize, element.fontWeight, element.lineHeight, element.letterSpacing].every(Number.isFinite) || element.fontSize <= 0 || element.lineHeight <= 0 || element.fontWeight < 1 || element.fontWeight > 1000 || !['left', 'center', 'right'].includes(element.textAlign)) throw new Error('Invalid text')
     if (element.fontSource !== undefined && (typeof element.fontSource !== 'string' || !/^data:font\/(woff2?|ttf|otf);base64,[A-Za-z0-9+/=]+$/.test(element.fontSource) || element.fontSource.length > 4_200_000)) throw new Error('Invalid embedded font')
     if (element.variableAxes !== undefined) {

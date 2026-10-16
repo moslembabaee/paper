@@ -50,6 +50,9 @@ import type {
   PipelinePassType,
 } from './types.ts'
 import { modulatorWaveforms, pipelinePassTypes } from './types.ts'
+import { AudioModulatorPanel } from '../audio/AudioModulatorPanel'
+import { audioSignals, audioSignalLabels as signalLabels } from '../audio/types'
+import type { AudioSignal } from '../audio/types'
 
 type MultiPassPaint = Extract<ShaderPaint, { kind: 'multi-pass' }>
 
@@ -794,6 +797,16 @@ export function MaterialComposer({
       {/* TAB 2: UNIFORM MODULATORS (LFOs) */}
       {activeTab === 'modulators' && (
         <div className="composer-tab-panel">
+          <AudioModulatorPanel onAddRoute={() => {
+            const targetPass = pipeline.passes.find(pass => pass.type === 'liquid-distortion') ?? pipeline.passes[0]
+            if (!targetPass) return
+            onChange(addPipelineModulator(paint, {
+              name: `Audio ${pipeline.modulators.length + 1}`,
+              targetPassId: targetPass.id,
+              targetParam: passModulatableParams[targetPass.type][0],
+              source: 'bass', waveform: 'sine', frequency: 1, amplitude: 0.8, offset: 0, enabled: true,
+            }))
+          }} />
           <div className="composer-panel-actions">
             <div>
               <span className="composer-sublabel">Real-Time Uniform LFOs</span>
@@ -861,7 +874,7 @@ export function MaterialComposer({
                       />
 
                       <span className="composer-waveform-badge">
-                        {waveformIcons[mod.waveform]} {mod.waveform}
+                        {mod.source && mod.source !== 'lfo' ? signalLabels[mod.source] : `${waveformIcons[mod.waveform]} ${mod.waveform}`}
                       </span>
 
                       <button
@@ -924,7 +937,14 @@ export function MaterialComposer({
                     </div>
 
                     {/* Waveform Selector */}
-                    <div className="composer-waveform-strip" role="group" aria-label="LFO Waveform">
+                    <label className="composer-routing-field">
+                      <span>Signal source</span>
+                      <select aria-label={`Signal source for ${mod.name}`} value={mod.source ?? 'lfo'} onChange={event => onChange(updatePipelineModulator(paint, mod.id, previous => ({ ...previous, source: event.currentTarget.value as 'lfo' | AudioSignal })))}>
+                        <option value="lfo">LFO · Time</option>
+                        {audioSignals.map(signal => <option key={signal} value={signal}>Audio · {signalLabels[signal]}</option>)}
+                      </select>
+                    </label>
+                    {(!mod.source || mod.source === 'lfo') && <><div className="composer-waveform-strip" role="group" aria-label="LFO Waveform">
                       {modulatorWaveforms.map(wf => (
                         <button
                           key={wf}
@@ -961,6 +981,7 @@ export function MaterialComposer({
                         )
                       }
                     />
+                    </>}
                     <NumberRow
                       label="Depth / Amplitude"
                       value={mod.amplitude}
@@ -976,7 +997,7 @@ export function MaterialComposer({
                         )
                       }
                     />
-                    <NumberRow
+                    {(!mod.source || mod.source === 'lfo') && <NumberRow
                       label="Phase Offset"
                       value={mod.offset}
                       min={-1}
@@ -990,7 +1011,7 @@ export function MaterialComposer({
                           }))
                         )
                       }
-                    />
+                    />}
                   </div>
                 )
               })

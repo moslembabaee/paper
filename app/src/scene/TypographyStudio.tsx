@@ -14,6 +14,7 @@ import {
   Type,
   Unlink,
   Upload,
+  Waves,
 } from 'lucide-react'
 import type { SceneStore } from './store.ts'
 import type {
@@ -36,6 +37,9 @@ import {
 } from './typography.ts'
 import { parsePath } from './pathGeometry'
 import { TextPathEditor } from './TextPathEditor'
+import { KineticInspector } from './KineticInspector'
+import { useOutlineFont } from './useOutlineFont'
+import { useRangeHistory } from './useRangeHistory'
 import './typography.css'
 
 interface TypographyStudioProps {
@@ -44,7 +48,7 @@ interface TypographyStudioProps {
   readonly binding?: (property: 'fontSize' | 'fontFamily' | 'fontWeight' | 'lineHeight' | 'letterSpacing', label: string) => ReactNode
 }
 
-type StudioTab = 'type' | 'axes' | 'opentype' | 'kerning' | 'path'
+type StudioTab = 'type' | 'axes' | 'opentype' | 'kerning' | 'path' | 'motion'
 
 const CURATED_FONTS = [
   { label: 'Inter (Variable)', value: 'Inter, Matter, ui-sans-serif, system-ui, sans-serif' },
@@ -70,6 +74,8 @@ const PATH_PRESETS: readonly { id: TextPathPreset; label: string; icon: string }
 ]
 
 export function TypographyStudio({ store, node, binding }: TypographyStudioProps) {
+  const rangeHistory = useRangeHistory(store)
+  const fontInfo = useOutlineFont(node.fontSource)
   const [fontError, setFontError] = useState('')
   const [fontLoading, setFontLoading] = useState(false)
   const [pathError, setPathError] = useState('')
@@ -81,6 +87,11 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
   const [newAxisVal, setNewAxisVal] = useState(0)
 
   const update = (patch: Partial<TextElement>) => {
+    const supported = fontInfo?.font?.variationAxes
+    if (supported && patch.variableAxes) {
+      const variableAxes = Object.fromEntries(Object.entries(patch.variableAxes).filter(([tag]) => supported[tag]).map(([tag, value]) => [tag, Math.max(supported[tag].min, Math.min(supported[tag].max, value!))]))
+      patch = { ...patch, variableAxes, ...(variableAxes.wght === undefined ? {} : { fontWeight: variableAxes.wght }) }
+    }
     store.update(node.id, 'text', patch)
   }
 
@@ -95,7 +106,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
 
   const updateAxis = (axis: string, value: number) => {
     if (!Number.isFinite(value)) return
-    const meta = VARIABLE_AXES_META[axis]
+    const meta = fontInfo?.font?.variationAxes[axis] ?? VARIABLE_AXES_META[axis]
     if (meta) value = Math.max(meta.min, Math.min(meta.max, value))
     // Display defaults must not become explicit overrides for unrelated axes.
     // In particular, changing weight should preserve automatic optical sizing.
@@ -145,10 +156,11 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
   )
 
   return (
-    <div className="inspector-section typography-studio">
+    <div className="inspector-section typography-studio" onPointerDown={rangeHistory}>
       <div className="property-heading">
         <span className="section-caption">VARIABLE TYPOGRAPHY STUDIO</span>
         {top.enabled && <span className="axis-tag-badge">Path Active</span>}
+        {node.kinetic?.enabled && <span className="axis-tag-badge">Kinetic</span>}
       </div>
 
       {/* Tabs */}
@@ -202,7 +214,18 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
           <Spline size={11} />
           <span>Path</span>
         </button>
+        <button
+          type="button"
+          className={`typography-tab-btn ${tab === 'motion' ? 'is-active' : ''}`}
+          aria-pressed={tab === 'motion'}
+          onClick={() => setTab('motion')}
+          title="Kinetic Typography & SVG Outlines"
+        >
+          <Waves size={11} />
+          <span>Motion{node.kinetic?.enabled ? ' (Active)' : ''}</span>
+        </button>
       </div>
+      {tab === 'motion' && <KineticInspector store={store} node={node} />}
 
       {/* Tab 1: Typeface & Core Settings */}
       {tab === 'type' && (
@@ -291,6 +314,21 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
           </label>
           {fontError && <p className="typo-hint" role="alert">{fontError}</p>}
           {node.fontSource && <p className="typo-hint">Font embedded in this document · available offline</p>}
+          <button type="button" className="typo-chip" disabled={fontLoading} onClick={async () => {
+            setFontLoading(true); setFontError('')
+            try {
+              const response = await fetch(`${import.meta.env.BASE_URL}fonts/InterVariable-latin.ttf`)
+              if (!response.ok) throw new Error('Bundled font is unavailable')
+              const bytes = new Uint8Array(await response.arrayBuffer())
+              let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte)
+              const source = `data:font/ttf;base64,${btoa(binary)}`
+              const face = new FontFace('PaperInter', `url("${source}")`, { weight: '100 900' })
+              await face.load()
+              document.fonts?.add(face)
+              store.update(node.id, 'text', { fontFamily: 'PaperInter', fontSource: source, fontWeight: 400, variableAxes: { wght: 400 } })
+            } catch { setFontError('Could not load bundled Inter.') }
+            finally { setFontLoading(false) }
+          }}>Use bundled Inter · variable weight</button>
 
 
           <div className="property-pair">
@@ -459,15 +497,18 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
             })}
           </div>
 
-          <p className="typo-hint">Axes require a variable font installed on this device, or an imported font. Each typeface supports its own ranges.</p>
+          <p className="typo-hint">{fontInfo?.font ? `${fontInfo.font.familyName} · ${Object.keys(fontInfo.font.variationAxes).join(', ') || 'static font'}. Ranges read from the font.` : 'Axes require a variable font installed on this device, or an imported font. Each typeface supports its own ranges.'}</p>
+          {fontInfo?.error && <p className="typo-hint" role="alert">{fontInfo.error}</p>}
           {(['wght', 'wdth', 'slnt', 'opsz'] as const).map(tag => {
-            const meta = VARIABLE_AXES_META[tag]
+            const supported = fontInfo?.font?.variationAxes[tag]
+            const disabled = !!fontInfo?.font && !supported
+            const meta = { ...VARIABLE_AXES_META[tag], ...supported }
             const value = axes[tag] ?? meta.default
             return <div className="axis-slider-row" key={tag}>
-              <div className="axis-slider-header"><span className="axis-label-name">{meta.label}</span><span className="axis-tag-badge">{meta.tag}</span></div>
+              <div className="axis-slider-header"><span className="axis-label-name">{meta.label}{disabled ? ' · unavailable' : ''}</span><span className="axis-tag-badge">{meta.tag}</span></div>
               <div className="axis-slider-track">
-                <input type="range" className="axis-slider-input" aria-label={`Variable ${meta.label.toLowerCase()} axis`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
-                <input type="number" className="axis-num-input" aria-label={`${meta.label} value`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
+                <input type="range" className="axis-slider-input" disabled={disabled} aria-label={`Variable ${meta.label.toLowerCase()} axis`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
+                <input type="number" className="axis-num-input" disabled={disabled} aria-label={`${meta.label} value`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
               </div>
               {tag === 'opsz' && <div className="axis-optical-actions">
                 <button type="button" className="quiet-button" aria-pressed={node.variableAxes?.opsz === undefined} onClick={() => removeAxis('opsz')}>Automatic optical size</button>

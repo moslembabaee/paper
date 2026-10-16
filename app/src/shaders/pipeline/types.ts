@@ -1,4 +1,5 @@
 import type { ShaderBlendMode } from '../types.ts'
+import type { AudioSignal } from '../audio/types.ts'
 
 export type PipelinePassType =
   | 'mesh-gradient'
@@ -108,6 +109,8 @@ export interface UniformModulator {
   readonly amplitude: number
   readonly offset: number
   readonly enabled: boolean
+  /** Omitted by older documents: defaults to the existing LFO. */
+  readonly source?: 'lfo' | AudioSignal
 }
 
 export interface ShaderPipeline {

@@ -66,16 +66,19 @@ if [ "$COMMIT_AGE" -gt 1800 ]; then
     echo "[$NOW] [WATCHDOG-SELF-REFLECTION] ⚠️ Progress stalled! Last commit was $((COMMIT_AGE / 60)) minutes ago." >> "$LOG_FILE"
     
     # Check if any agent process is hung > 20 mins
-    HUNG_PIDS=$(ps -eo pid,etime,cmd | grep -E "claude -p|codex exec|agy -p" | grep -v grep | while read -r pid etime cmd; do
-        if [[ "$etime" =~ [0-9]+:[2-5][0-9]:[0-9]{2} ]] || [[ "$etime" =~ [2-9][0-9]:[0-9]{2} ]]; then
-            echo "$pid"
+    PROJECT_PIDS=$(ps -eo pid,etime,cmd | grep -E "claude -p|codex exec|agy -p" | grep -v grep | while read -r pid etime cmd; do
+            # Only kill agents in OUR project directory — never cross-project
+            if echo "$cmd" | grep -qF "$PROJECT_DIR"; then
+                if [[ "$etime" =~ [0-9]+:[2-5][0-9]:[0-9]{2} ]] || [[ "$etime" =~ [2-9][0-9]:[0-9]{2} ]]; then
+                    echo "$pid"
+                fi
+            fi
+        done)
+
+        if [ -n "$PROJECT_PIDS" ]; then
+            echo "[$NOW] [WATCHDOG] Terminating hung agent processes in $PROJECT_DIR: $PROJECT_PIDS" >> "$LOG_FILE"
+            kill -9 $PROJECT_PIDS 2>/dev/null || true
         fi
-    done)
-    
-    if [ -n "$HUNG_PIDS" ]; then
-        echo "[$NOW] [WATCHDOG] Terminating hung agent processes: $HUNG_PIDS" >> "$LOG_FILE"
-        kill -9 $HUNG_PIDS 2>/dev/null || true
-    fi
     
     # Check Claude gateway model health
     CLAUDE_TEST=$(claude -p "ping" --max-turns 1 2>&1)

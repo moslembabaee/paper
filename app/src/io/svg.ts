@@ -23,6 +23,8 @@ export interface ExportAssets {
   readonly shaders: ReadonlyMap<string, string>
   readonly measureText?: (text: string, node: TextElement) => number
   readonly textBaseline?: (node: TextElement) => number
+  /** Kinetic layers are exported at their selected, deterministic phase. */
+  readonly textOutlines?: ReadonlyMap<string, string>
 }
 const EMPTY_ASSETS: ExportAssets = { images: new Map(), shaders: new Map() }
 export const xml = (value: string): string => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]!)
@@ -53,7 +55,7 @@ export function exportBounds(state: SceneSnapshot, scope: ExportOptions['scope']
     if (!node.visible) return
     let b = getWorldBounds(state, id)
     if (node.type === 'text' && node.textOnPath?.enabled && !crop) {
-      const curve = pathBounds(parsePath(resolveTextPathD(node, state.elements)), node.fontSize * 1.5)
+      const curve = pathBounds(parsePath(resolveTextPathD(node, state.elements)), node.fontSize * 1.5 + (node.kinetic?.enabled ? node.kinetic.amplitude : 0))
       const [a, c, d, e, f, g] = getWorldMatrix(state, id)
       const corners = [[curve.x, curve.y], [curve.x + curve.width, curve.y], [curve.x, curve.y + curve.height], [curve.x + curve.width, curve.y + curve.height]]
       const xs = corners.map(([x, y]) => a * x + d * y + f), ys = corners.map(([x, y]) => c * x + e * y + g)
@@ -63,7 +65,8 @@ export function exportBounds(state: SceneSnapshot, scope: ExportOptions['scope']
     // descendants contribute to the extent of a whole-canvas export.
     const shadow = node.style.shadow
     const effectPadding = (node.style.effects ?? []).filter(effect => effect.enabled && effect.type !== 'inner-shadow').reduce((sum, effect) => sum + effect.blur * 2 + (effect.type === 'layer-blur' ? 0 : Math.abs(effect.x) + Math.abs(effect.y) + Math.abs(effect.spread)), 0)
-    const padding = crop ? 0 : Math.max(effectPadding, Math.max(node.style.stroke?.width ?? 0, shadow ? shadow.blur * 2 + Math.abs(shadow.x) + Math.abs(shadow.y) : 0))
+    const kineticPadding = node.type === 'text' && node.kinetic?.enabled ? node.kinetic.amplitude + node.fontSize : 0
+    const padding = crop ? 0 : Math.max(kineticPadding, effectPadding, Math.max(node.style.stroke?.width ?? 0, shadow ? shadow.blur * 2 + Math.abs(shadow.x) + Math.abs(shadow.y) : 0))
     bounds.push({ x: b.x - padding, y: b.y - padding, width: b.width + padding * 2, height: b.height + padding * 2 })
     if (node.type === 'frame' && !node.clipContent && !frameMask(state.elements, node) && !crop) node.children.forEach(child => visit(child, false))
   }
@@ -91,6 +94,10 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
     }
     return rect(node, inset)
   }
+  const renderText = (node: TextElement, fill: string) => {
+    const d = assets.textOutlines?.get(node.id)
+    return d !== undefined ? `<path d="${xml(optimizeSVGPath(d))}" fill="${xml(fill)}" fill-rule="nonzero"/>` : textMarkup(node, fill, assets.measureText, assets.textBaseline, state.elements, unique())
+  }
   const render = (id: string, root = false): string => {
     const node = state.elements[id]
     if (!node.visible) return ''
@@ -110,7 +117,7 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
     const strokeAttrs = `stroke="${xml(stroke?.color ?? 'none')}" stroke-width="${num(stroke?.width ?? 0)}" stroke-dasharray="${stroke?.dash.map(num).join(' ') ?? ''}" stroke-linejoin="round"`
     let content = ''
     if (shaderSrc) {
-      const maskContent = node.type === 'text' ? textMarkup(node, '#ffffff', assets.measureText, assets.textBaseline, state.elements, unique()) : shape(node)
+      const maskContent = node.type === 'text' ? renderText(node, '#ffffff') : shape(node)
       const base = `<rect width="${num(node.width)}" height="${num(node.height)}" fill="${xml(fill ?? 'none')}"/>`
       const imageBase = node.type === 'image' ? `<image href="${xml(assets.images.get(id) ?? node.src)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="${node.fit === 'fill' ? 'none' : node.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}"/>` : ''
       content += `<g ${clip(maskContent)} style="isolation:isolate">${base}${imageBase}<image href="${xml(shaderSrc)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="none" opacity="${num(shader?.composite?.opacity ?? 1)}" style="mix-blend-mode:${shader?.composite?.blendMode ?? 'normal'}"/></g>`
@@ -123,7 +130,7 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
       content += `<g ${node.clipContent ? clip(rect(node)) : ''}>${masked}</g>`
       content += `<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`
     } else if (node.type === 'text') {
-      content += `<g ${node.textOnPath?.enabled ? '' : clip(rect(node))} ${strokeAttrs}>${textMarkup(node, shaderSrc ? 'none' : fill ?? 'none', assets.measureText, assets.textBaseline, state.elements, unique())}</g>`
+      content += `<g ${node.textOnPath?.enabled || node.kinetic?.enabled ? '' : clip(rect(node))} ${strokeAttrs}>${renderText(node, shaderSrc ? 'none' : fill ?? 'none')}</g>`
     } else if (node.type === 'image') {
       const src = assets.images.get(id) ?? node.src
       content += `${shaderSrc ? '' : `<g ${clip(rect(node))}><g fill="${xml(fill ?? 'none')}">${rect(node)}</g><image href="${xml(src)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="${node.fit === 'fill' ? 'none' : node.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}"/></g>`}<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`

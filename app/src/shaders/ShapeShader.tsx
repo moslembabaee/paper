@@ -6,7 +6,7 @@ import { ShaderSurface } from './ShaderSurface'
 
 const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]!)
 
-export function ShapeShader({ node, textPathD = '' }: { node: SceneElement; textPathD?: string }) {
+export function ShapeShader({ node, textPathD = '', clipPathId }: { node: SceneElement; textPathD?: string; clipPathId?: string }) {
   const { type, width, height } = node
   const textNode = node.type === 'text' ? node : undefined
   const textSvg = useMemo(() => {
@@ -27,7 +27,8 @@ export function ShapeShader({ node, textPathD = '' }: { node: SceneElement; text
   if (!node.style.shader) return null
   const style: CSSProperties = {
     borderRadius: node.type === 'ellipse' ? '50%' : 'cornerRadius' in node ? node.cornerRadius : undefined,
-    maskImage: mask, maskSize: '100% 100%', maskRepeat: 'no-repeat',
+    maskImage: clipPathId ? undefined : mask, maskSize: '100% 100%', maskRepeat: 'no-repeat',
+    clipPath: clipPathId ? `url(#${clipPathId})` : undefined,
   }
   const shadow = node.type !== 'frame' && node.type !== 'image' && !node.style.effects?.some(effect => effect.enabled) ? node.style.shadow : null
   return <div className="shape-shader-wrap" style={{ filter: shadow ? `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` : undefined }}>

@@ -1064,7 +1064,8 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 37,
-      "completed_at": "2026-10-16T09:45:15.413381+00:00"
+      "completed_at": "2026-10-16T09:45:15.413381+00:00",
+      "closed_at": "2026-10-16T09:45:18Z"
     },
     {
       "id": "T-ISSUE-38",
@@ -1215,8 +1216,8 @@
       "title": "Variable Font Kinetic Typography and Vector Path Alignment Engine",
       "description": "Implement interactive OpenType variable font axis manipulation (wght, wdth, slnt, opsz) with real-time text-on-path alignment along arbitrary bezier curves, animated glyph cascade offsets, and SVG outline conversion for kinetic typography on the canvas.",
       "assigned_agent": "codex",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "failed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build"
     },
     {
@@ -1235,9 +1236,10 @@
       "title": "Audio-Reactive WebGL Shader Modulator and Frequency Analysis Engine",
       "description": "Integrate Web Audio API FFT frequency analysis and peak transient detection into the shader pipeline, exposing live audio bands and volume envelopes as dynamic GLSL uniforms to modulate multi-pass canvas materials and procedural shaders.",
       "assigned_agent": "codex",
-      "status": "approved",
+      "status": "completed",
       "retry_count": 0,
-      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-16T10:21:15.330972+00:00"
     }
   ]
 }

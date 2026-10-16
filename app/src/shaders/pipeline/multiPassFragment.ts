@@ -11,11 +11,17 @@ import type {
   UniformModulator,
 } from './types.ts'
 import { createDefaultPipeline } from './presets.ts'
+import { SILENT_AUDIO } from '../audio/types.ts'
+import type { AudioFrame } from '../audio/types.ts'
 
 export const multiPassFragmentShader = `#version 300 es
 precision highp float;
 uniform vec2 u_resolution;
 uniform float u_time;
+
+// Normalized live Web Audio signals. Zero for static exports / disconnected input.
+uniform float u_audio_bass, u_audio_mid, u_audio_treble;
+uniform float u_audio_volume, u_audio_peak, u_audio_transient;
 
 // Global transformations
 uniform float u_scale, u_rotation;
@@ -205,6 +211,13 @@ vec2 calculateGlassRefraction(vec2 p, out float specularHighlight, out float bev
 }
 
 void main() {
+  // Keep the complete live audio interface available to GLSL consumers. Reject
+  // invalid negative envelopes; disconnected inputs are all zero and render normally.
+  if (any(lessThan(vec3(u_audio_bass, u_audio_mid, u_audio_treble), vec3(0.0))) ||
+      any(lessThan(vec3(u_audio_volume, u_audio_peak, u_audio_transient), vec3(0.0)))) {
+    fragColor = vec4(0.0);
+    return;
+  }
   vec2 uv = vec2(gl_FragCoord.x / u_resolution.x, 1.0 - gl_FragCoord.y / u_resolution.y);
   vec2 p = uv - 0.5 - u_offset;
 
@@ -354,13 +367,15 @@ export function computeModulatedValue(
   paramKey: string,
   timeSec: number,
   speedMultiplier = 1,
-  depthMultiplier = 1
+  depthMultiplier = 1,
+  audio: Readonly<AudioFrame> = SILENT_AUDIO
 ): number {
   let val = baseValue
   for (const mod of modulators) {
     if (!mod.enabled || mod.targetPassId !== passId || mod.targetParam !== paramKey) continue
+    const source = mod.source ?? 'lfo'
     const phase = timeSec * mod.frequency * speedMultiplier + mod.offset
-    const wave = evaluateWaveform(mod.waveform, phase)
+    const wave = source === 'lfo' ? evaluateWaveform(mod.waveform, phase) : audio[source]
     val += wave * mod.amplitude * depthMultiplier
   }
   return val
@@ -391,11 +406,10 @@ function parseHex(hex: string): [number, number, number, number] {
 
 export type PipelineUniformValue = number | boolean | number[] | number[][]
 
-export function multiPassUniforms(paint: ShaderPaint, elapsedMs = 0): Record<string, PipelineUniformValue> {
+export function multiPassUniforms(paint: ShaderPaint, elapsedMs = 0, audio: Readonly<AudioFrame> = SILENT_AUDIO): Record<string, PipelineUniformValue> {
   const pipeline: ShaderPipeline =
     paint.pipeline ?? createDefaultPipeline(paint.params && 'preset' in paint.params ? (paint.params.preset as string) : 'prismatic-glass')
   const timeSec = (paint.frame + elapsedMs) / 1000
-  const speed = paint.animated ? paint.speed : 0
   const modSpeed = paint.params && 'modulatorSpeed' in paint.params ? Number(paint.params.modulatorSpeed) : 0.4
   const modDepth = paint.params && 'modulatorDepth' in paint.params ? Number(paint.params.modulatorDepth) : 0.25
 
@@ -413,7 +427,7 @@ export function multiPassUniforms(paint: ShaderPaint, elapsedMs = 0): Record<str
   const customParams = (customPass?.params ?? {}) as Partial<CustomGLSLPassParams>
 
   const mod = (passId: string, param: string, base: number) =>
-    computeModulatedValue(base, pipeline.modulators, passId, param, timeSec * speed, modSpeed, modDepth)
+    computeModulatedValue(base, pipeline.modulators, passId, param, timeSec, modSpeed, modDepth, audio)
 
   // Mesh Gradient Setup
   const meshParams = (meshPass?.params ?? {}) as Partial<MeshGradientPassParams>
@@ -440,6 +454,12 @@ export function multiPassUniforms(paint: ShaderPaint, elapsedMs = 0): Record<str
   const grainBlendIdx = blendModeToEnum[grainParams.blendMode ?? 'overlay'] ?? 3
 
   return {
+    u_audio_bass: audio.bass,
+    u_audio_mid: audio.mid,
+    u_audio_treble: audio.treble,
+    u_audio_volume: audio.volume,
+    u_audio_peak: audio.peak,
+    u_audio_transient: audio.transient,
     u_scale: paint.scale,
     u_rotation: (paint.rotation * Math.PI) / 180,
     u_offset: [paint.offsetX, paint.offsetY],
@@ -479,10 +499,10 @@ export function multiPassUniforms(paint: ShaderPaint, elapsedMs = 0): Record<str
     // Liquid uniforms
     u_liquid_distortion: Math.max(0, Math.min(1, mod(liquidPass?.id ?? 'pass-liquid', 'distortion', liquidParams.distortion ?? 0.55))),
     u_liquid_frequency: Math.max(0.5, Math.min(10, mod(liquidPass?.id ?? 'pass-liquid', 'frequency', liquidParams.frequency ?? 2.2))),
-    u_liquid_speed: Math.max(0, Math.min(3, liquidParams.speed ?? 0.6)),
+    u_liquid_speed: Math.max(0, Math.min(3, mod(liquidPass?.id ?? 'pass-liquid', 'speed', liquidParams.speed ?? 0.6))),
     u_liquid_swirl: Math.max(0, Math.min(2, mod(liquidPass?.id ?? 'pass-liquid', 'swirl', liquidParams.swirl ?? 0.45))),
     u_liquid_iterations: liquidParams.swirlIterations ?? 4,
-    u_liquid_viscosity: Math.max(0, Math.min(1, liquidParams.viscosity ?? 0.35)),
+    u_liquid_viscosity: Math.max(0, Math.min(1, mod(liquidPass?.id ?? 'pass-liquid', 'viscosity', liquidParams.viscosity ?? 0.35))),
 
     // Glass uniforms
     u_glass_refraction: Math.max(0, Math.min(1, mod(glassPass?.id ?? 'pass-glass', 'refraction', glassParams.refraction ?? 0.65))),
@@ -490,26 +510,65 @@ export function multiPassUniforms(paint: ShaderPaint, elapsedMs = 0): Record<str
     u_glass_pattern: glassPatternIdx,
     u_glass_angle: glassParams.angle ?? 45,
     u_glass_specular: Math.max(0, Math.min(1, mod(glassPass?.id ?? 'pass-glass', 'specular', glassParams.specular ?? 0.4))),
-    u_glass_bevel: Math.max(0, Math.min(1, glassParams.bevel ?? 0.3)),
+    u_glass_bevel: Math.max(0, Math.min(1, mod(glassPass?.id ?? 'pass-glass', 'bevel', glassParams.bevel ?? 0.3))),
     u_glass_tint: glassTint,
 
     // Chromatic uniforms
     u_chromatic_intensity: Math.max(0, Math.min(1, mod(chromaticPass?.id ?? 'pass-chromatic', 'intensity', chromaticParams.intensity ?? 0.48))),
-    u_chromatic_spread: Math.max(0, Math.min(1, chromaticParams.spread ?? 0.4)),
+    u_chromatic_spread: Math.max(0, Math.min(1, mod(chromaticPass?.id ?? 'pass-chromatic', 'spread', chromaticParams.spread ?? 0.4))),
     u_chromatic_radial: chromaticParams.radial ?? true ? 1 : 0,
-    u_chromatic_angle: chromaticParams.angle ?? 0,
+    u_chromatic_angle: mod(chromaticPass?.id ?? 'pass-chromatic', 'angle', chromaticParams.angle ?? 0),
 
     // Grain uniforms
     u_grain_intensity: Math.max(0, Math.min(1, mod(grainPass?.id ?? 'pass-grain', 'intensity', grainParams.intensity ?? 0.12))),
-    u_grain_size: Math.max(0.5, Math.min(5, grainParams.size ?? 1.2)),
+    u_grain_size: Math.max(0.5, Math.min(5, mod(grainPass?.id ?? 'pass-grain', 'size', grainParams.size ?? 1.2))),
     u_grain_temporal: grainParams.temporal ?? true ? 1 : 0,
     u_grain_monochrome: grainParams.monochrome ?? true ? 1 : 0,
 
     // Post-process uniforms
-    u_post_contrast: Math.max(-1, Math.min(1, customParams.contrast ?? 0)),
-    u_post_brightness: Math.max(-1, Math.min(1, customParams.brightness ?? 0)),
-    u_post_saturation: Math.max(-1, Math.min(1, customParams.saturation ?? 0)),
-    u_post_vignette: Math.max(0, Math.min(1, customParams.vignette ?? 0)),
+    u_post_contrast: Math.max(-1, Math.min(1, mod(customPass?.id ?? 'pass-custom', 'contrast', customParams.contrast ?? 0))),
+    u_post_brightness: Math.max(-1, Math.min(1, mod(customPass?.id ?? 'pass-custom', 'brightness', customParams.brightness ?? 0))),
+    u_post_saturation: Math.max(-1, Math.min(1, mod(customPass?.id ?? 'pass-custom', 'saturation', customParams.saturation ?? 0))),
+    u_post_vignette: Math.max(0, Math.min(1, mod(customPass?.id ?? 'pass-custom', 'vignette', customParams.vignette ?? 0))),
     u_post_tint: parseHex(customParams.tint ?? '#000000').slice(0, 3),
+  }
+}
+
+export const pipelineModulationUniforms: Readonly<Record<string, Readonly<Record<string, readonly [string, number, number]>>>> = {
+  'mesh-gradient': { turbulence: ['u_mesh_turbulence', 0, 1], frequency: ['u_mesh_frequency', 0.5, 12], swirl: ['u_mesh_swirl', 0, 2], distortion: ['u_mesh_distortion', 0, 1] },
+  'liquid-distortion': { distortion: ['u_liquid_distortion', 0, 1], frequency: ['u_liquid_frequency', 0.5, 10], speed: ['u_liquid_speed', 0, 3], swirl: ['u_liquid_swirl', 0, 2], viscosity: ['u_liquid_viscosity', 0, 1] },
+  glassmorphism: { refraction: ['u_glass_refraction', 0, 1], frost: ['u_glass_frost', 0, 1], specular: ['u_glass_specular', 0, 1], bevel: ['u_glass_bevel', 0, 1] },
+  'chromatic-aberration': { intensity: ['u_chromatic_intensity', 0, 1], spread: ['u_chromatic_spread', 0, 1], angle: ['u_chromatic_angle', -360, 360] },
+  grain: { intensity: ['u_grain_intensity', 0, 1], size: ['u_grain_size', 0.5, 5] },
+  'custom-glsl': { contrast: ['u_post_contrast', -1, 1], brightness: ['u_post_brightness', -1, 1], saturation: ['u_post_saturation', -1, 1], vignette: ['u_post_vignette', 0, 1] },
+}
+
+/** Compile routing once. Only changed scalar uniforms are uploaded during playback. */
+export function createMultiPassUniformUpdater(paint: Extract<ShaderPaint, { kind: 'multi-pass' }>) {
+  const pipeline = paint.pipeline ?? createDefaultPipeline(paint.params.preset)
+  const base = multiPassUniforms({ ...paint, pipeline: { ...pipeline, modulators: [] } })
+  const bindings: { uniform: string; base: number; passId: string; param: string; min: number; max: number }[] = []
+  const passes = new Map(pipeline.passes.map(pass => [pass.type, pass]))
+  for (const pass of passes.values()) {
+    for (const [param, [uniform, min, max]] of Object.entries(pipelineModulationUniforms[pass.type] ?? {})) {
+      if (pipeline.modulators.some(mod => mod.enabled && mod.targetPassId === pass.id && mod.targetParam === param)) {
+        bindings.push({ uniform, base: Number(base[uniform]), passId: pass.id, param, min, max })
+      }
+    }
+  }
+  const uniforms: Record<string, number> = {}
+  return (elapsedMs: number, audio: Readonly<AudioFrame> = SILENT_AUDIO): Record<string, number> => {
+    uniforms.u_audio_bass = audio.bass
+    uniforms.u_audio_mid = audio.mid
+    uniforms.u_audio_treble = audio.treble
+    uniforms.u_audio_volume = audio.volume
+    uniforms.u_audio_peak = audio.peak
+    uniforms.u_audio_transient = audio.transient
+    const time = (paint.frame + elapsedMs) / 1000
+    for (const binding of bindings) {
+      const value = computeModulatedValue(binding.base, pipeline.modulators, binding.passId, binding.param, time, paint.params.modulatorSpeed, paint.params.modulatorDepth, audio)
+      uniforms[binding.uniform] = Math.max(binding.min, Math.min(binding.max, value))
+    }
+    return uniforms
   }
 }

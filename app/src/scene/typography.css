@@ -441,3 +441,23 @@
 .text-curve-handle[aria-disabled="true"] { cursor: default; opacity: .45; }
 .text-curve-editor > .typo-hint { padding: 8px 10px; border-top: 1px solid var(--paper-border); }
 @media (prefers-reduced-motion: reduce) { .typography-tab-pane { animation: none; } }
+
+/* Kinetic typography shares the canvas's palette and measured inspector rhythm. */
+.kinetic-heading, .kinetic-transport { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.kinetic-controls { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.kinetic-controls:disabled { opacity: .45; }
+.kinetic-controls .axis-slider-input { width: 100%; margin: 8px 0 4px; }
+.kinetic-outline-card { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: var(--paper-input, #222222); border: 1px solid var(--paper-border); border-radius: 4px; }
+.kinetic-outline-button { background: #81adec; color: #080808; border: 0; border-radius: 4px; padding: 9px 8px; font: 500 11px var(--font-sans); cursor: pointer; }
+.kinetic-outline-button:hover { background: #a6c5f2; }
+.kinetic-outline-button:disabled, .typography-studio input:disabled { opacity: .4; cursor: default; }
+.typography-tabs { flex-wrap: wrap; }
+.typography-tab-btn { min-width: 38px; }
+.scene-kinetic-text .kinetic-glyph { transform-origin: 0 0; transform-box: view-box; }
+.scene-kinetic-text[data-playing="true"] .kinetic-glyph { animation-name: paper-glyph-cascade; animation-timing-function: linear; animation-iteration-count: infinite; }
+@keyframes paper-glyph-cascade {
+  0%, 50%, 100% { transform: var(--cascade-base, translate(0px, 0px)) translateY(0) rotate(0) var(--cascade-font, scale(1)); }
+  25% { transform: var(--cascade-base, translate(0px, 0px)) translateY(calc(-1 * var(--cascade-amplitude))) rotate(calc(-1 * var(--cascade-rotation))) var(--cascade-font, scale(1)); }
+  75% { transform: var(--cascade-base, translate(0px, 0px)) translateY(var(--cascade-amplitude)) rotate(var(--cascade-rotation)) var(--cascade-font, scale(1)); }
+}
+@media (prefers-reduced-motion: reduce) { .scene-kinetic-text[data-playing="true"] .kinetic-glyph { animation: none; } }

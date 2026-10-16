@@ -1,5 +1,6 @@
 import type { SceneSnapshot, TextElement } from '../scene/types.ts'
 import { exportBounds, exportRoots, sceneToSVG } from './svg.ts'
+import { resolveTextPathD } from '../scene/typography.ts'
 import type { ExportAssets, ExportOptions } from './svg.ts'
 import { sanitizeSVG } from './import.ts'
 import type { AssetFormat } from './exportTypes.ts'
@@ -53,6 +54,7 @@ async function prepareAssets(state: SceneSnapshot, options: ExportOptions, captu
   await awaitExportTask(document.fonts.ready, signal)
   signal?.throwIfAborted()
   const images = new Map<string, string>(), shaders = new Map<string, string>()
+  const textOutlines = new Map<string, string>()
   const visited: string[] = []
   const visit = (id: string) => { const node = state.elements[id]; if (!node.visible) return; visited.push(id); if (node.type === 'frame') node.children.forEach(visit) }
   exportRoots(state, options.scope).forEach(visit)
@@ -71,6 +73,11 @@ async function prepareAssets(state: SceneSnapshot, options: ExportOptions, captu
   for (const id of visited) {
     signal?.throwIfAborted()
     const node = state.elements[id]
+    if (node.type === 'text' && node.kinetic?.enabled && node.fontSource) {
+      const [{ loadOutlineFont, shapeText }, { placeGlyphs, glyphOutlines }] = await Promise.all([import('../scene/fontEngine'), import('../scene/kineticGeometry')])
+      const font = await awaitExportTask(loadOutlineFont(node.fontSource), signal)
+      textOutlines.set(id, glyphOutlines(placeGlyphs(node, shapeText(font, node), font.unitsPerEm, resolveTextPathD(node, state.elements)), node.kinetic))
+    }
     if (node.type === 'image') {
       let source = imageCache.get(node.src)
       if (!source) { source = await embedImage(node.src, signal); imageCache.set(node.src, source) }
@@ -93,7 +100,7 @@ async function prepareAssets(state: SceneSnapshot, options: ExportOptions, captu
     const descent = metrics.fontBoundingBoxDescent ?? node.fontSize * .2
     return ascent + (node.fontSize * node.lineHeight - ascent - descent) / 2
   } : undefined
-  return { images, shaders, measureText, textBaseline }
+  return { images, shaders, measureText, textBaseline, textOutlines }
 }
 
 export async function exportSVG(state: SceneSnapshot, options: ExportOptions, signal?: AbortSignal): Promise<Blob> {

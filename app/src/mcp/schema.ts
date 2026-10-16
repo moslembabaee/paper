@@ -3,6 +3,7 @@ import { motionControls, shaderCatalog, shaderKinds } from '../shaders/catalog.t
 import type { ShaderControl } from '../shaders/types.ts'
 import { grainBlendModes, shaderBlendModes } from '../shaders/types.ts'
 import { modulatorWaveforms, pipelinePassTypes } from '../shaders/pipeline/types.ts'
+import { audioSignals } from '../shaders/audio/types.ts'
 
 /** The small JSON Schema vocabulary used by Paper's agent-facing contract. */
 export interface JsonSchema {
@@ -64,6 +65,7 @@ const pipelinePassProperties = {
   params: { type: 'object' as const, additionalProperties: true } as JsonSchema,
 }
 const pipelineModulatorProperties = {
+  source: { type: 'string' as const, enum: ['lfo', ...audioSignals] } as JsonSchema,
   id: str(),
   name: str(),
   targetPassId: str(),

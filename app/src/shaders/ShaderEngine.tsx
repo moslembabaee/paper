@@ -5,7 +5,8 @@ import type { RefObject } from 'react'
 import type { ShaderPaint } from './types'
 import { meshUniforms } from './mesh'
 import { meshFragmentShader } from './meshFragment'
-import { multiPassFragmentShader, multiPassUniforms } from './pipeline/multiPassFragment'
+import { createMultiPassUniformUpdater, multiPassFragmentShader, multiPassUniforms } from './pipeline/multiPassFragment'
+import { audioAnalysis } from './audio/engine'
 
 function useSourceImage(source: string, onError: () => void) {
   const [loaded, setLoaded] = useState<{ source: string; image: HTMLImageElement } | null>(null)
@@ -65,24 +66,27 @@ function useMultiPassModulator(
   paused: boolean
 ) {
   useEffect(() => {
-    const hasModulators = paint.pipeline?.modulators?.some(m => m.enabled)
-    if (paused || !paint.animated || paint.speed === 0 || !hasModulators) return
+    if (paused || !paint.animated) return
+    const hasLfo = paint.speed !== 0 && paint.pipeline?.modulators?.some(m => m.enabled && (!m.source || m.source === 'lfo'))
+    const hasAudio = paint.pipeline?.modulators?.some(m => m.enabled && m.source && m.source !== 'lfo')
+    if (!hasLfo && !hasAudio) return
+    const update = createMultiPassUniformUpdater(paint)
     let request = 0
     const start = performance.now()
-    let lastUpdate = 0
     const tick = (now: number) => {
-      if (now - lastUpdate >= 16) {
-        lastUpdate = now
-        const mount = ref.current?.paperShaderMount
-        if (mount) {
-          const elapsed = (now - start) * paint.speed
-          mount.setUniforms(multiPassUniforms(paint, elapsed))
-        }
+      const mount = ref.current?.paperShaderMount
+      if (mount) {
+        const elapsed = (now - start) * paint.speed
+        mount.setUniforms(update(elapsed, hasAudio ? audioAnalysis.getFrame() : undefined))
       }
-      request = requestAnimationFrame(tick)
+      if (hasLfo) request = requestAnimationFrame(tick)
     }
-    request = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(request)
+    if (hasLfo) request = requestAnimationFrame(tick)
+    const unsubscribe = hasAudio ? audioAnalysis.subscribeFrame(() => {
+      // The analyser already owns the frame clock for audio-only materials.
+      if (!hasLfo) tick(performance.now())
+    }) : undefined
+    return () => { cancelAnimationFrame(request); unsubscribe?.() }
   }, [ref, paint, paused])
 }
 
