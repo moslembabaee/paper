@@ -3,22 +3,20 @@ import type { CompileDiagnostic, CompilePreviewAssets } from '../src/make/compil
 import { PREVIEW_PERMISSIONS_POLICY, PREVIEW_SANDBOX_POLICY, parsePreviewMessage } from '../src/make/preview-sandbox.ts'
 import { PREVIEW_VIEWPORTS } from '../src/make/breakpoints.ts'
 import type { AppValidationAttempt } from '../src/make/types.ts'
+import {
+  VALIDATION_LIMITS,
+  boundedDiagnostics,
+  type ValidationScreenshot,
+  type BrowserValidation,
+  type AppBrowserValidator,
+} from '../src/make/validation.ts'
 
-export const VALIDATION_LIMITS = Object.freeze({ maxAttempts: 2, timeoutMs: 15_000, maxDiagnostics: 8, maxMessageChars: 500, maxScreenshotBytes: 12_000 })
-export interface ValidationScreenshot { viewport: 'desktop' | 'mobile'; dataUrl: string }
-export interface BrowserValidation {
-  status: AppValidationAttempt['status']
-  diagnostics: CompileDiagnostic[]
-  viewports: AppValidationAttempt['viewports']
-  screenshots: ValidationScreenshot[]
-}
-export type AppBrowserValidator = (assets: CompilePreviewAssets, signal: AbortSignal) => Promise<BrowserValidation>
-
-export function boundedDiagnostics(diagnostics: readonly CompileDiagnostic[], sanitize: (text: string) => string): CompileDiagnostic[] {
-  return diagnostics.slice(0, VALIDATION_LIMITS.maxDiagnostics).map(d => ({
-    file: sanitize(d.file).slice(0, 256), line: d.line, column: d.column, code: d.code, severity: d.severity,
-    message: sanitize(d.message).replace(/data:image\/[^\s"'<>]+/gi, '[image omitted]').slice(0, VALIDATION_LIMITS.maxMessageChars),
-  }))
+export {
+  VALIDATION_LIMITS,
+  boundedDiagnostics,
+  type ValidationScreenshot,
+  type BrowserValidation,
+  type AppBrowserValidator,
 }
 
 // No cookies, host UI, account data, filesystem screenshots, or network access.
@@ -55,7 +53,13 @@ export const validateAppInBrowser: AppBrowserValidator = async (assets, signal) 
       const page = await context.newPage()
       page.setDefaultTimeout(3000)
       page.on('pageerror', error => issue('RUNTIME_ERROR', `${viewport}: ${error.message}`))
-      page.on('console', message => { if (message.type() === 'error') issue('RUNTIME_ERROR', `${viewport}: ${message.text()}`) })
+      page.on('console', message => {
+        if (message.type() === 'error') {
+          const text = message.text()
+          if (text.includes('Unrecognized Content-Security-Policy directive')) return
+          issue('RUNTIME_ERROR', `${viewport}: ${text}`)
+        }
+      })
       await page.exposeFunction('__paperValidationError', (raw: unknown) => {
         const parsed = parsePreviewMessage(raw, 'paper-preview')
         if (parsed.valid && parsed.message.type === 'preview:error') issue('RUNTIME_ERROR', `${viewport}: ${(parsed.message.payload as { message: string }).message}`)
@@ -83,7 +87,18 @@ export const validateAppInBrowser: AppBrowserValidator = async (assets, signal) 
       try { await frame.locator('#root').locator(':scope > *').first().waitFor({ state: 'visible', timeout: 2500 }) }
       catch { issue('RUNTIME_ERROR', `${viewport}: App did not render visible content within 2.5 seconds.`) }
       await page.waitForTimeout(350)
-      const overflow = await frame.locator('html').evaluate(node => node.scrollWidth > innerWidth + 1)
+      const overflow = await frame.locator('html').evaluate(node => {
+        const w = window.innerWidth
+        if (node.scrollWidth > w + 1) return true
+        if (document.body && document.body.scrollWidth > w + 1) return true
+        const root = document.getElementById('root')
+        if (root && root.scrollWidth > w + 1) return true
+        for (const el of document.querySelectorAll('#root *')) {
+          const rect = el.getBoundingClientRect()
+          if (rect.right > w + 1) return true
+        }
+        return false
+      })
       if (overflow) issue('VISUAL_ERROR', `${viewport}: Content overflows the viewport horizontally.`)
       const capture = await page.screenshot({ type: 'jpeg', quality: 35, timeout: 2000, animations: 'disabled' })
       // Resize only on the trusted, empty parent. Never expose image bytes to

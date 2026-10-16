@@ -30,7 +30,7 @@ LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "orchestrator.log"
 
-AGENT_CHAIN = ["claude"]
+AGENT_CHAIN = ["codex", "claude"]
 
 def log(msg: str):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -40,19 +40,25 @@ def log(msg: str):
         f.write(line + "\n")
 
 def run_cmd(cmd: str, timeout: int = 720, cwd: str = str(PROJECT_ROOT)) -> tuple[int, str]:
+    import signal as _signal
     try:
-        res = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
             shell=True,
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
-            timeout=timeout
+            start_new_session=True
         )
-        return res.returncode, res.stdout
-    except subprocess.TimeoutExpired:
-        return -1, f"Command timed out after {timeout} seconds"
+        try:
+            stdout, _ = proc.communicate(timeout=timeout)
+            return proc.returncode, stdout or ''
+        except subprocess.TimeoutExpired:
+            import os as _os
+            _os.killpg(_os.getpgid(proc.pid), _signal.SIGKILL)
+            proc.wait()
+            return -1, f"Command timed out after {timeout} seconds"
     except Exception as e:
         return -2, str(e)
 

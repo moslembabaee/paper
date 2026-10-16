@@ -252,12 +252,16 @@ def process_issues():
             run_cmd(f'gh issue edit {num} --repo {REPO} --remove-label "in-progress,blocked"')
             continue
             
-        # Check blocked status - auto unblock per owner request
+        # Blocked issues are held for explicit maintainer review and are NEVER auto-unblocked.
+        # The orchestrator labels a task `blocked` only after the full failover chain has
+        # genuinely failed (timeout/quota/blocks). Auto-unblocking here re-triggers the same
+        # failing task on the next loop tick, causing an infinite retry loop and burning the
+        # entire day on one oversized/blocked task. Resume only via an explicit owner action
+        # (/approve comment or removal of the `blocked` label).
         is_blocked = "blocked" in labels
         if is_blocked:
-            log(f"Blocked Issue #{num} auto-unblocked (owner disabled gates).")
-            run_cmd(f'gh issue edit {num} --repo {REPO} --remove-label "blocked" --add-label "approved"')
-            is_blocked = False
+            log(f"Blocked Issue #{num} held for maintainer review; skipping auto-dispatch.")
+            continue
 
         # Check approval status
         is_autonomous_proposal = (

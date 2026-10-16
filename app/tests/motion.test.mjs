@@ -6,6 +6,7 @@ import { CURVES } from '../src/prototype/model.ts'
 import { SPRING_PRESETS } from '../src/prototype/spring.ts'
 import {
   addKeyframeAtTime,
+  computeSpringMetrics,
   createTrack,
   deleteKeyframeFromTrack,
   duplicateKeyframeInTrack,
@@ -91,6 +92,28 @@ test('spring physics and cubic Bézier curve evaluation with property bounds', (
   const samples = Array.from({ length: 50 }, (_, i) => easingProgress(i / 50, springEasing))
   const maxSample = Math.max(...samples)
   assert.ok(maxSample > 1.0, `Expected bouncy spring overshoot > 1.0, got ${maxSample}`)
+
+  // Spring physics metrics telemetry computation
+  const bouncyMetrics = computeSpringMetrics(SPRING_PRESETS.bouncy.spring)
+  assert.equal(bouncyMetrics.classification, 'underdamped')
+  assert.ok(bouncyMetrics.dampingRatio < 1.0)
+  assert.ok(bouncyMetrics.peakOvershootPercent > 0)
+  assert.ok(bouncyMetrics.settleTimeMs > 0)
+
+  const overdampedSpring = { stiffness: 100, damping: 50, mass: 1 }
+  const overdampedMetrics = computeSpringMetrics(overdampedSpring)
+  assert.equal(overdampedMetrics.classification, 'overdamped')
+  assert.ok(overdampedMetrics.dampingRatio > 1.0)
+  assert.equal(overdampedMetrics.peakOvershootPercent, 0)
+
+  // Verify all extended spring presets are structurally sound
+  for (const [presetKey, preset] of Object.entries(SPRING_PRESETS)) {
+    assert.ok(preset.spring.stiffness >= 20 && preset.spring.stiffness <= 1000)
+    assert.ok(preset.spring.damping >= 1 && preset.spring.damping <= 100)
+    assert.ok(preset.spring.mass >= 0.1 && preset.spring.mass <= 10)
+    const m = computeSpringMetrics(preset.spring)
+    assert.ok(m.settleTimeMs >= 100)
+  }
 
   // Cubic Bézier evaluation
   const bezierEasing = { kind: 'bezier', curve: CURVES['ease-out'] }

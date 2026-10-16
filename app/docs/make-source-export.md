@@ -30,8 +30,9 @@ and configuration files remain source data; their scripts never run.
 The same revision and release kit produce identical ZIP bytes and HTML. Missing
 or modified assets, source traversal, local symlinks and unapproved package
 imports reject. Failed builds preserve the last successful `dist/index.html`.
-The local server serves only the built app, and its content keeps the preview
-network policy. Account credentials, chat history and annotations are excluded.
+The local server serves only a regular built HTML file and rejects symlinked
+output files or directories at startup. Its content keeps the preview network
+policy. Account credentials, chat history and annotations are excluded.
 
 The account-scoped API uses `POST /api/apps/:id/export/approve` with only
 `{"expectedRevision": N}`, followed by `GET /api/apps/:id/export.zip?revision=N`.

@@ -1,8 +1,9 @@
-import { memo, useMemo, useRef } from 'react'
-import type { BezierCurve } from '../prototype/types'
-import { SPRING_LIMITS, SPRING_PRESETS, springDuration } from '../prototype/spring'
-import { easingProgress, MOTION_BEZIER_PRESETS } from './model'
-import type { MotionEasing } from './types'
+import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { Play, RotateCcw } from 'lucide-react'
+import type { BezierCurve } from '../prototype/types.ts'
+import { SPRING_LIMITS, SPRING_PRESETS, springDuration, springProgress } from '../prototype/spring.ts'
+import { computeSpringMetrics, easingProgress, MOTION_BEZIER_PRESETS } from './model.ts'
+import type { MotionEasing } from './types.ts'
 
 export const EasingEditor = memo(function EasingEditor({
   value,
@@ -19,6 +20,10 @@ export const EasingEditor = memo(function EasingEditor({
   const drag = useRef<number | null>(null)
   const curve: BezierCurve = value.kind === 'bezier' ? value.curve : MOTION_BEZIER_PRESETS['ease-out'].curve
 
+  const [puckPos, setPuckPos] = useState(1)
+  const [testingBounce, setTestingBounce] = useState(false)
+  const bounceTimer = useRef<number | null>(null)
+
   const path = useMemo(() => {
     return Array.from({ length: 181 }, (_, i) => {
       const p = i / 180
@@ -29,6 +34,31 @@ export const EasingEditor = memo(function EasingEditor({
     }).join(' ')
   }, [value])
 
+  const springMetrics = useMemo(() => {
+    if (value.kind !== 'spring') return null
+    return computeSpringMetrics(value.spring)
+  }, [value])
+
+  const peakPoint = useMemo(() => {
+    if (value.kind !== 'spring' || !springMetrics || springMetrics.peakOvershootPercent <= 0) return null
+    let maxE = 1
+    let maxP = 0
+    for (let i = 0; i <= 180; i++) {
+      const p = i / 180
+      const e = easingProgress(p, value)
+      if (e > maxE) {
+        maxE = e
+        maxP = p
+      }
+    }
+    if (maxE <= 1.005) return null
+    return {
+      x: 24 + maxP * 192,
+      y: 140 - maxE * 96,
+      overshoot: ((maxE - 1) * 100).toFixed(1),
+    }
+  }, [value, springMetrics])
+
   const setCoordinate = (index: number, num: number) => {
     const next = [...curve] as [number, number, number, number]
     const min = index % 2 ? -2 : 0
@@ -38,7 +68,6 @@ export const EasingEditor = memo(function EasingEditor({
   }
 
   const flipCurve = () => {
-    // Invert the bezier curve: (1 - x2, 1 - y2, 1 - x1, 1 - y1)
     const next: BezierCurve = [
       Number((1 - curve[2]).toFixed(3)),
       Number((1 - curve[3]).toFixed(3)),
@@ -47,6 +76,30 @@ export const EasingEditor = memo(function EasingEditor({
     ]
     onChange({ kind: 'bezier', curve: next })
   }
+
+  const triggerBounce = useCallback(() => {
+    if (value.kind !== 'spring') return
+    if (bounceTimer.current) cancelAnimationFrame(bounceTimer.current)
+    setTestingBounce(true)
+    setPuckPos(0)
+    const duration = springDuration(value.spring)
+    const start = performance.now()
+
+    const tick = (now: number) => {
+      const elapsed = now - start
+      const p = Math.min(1, elapsed / duration)
+      const val = springProgress(p, value.spring, duration)
+      setPuckPos(val)
+      if (p < 1) {
+        bounceTimer.current = requestAnimationFrame(tick)
+      } else {
+        setTestingBounce(false)
+        setPuckPos(1)
+        bounceTimer.current = null
+      }
+    }
+    bounceTimer.current = requestAnimationFrame(tick)
+  }, [value])
 
   return (
     <div className="motion-easing-editor">
@@ -107,13 +160,17 @@ export const EasingEditor = memo(function EasingEditor({
             <path d="M24 0H0V24" fill="none" stroke="currentColor" strokeWidth=".6" />
           </pattern>
           <clipPath id="motion-curve-clip">
-            <rect x="8" y="4" width="224" height="172" />
+            <rect x="8" y="2" width="224" height="176" />
           </clipPath>
         </defs>
 
         <rect x="24" y="20" width="192" height="144" fill="url(#motion-curve-grid)" className="motion-graph-grid" />
         <path d="M24 44H216M24 140H216M24 140L216 44" className="motion-graph-guide" />
-        <path d={path} className="motion-graph-line" clipPath="url(#motion-curve-clip)" />
+        <path
+          d={path}
+          className={`motion-graph-line ${value.kind === 'spring' ? 'is-spring' : 'is-bezier'}`}
+          clipPath="url(#motion-curve-clip)"
+        />
 
         {value.kind === 'bezier' && (
           <>
@@ -150,10 +207,21 @@ export const EasingEditor = memo(function EasingEditor({
           </>
         )}
 
+        {value.kind === 'spring' && peakPoint && (
+          <g className="motion-spring-peak-marker">
+            <circle cx={peakPoint.x.toFixed(1)} cy={peakPoint.y.toFixed(1)} r="3.5" className="motion-spring-peak-dot" />
+            <text x={Math.min(200, peakPoint.x + 5).toFixed(1)} y={(peakPoint.y - 4).toFixed(1)} className="motion-spring-peak-text">
+              +{peakPoint.overshoot}%
+            </text>
+          </g>
+        )}
+
         <circle cx="24" cy="140" r="3" className="motion-graph-end" />
         <circle cx="216" cy="44" r="3" className="motion-graph-end" />
         <text x="24" y="180">0%</text>
         <text x="184" y="180">TIME → 100%</text>
+        <text x="218" y="47" className="motion-target-label">1.0</text>
+        <text x="218" y="143" className="motion-target-label">0.0</text>
       </svg>
 
       {value.kind === 'bezier' ? (
@@ -191,6 +259,24 @@ export const EasingEditor = memo(function EasingEditor({
             </button>
           </div>
 
+          <div className="motion-quick-presets" role="group" aria-label="Bézier quick presets">
+            {(['linear', 'ease-out', 'snappy', 'cinematic', 'overshoot', 'bounce'] as const).map(key => {
+              const p = MOTION_BEZIER_PRESETS[key]
+              if (!p) return null
+              const isSelected = p.curve.every((v, i) => Math.abs(v - curve[i]) < 0.001)
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={`motion-preset-pill ${isSelected ? 'is-active' : ''}`}
+                  onClick={() => onChange({ kind: 'bezier', curve: [...p.curve] as BezierCurve })}
+                >
+                  {p.label}
+                </button>
+              )
+            })}
+          </div>
+
           <div className="motion-bezier-fields">
             {(['x1', 'y1', 'x2', 'y2'] as const).map((label, i) => (
               <label className="motion-field" key={label}>
@@ -215,54 +301,159 @@ export const EasingEditor = memo(function EasingEditor({
         </>
       ) : (
         <>
-          <label className="motion-field">
-            Feel
-            <select
-              aria-label="Motion spring preset"
-              value={
-                Object.entries(SPRING_PRESETS).find(([, preset]) =>
-                  Object.keys(SPRING_LIMITS).every(
-                    key => preset.spring[key as keyof typeof preset.spring] === value.spring[key as keyof typeof value.spring]
-                  )
-                )?.[0] ?? 'custom'
-              }
-              onChange={event => {
-                const preset = SPRING_PRESETS[event.target.value as keyof typeof SPRING_PRESETS]
-                if (preset) onChange({ kind: 'spring', spring: preset.spring })
-              }}
-            >
-              <option value="custom" disabled>
-                Custom Feel
-              </option>
-              {Object.entries(SPRING_PRESETS).map(([key, preset]) => (
-                <option value={key} key={key}>
-                  {preset.label}
+          <div className="motion-field-row">
+            <label className="motion-field">
+              Preset Feel
+              <select
+                aria-label="Motion spring preset"
+                value={
+                  Object.entries(SPRING_PRESETS).find(([, preset]) =>
+                    Object.keys(SPRING_LIMITS).every(
+                      key => preset.spring[key as keyof typeof preset.spring] === value.spring[key as keyof typeof value.spring]
+                    )
+                  )?.[0] ?? 'custom'
+                }
+                onChange={event => {
+                  const preset = SPRING_PRESETS[event.target.value as keyof typeof SPRING_PRESETS]
+                  if (preset) onChange({ kind: 'spring', spring: preset.spring })
+                }}
+              >
+                <option value="custom" disabled>
+                  Custom Feel
                 </option>
-              ))}
-            </select>
-          </label>
-          <div className="motion-physics-fields">
-            {(Object.keys(SPRING_LIMITS) as (keyof typeof value.spring)[]).map(key => (
-              <label className="motion-field" key={key}>
-                {key}
-                <input
-                  type="number"
-                  aria-label={`Motion spring ${key}`}
-                  min={SPRING_LIMITS[key][0]}
-                  max={SPRING_LIMITS[key][1]}
-                  step={key === 'mass' ? 0.1 : 1}
-                  value={value.spring[key]}
-                  onChange={event => {
-                    const n = event.currentTarget.valueAsNumber
-                    if (Number.isFinite(n) && n >= SPRING_LIMITS[key][0] && n <= SPRING_LIMITS[key][1]) {
-                      onChange({ kind: 'spring', spring: { ...value.spring, [key]: n } })
-                    }
-                  }}
-                />
-              </label>
-            ))}
+                {Object.entries(SPRING_PRESETS).map(([key, preset]) => (
+                  <option value={key} key={key}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="motion-button-secondary"
+              title="Reset to default spring feel"
+              onClick={() => onChange({ kind: 'spring', spring: SPRING_PRESETS.bouncy.spring })}
+            >
+              Reset
+            </button>
           </div>
-          <p className="motion-hint">{springDuration(value.spring)} ms natural settle · fitted to segment</p>
+
+          <div className="motion-quick-presets" role="group" aria-label="Spring quick presets">
+            {Object.entries(SPRING_PRESETS).map(([key, preset]) => {
+              const isSelected = Object.keys(SPRING_LIMITS).every(
+                k => preset.spring[k as keyof typeof preset.spring] === value.spring[k as keyof typeof value.spring]
+              )
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={`motion-preset-pill ${isSelected ? 'is-active' : ''}`}
+                  onClick={() => onChange({ kind: 'spring', spring: preset.spring })}
+                >
+                  {preset.label}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="motion-physics-fields">
+            {(Object.keys(SPRING_LIMITS) as (keyof typeof value.spring)[]).map(key => {
+              const [min, max] = SPRING_LIMITS[key]
+              const step = key === 'mass' ? 0.1 : 1
+              return (
+                <div key={key} className="motion-spring-field-item">
+                  <label className="motion-field">
+                    <div className="motion-spring-label-header">
+                      <span className="motion-spring-param-title">{key}</span>
+                      <span className="motion-spring-param-unit">
+                        {key === 'stiffness' ? 'N/m' : key === 'damping' ? 'N·s/m' : 'kg'}
+                      </span>
+                    </div>
+                    <input
+                      type="number"
+                      aria-label={`Motion spring ${key}`}
+                      min={min}
+                      max={max}
+                      step={step}
+                      value={value.spring[key]}
+                      onChange={event => {
+                        const n = event.currentTarget.valueAsNumber
+                        if (Number.isFinite(n) && n >= min && n <= max) {
+                          onChange({ kind: 'spring', spring: { ...value.spring, [key]: n } })
+                        }
+                      }}
+                    />
+                  </label>
+                  <input
+                    type="range"
+                    className="motion-spring-slider"
+                    aria-label={`Motion spring ${key} slider`}
+                    min={min}
+                    max={max}
+                    step={step}
+                    value={value.spring[key]}
+                    onChange={event => {
+                      const n = Number(event.target.value)
+                      if (Number.isFinite(n) && n >= min && n <= max) {
+                        onChange({ kind: 'spring', spring: { ...value.spring, [key]: n } })
+                      }
+                    }}
+                  />
+                </div>
+              )
+            })}
+          </div>
+
+          {springMetrics && (
+            <div className="motion-spring-telemetry">
+              <div className="motion-telemetry-col">
+                <span className="motion-telemetry-label">Damping (ζ)</span>
+                <span className="motion-telemetry-val">{springMetrics.dampingRatio}</span>
+                <small className="motion-telemetry-desc">
+                  {springMetrics.classification === 'underdamped'
+                    ? 'Underdamped'
+                    : springMetrics.classification === 'overdamped'
+                    ? 'Overdamped'
+                    : 'Critical'}
+                </small>
+              </div>
+              <div className="motion-telemetry-col">
+                <span className="motion-telemetry-label">Settle Time</span>
+                <span className="motion-telemetry-val">{springMetrics.settleTimeMs} ms</span>
+                <small className="motion-telemetry-desc">Natural quiet</small>
+              </div>
+              <div className="motion-telemetry-col">
+                <span className="motion-telemetry-label">Overshoot</span>
+                <span className="motion-telemetry-val">
+                  {springMetrics.peakOvershootPercent > 0 ? `+${springMetrics.peakOvershootPercent}%` : '0%'}
+                </span>
+                <small className="motion-telemetry-desc">
+                  {springMetrics.peakOvershootPercent > 0 ? 'Oscillating' : 'Direct'}
+                </small>
+              </div>
+            </div>
+          )}
+
+          <div className="motion-bounce-tester">
+            <div className="motion-bounce-track">
+              <div
+                className="motion-bounce-puck"
+                style={{
+                  left: `${Math.max(0, Math.min(100, puckPos * 100))}%`,
+                }}
+              />
+              <div className="motion-bounce-target-line" title="Resting target (100%)" />
+            </div>
+            <button
+              type="button"
+              className="motion-bounce-btn"
+              onClick={triggerBounce}
+              title="Test dynamic spring response simulation"
+            >
+              {testingBounce ? <RotateCcw size={10} className="is-spinning" /> : <Play size={10} fill="currentColor" />}
+              Test Bounce
+            </button>
+          </div>
         </>
       )}
     </div>

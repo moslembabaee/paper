@@ -5,6 +5,10 @@ export const SPRING_PRESETS = {
   gentle: { label: 'Gentle', spring: Object.freeze({ stiffness: 100, damping: 20, mass: 1 }) },
   snappy: { label: 'Snappy', spring: Object.freeze({ stiffness: 300, damping: 30, mass: 1 }) },
   bouncy: { label: 'Bouncy', spring: Object.freeze({ stiffness: 180, damping: 12, mass: 1 }) },
+  smooth: { label: 'Smooth', spring: Object.freeze({ stiffness: 200, damping: 25, mass: 1 }) },
+  stiff: { label: 'Stiff', spring: Object.freeze({ stiffness: 400, damping: 35, mass: 0.8 }) },
+  wobbly: { label: 'Wobbly', spring: Object.freeze({ stiffness: 120, damping: 8, mass: 1.2 }) },
+  slow: { label: 'Slow', spring: Object.freeze({ stiffness: 80, damping: 18, mass: 1.5 }) },
 } as const
 export const SPRING_LIMITS = { stiffness: [20, 1000], damping: [1, 100], mass: [.1, 10] } as const
 const MAX_DURATION = 10000

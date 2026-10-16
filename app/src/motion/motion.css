@@ -962,6 +962,34 @@
   stroke-linecap: round;
 }
 
+.motion-graph-line.is-spring {
+  stroke: #38bdf8;
+  filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.4));
+}
+
+.motion-graph-line.is-bezier {
+  stroke: var(--motion-accent);
+}
+
+.motion-spring-peak-dot {
+  fill: #38bdf8;
+  stroke: #080808;
+  stroke-width: 1.5;
+}
+
+.motion-spring-peak-text {
+  fill: #38bdf8;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.motion-target-label {
+  fill: var(--motion-text-dim);
+  font-family: var(--font-mono);
+  font-size: 7px;
+}
+
 .motion-graph-handle-line {
   stroke: var(--motion-accent);
   opacity: 0.5;
@@ -996,15 +1024,198 @@
   font-size: 8px;
 }
 
-.motion-physics-fields,
-.motion-bezier-fields {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+/* Quick Preset Pills */
+.motion-quick-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.motion-preset-pill {
+  padding: 2px 7px;
+  background: var(--motion-surface-inset);
+  border: 1px solid var(--motion-border);
+  border-radius: 12px;
+  color: var(--motion-text-muted);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.motion-preset-pill:hover {
+  color: var(--motion-text);
+  border-color: var(--motion-accent);
+}
+
+.motion-preset-pill.is-active {
+  background: var(--motion-accent-soft);
+  color: var(--motion-accent);
+  border-color: var(--motion-accent);
+  font-weight: 600;
+}
+
+/* Configurable Spring Physics Fields */
+.motion-physics-fields {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
+.motion-spring-field-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  background: var(--motion-surface-inset);
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+.motion-spring-label-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.motion-spring-param-title {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--motion-text);
+  text-transform: capitalize;
+}
+
+.motion-spring-param-unit {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--motion-text-dim);
+}
+
+.motion-spring-slider {
+  width: 100%;
+  accent-color: #38bdf8;
+  height: 4px;
+  cursor: ew-resize;
+  margin: 3px 0 1px;
+}
+
+/* Spring Physics Telemetry Box */
+.motion-spring-telemetry {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  background: var(--motion-surface-inset);
+  border: 1px solid var(--motion-border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  margin-top: 2px;
+}
+
+.motion-telemetry-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  text-align: center;
+}
+
+.motion-telemetry-label {
+  font-size: 8px;
+  font-family: var(--font-mono);
+  color: var(--motion-text-dim);
+}
+
+.motion-telemetry-val {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.motion-telemetry-desc {
+  font-size: 7px;
+  color: var(--motion-text-muted);
+}
+
+/* Interactive Spring Bounce Tester */
+.motion-bounce-tester {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--motion-surface-inset);
+  border: 1px solid var(--motion-border);
+  border-radius: 5px;
+  padding: 6px 10px;
+  margin-top: 2px;
+}
+
+.motion-bounce-track {
+  flex: 1;
+  height: 14px;
+  background: var(--motion-surface-raised);
+  border: 1px solid var(--motion-border-subtle);
+  border-radius: 7px;
+  position: relative;
+  overflow: visible;
+}
+
+.motion-bounce-target-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 6px;
+  width: 1px;
+  background: var(--motion-text-dim);
+  opacity: 0.5;
+}
+
+.motion-bounce-puck {
+  position: absolute;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: #38bdf8;
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.6);
+  pointer-events: none;
+  transition: transform 60ms linear;
+}
+
+.motion-bounce-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  background: var(--motion-surface-raised);
+  border: 1px solid var(--motion-border);
+  border-radius: 4px;
+  color: var(--motion-text);
+  font-size: 9px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.motion-bounce-btn:hover {
+  border-color: #38bdf8;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.motion-bounce-btn .is-spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .motion-bezier-fields {
+  display: grid;
   grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
 }
 
 .motion-hint {

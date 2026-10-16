@@ -172,3 +172,45 @@ test('motion sequencer aesthetic and bezier curve selection', async ({ page }) =
   await expect(inspector.locator('.motion-curve')).toBeVisible()
   await expect(inspector.locator('.motion-graph-handle')).toHaveCount(2)
 })
+
+test('spring physics controls, sliders, telemetry, and test bounce simulation', async ({ page }) => {
+  await page.getByTestId('tool-motion').click()
+  const drawer = page.getByTestId('motion-drawer')
+  await expect(drawer).toBeVisible()
+
+  // Apply position starter template
+  await page.getByRole('button', { name: 'Animate Position (X/Y)' }).click()
+
+  // Select keyframe
+  const firstDiamond = drawer.locator('.motion-diamond').first()
+  await firstDiamond.click()
+  const inspector = drawer.locator('.motion-inspector')
+
+  // Switch to Spring Physics tab
+  await inspector.getByRole('button', { name: 'Spring Physics' }).click()
+
+  // Verify spring preset select and telemetry
+  const springPresetSelect = inspector.getByLabel('Motion spring preset')
+  await expect(springPresetSelect).toBeVisible()
+
+  // Telemetry box should be rendered
+  const telemetry = inspector.locator('.motion-spring-telemetry')
+  await expect(telemetry).toBeVisible()
+  await expect(telemetry).toContainText('Damping (ζ)')
+  await expect(telemetry).toContainText('Settle Time')
+
+  // Sliders for stiffness, damping, mass
+  await expect(inspector.getByLabel('Motion spring stiffness slider')).toBeVisible()
+  await expect(inspector.getByLabel('Motion spring damping slider')).toBeVisible()
+  await expect(inspector.getByLabel('Motion spring mass slider')).toBeVisible()
+
+  // Quick preset pills
+  const snappyPill = inspector.locator('.motion-quick-presets').getByRole('button', { name: 'Snappy' })
+  await expect(snappyPill).toBeVisible()
+  await snappyPill.click()
+
+  // Test Bounce simulation button
+  const testBounceBtn = inspector.getByRole('button', { name: /Test Bounce/i })
+  await expect(testBounceBtn).toBeVisible()
+  await testBounceBtn.click()
+})

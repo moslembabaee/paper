@@ -54,7 +54,18 @@ export function exportMotion(
           ease: 'linear',
           ...(motion.loop ? { repeat: 'Infinity' } : {}),
         }
-        return `\n// Layer ${JSON.stringify(id)}\nexport function MotionLayer${index + 1}() {\n  return <motion.div\n    initial={${JSON.stringify(initial)}}\n    animate={${JSON.stringify(animate)}}\n    transition={${JSON.stringify(transition)}}\n  />;\n}`
+        const springNotes = group
+          .filter(t => t.keyframes.some(k => k.easing.kind === 'spring'))
+          .map(t => {
+            const firstSpring = t.keyframes.find(k => k.easing.kind === 'spring')
+            if (!firstSpring || firstSpring.easing.kind !== 'spring') return ''
+            const sp = firstSpring.easing.spring
+            return `// Track "${t.property}": Spring { stiffness: ${sp.stiffness}, damping: ${sp.damping}, mass: ${sp.mass} }\n// Alternative native transition: { type: "spring", stiffness: ${sp.stiffness}, damping: ${sp.damping}, mass: ${sp.mass} }`
+          })
+          .filter(Boolean)
+          .join('\n')
+        const noteBlock = springNotes ? `${springNotes}\n` : ''
+        return `\n// Layer ${JSON.stringify(id)}\n${noteBlock}export function MotionLayer${index + 1}() {\n  return <motion.div\n    initial={${JSON.stringify(initial)}}\n    animate={${JSON.stringify(animate)}}\n    transition={${JSON.stringify(transition)}}\n  />;\n}`
       })
       .join('\n')}\n`
   }

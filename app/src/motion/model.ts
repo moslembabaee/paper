@@ -164,6 +164,38 @@ export function easingProgress(progress: number, easing: MotionEasing): number {
   return springProgress(progress, easing.spring, duration)
 }
 
+export interface SpringMetrics {
+  readonly dampingRatio: number
+  readonly naturalFrequency: number
+  readonly settleTimeMs: number
+  readonly peakOvershootPercent: number
+  readonly classification: 'underdamped' | 'critically-damped' | 'overdamped'
+}
+
+export function computeSpringMetrics(spring: SpringParameters): SpringMetrics {
+  const { stiffness: k, damping: c, mass: m } = spring
+  const omega0 = Math.sqrt(k / m)
+  const zeta = c / (2 * Math.sqrt(k * m))
+  const duration = springDuration(spring)
+
+  let classification: 'underdamped' | 'critically-damped' | 'overdamped' = 'critically-damped'
+  let overshoot = 0
+  if (zeta < 0.999) {
+    classification = 'underdamped'
+    overshoot = Math.exp((-Math.PI * zeta) / Math.sqrt(1 - zeta * zeta)) * 100
+  } else if (zeta > 1.001) {
+    classification = 'overdamped'
+  }
+
+  return {
+    dampingRatio: Number(zeta.toFixed(3)),
+    naturalFrequency: Number(omega0.toFixed(2)),
+    settleTimeMs: duration,
+    peakOvershootPercent: Number(overshoot.toFixed(1)),
+    classification,
+  }
+}
+
 export function trackValue(track: MotionTrack, time: number): number {
   const keys = track.keyframes
   if (time <= keys[0].time) return keys[0].value
