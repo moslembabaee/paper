@@ -686,3 +686,28 @@
 .make-data .make-button { font-size: 10px; justify-content: center; }
 .make-data p.make-asset-error { color: #f4a5a0; }
 @media (max-width: 720px) { .make-data { padding: 16px 12px; } }
+
+.make-github { padding: 20px; border-bottom: 1px solid #222222; min-width: 0; }
+.make-github h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; color: #edebe1; font-size: 12px; }
+.make-github h2 svg { color: #81adec; }
+.make-github h2 > span { margin-left: auto; color: #99998f; font: 10px var(--font-mono); letter-spacing: .08em; }
+.make-github p { color: #99998f; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.make-github summary { cursor: pointer; font-size: 11px; padding: 8px 0; }
+.make-github fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.make-github fieldset:disabled { opacity: .5; }
+.make-github label { display: grid; gap: 8px; color: #99998f; font-size: 10px; line-height: 1.6; margin: 12px 0; }
+.make-github input { box-sizing: border-box; width: 100%; min-width: 0; padding: 8px; background: #080808; color: #edebe1; border: 1px solid #222222; border-radius: 3px; font: 11px/1.6 var(--font-mono); }
+.make-github :is(input, summary, a):focus-visible { outline: 2px solid #81adec; outline-offset: 3px; }
+.make-github-actions { display: grid; gap: 8px; margin: 12px 0; }
+.make-github .make-button { width: 100%; justify-content: center; font-size: 10px; }
+.make-github-review { padding: 16px 0 0; border-top: 1px solid #222222; }
+.make-github-revision { display: grid; gap: 8px; overflow-wrap: anywhere; }
+.make-github-revision span { color: #81adec; font: 10px/1.6 var(--font-mono); }
+.make-github-revision strong { font-size: 13px; font-weight: 500; }
+.make-github .make-file-diff summary span { overflow-wrap: anywhere; }
+.make-github .make-github-consent { display: flex; align-items: flex-start; gap: 8px; color: #edebe1; }
+.make-github-consent input { flex: 0 0 13px; width: 13px; height: 13px; margin: 2px 0; accent-color: #81adec; }
+.make-github-commit:not(:disabled) { border-color: #81adec; color: #81adec; }
+.make-github-link { display: inline-flex; align-items: center; gap: 6px; color: #81adec; font-size: 11px; }
+.make-github p.make-asset-error { color: #f4a5a0; }
+@media (max-width: 720px) { .make-github { padding: 16px 12px; } }

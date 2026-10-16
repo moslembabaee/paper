@@ -10,6 +10,7 @@ import { AnnotationPanel } from './AnnotationPanel'
 import { SourceEditor } from './SourceEditor'
 import { VersionHistory } from './VersionHistory'
 import { SourceExport } from './SourceExport'
+import { GitHubHandoff } from './GitHubHandoff'
 import { Publication } from './Publication'
 import { Sharing, SharedProjectReview } from './Sharing'
 import { SecretHandles } from './SecretHandles'
@@ -110,6 +111,7 @@ export default function MakeWorkspace({ accountId, onDesign, designSelection }: 
         <AssetPanel project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} onChange={store.acceptAssetProject} />
         <SourceEditor store={store} state={state} disabled={busy} planBusy={planBusy} />
         <SourceExport key={`${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
+        <GitHubHandoff key={`github:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
         <Publication key={`publication:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
         <Sharing key={`sharing:${accountId}:${active.id}:${active.revision}`} project={active} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy || state.annotationDirty} />
         <SecretHandles key={`secrets:${accountId}:${active.id}:${savedIds.has(active.id)}`} appId={active.id} accountId={accountId} saved={savedIds.has(active.id)} disabled={busy || planBusy} />

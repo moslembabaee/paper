@@ -25,6 +25,7 @@ import { AppSecrets } from './app-secrets.ts'
 import { APP_SECRET_LIMITS, isSecretHandle } from '../src/make/secrets.ts'
 import { AppData } from './app-data.ts'
 import { APP_DATA_LIMITS, isDataHandle } from '../src/make/data.ts'
+import { GitHubHandoff } from './github-handoff.ts'
 
 export interface ServiceConfig {
   root: string
@@ -103,6 +104,12 @@ export async function createService(config: ServiceConfig) {
   const appData = new AppData(storage.apps)
   const collaboration = new CollaborationServer(origin)
   const requestFetch = config.fetch ?? fetch
+  const serverSecrets = [
+    config.secret,
+    ...(config.google?.clientSecret ? [config.google.clientSecret] : []),
+    ...(config.github?.clientSecret ? [config.github.clientSecret] : []),
+  ]
+  const githubHandoff = new GitHubHandoff(storage.apps, requestFetch, serverSecrets)
   const streams = new Map<string, Set<ServerResponse>>()
   const attempts = new Map<string, { provider: string; verifier: string; expires: number }>()
   const exportApprovals = new Map<string, { fingerprint: string; expires: number }>()
@@ -711,6 +718,38 @@ export async function createService(config: ServiceConfig) {
           json(res, 201, release); return
         } finally { req.removeListener('aborted', stop); res.removeListener('close', stop) }
       }
+      const githubRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/github\/(connection|dry-run|commit)$/)
+      if (githubRoute) {
+        const id = safeId(decodeAppPath(githubRoute[2]), 'app ID')
+        const project = await storage.apps.read(user.id, id)
+        if (!project) throw httpError(404, 'App project not found')
+        const action = githubRoute[3]
+        if (req.method !== 'POST' && !(action === 'connection' && req.method === 'DELETE')) throw httpError(405, 'Method not allowed')
+        const input = await body(req, parsed, action === 'connection' ? 4096 : 2048, true)
+        const controller = new AbortController()
+        const stop = () => { if (!res.writableEnded) controller.abort() }
+        req.once('aborted', stop); res.once('close', stop)
+        try {
+          if (req.aborted || res.destroyed) controller.abort()
+          const context = { owner: user.id, appId: id, session: sessionCookie,
+            live: () => auth.session(sessionCookie)?.id === user.id, signal: controller.signal }
+          if (action === 'connection') {
+            if (req.method === 'DELETE') {
+              if (Object.keys(input).length) throw httpError(400, 'Revocation takes no fields')
+              githubHandoff.revoke(context); json(res, 200, { ok: true }); return
+            }
+            json(res, 200, await githubHandoff.connect(context, input)); return
+          }
+          if (action === 'commit') { json(res, 201, await githubHandoff.commit(context, input)); return }
+          const review = await githubHandoff.review(context, project, input, async () => {
+            const compiled = await compileWithAssets(user.id, project)
+            if (!compiled.success || !compiled.assets || compiled.diagnostics.some(d => d.severity === 'error')) throw httpError(422, 'GitHub handoff build validation failed. Fix the app and review again.')
+            const checks = await (config.appValidator ?? validateAppInBrowser)(compiled.assets, controller.signal)
+            if (controller.signal.aborted || checks.status !== 'passed' || checks.diagnostics.some(d => d.severity === 'error')) throw httpError(422, 'GitHub handoff browser validation failed or is unavailable. Fix the app and review again.')
+          })
+          json(res, 200, review); return
+        } finally { req.removeListener('aborted', stop); res.removeListener('close', stop) }
+      }
       const sourceExportRoute = path.match(/^\/api\/(apps|app-projects)\/([^/]+)\/(export\.zip|export\/approve)$/)
       if (sourceExportRoute) {
         const id = safeId(decodeAppPath(sourceExportRoute[2]), 'app ID')
@@ -1057,5 +1096,5 @@ export async function createService(config: ServiceConfig) {
       json(res, failure.status ?? 500, { error: failure.status ? failure.message : 'Server could not complete the request', ...(failure.status === 409 ? { current: failure.current ?? null } : {}) })
     }
   }
-  return { handler, publicHandler: createPublicHandler(storage.apps, releaseOrigin), auth, storage, collaboration, modelGateway, close: () => { modelGateway.close(); collaboration.close(); mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
+  return { handler, publicHandler: createPublicHandler(storage.apps, releaseOrigin), auth, storage, collaboration, modelGateway, close: () => { githubHandoff.close(); modelGateway.close(); collaboration.close(); mcp.close(); for (const set of streams.values()) for (const res of set) res.end() } }
 }
