@@ -5,10 +5,18 @@ import { SceneReplica } from '../src/collaboration/model.ts'
 import { CURVES } from '../src/prototype/model.ts'
 import { SPRING_PRESETS } from '../src/prototype/spring.ts'
 import {
+  addKeyframeAtTime,
   createTrack,
+  deleteKeyframeFromTrack,
+  duplicateKeyframeInTrack,
   DEFAULT_EASING,
   EMPTY_MOTION,
   easingProgress,
+  findAdjacentKeyframeTimes,
+  formatTime,
+  getElementPropertyValue,
+  isShaderProperty,
+  MOTION_BEZIER_PRESETS,
   patchKeyframe,
   PROPERTY_META,
   pruneMotion,
@@ -175,16 +183,17 @@ test('collaboration replica tracks and synchronizes motion changes', () => {
   assert.ok(changes.some(c => c.path[0] === 'motion'))
 })
 
-test('motion code export for Framer Motion and CSS keyframes', () => {
+test('motion code export for Framer Motion, CSS keyframes, WAAPI and JSON', () => {
   const store = fixture()
   const elements = store.getSnapshot().elements
   const trackX = createTrack('rect1', 'x', 2000)
   const trackScale = createTrack('rect1', 'scale', 2000)
-  const motionDoc = { duration: 2000, tracks: [trackX, trackScale] }
+  const motionDoc = { duration: 2000, tracks: [trackX, trackScale], loop: true }
 
   // Empty state handling
   assert.ok(exportMotion(EMPTY_MOTION, elements, 'framer').includes('// Add an enabled motion track'))
   assert.ok(exportMotion(EMPTY_MOTION, elements, 'css').includes('/* Add an enabled motion track'))
+  assert.ok(exportMotion(EMPTY_MOTION, elements, 'waapi').includes('// Add an enabled motion track'))
 
   // Framer Motion export
   const framerCode = exportMotion(motionDoc, elements, 'framer')
@@ -194,6 +203,7 @@ test('motion code export for Framer Motion and CSS keyframes', () => {
   assert.ok(framerCode.includes('animate='))
   assert.ok(framerCode.includes('transition='))
   assert.ok(framerCode.includes('"ease":"linear"'))
+  assert.ok(framerCode.includes('"repeat":"Infinity"'))
 
   // CSS keyframes export
   const cssCode = exportMotion(motionDoc, elements, 'css')
@@ -204,4 +214,198 @@ test('motion code export for Framer Motion and CSS keyframes', () => {
   assert.ok(cssCode.includes('@media (prefers-reduced-motion: reduce)'))
   assert.ok(cssCode.includes('0% {'))
   assert.ok(cssCode.includes('100% {'))
+  assert.ok(cssCode.includes('infinite'))
+
+  // WAAPI export
+  const waapiCode = exportMotion(motionDoc, elements, 'waapi')
+  assert.ok(waapiCode.includes('export function animateLayer1(element: HTMLElement)'))
+  assert.ok(waapiCode.includes('element.animate('))
+  assert.ok(waapiCode.includes('duration: 2000'))
+  assert.ok(waapiCode.includes("iterations: 'Infinity'"))
+
+  // JSON export
+  const jsonCode = exportMotion(motionDoc, elements, 'json')
+  const parsed = JSON.parse(jsonCode)
+  assert.equal(parsed.duration, 2000)
+  assert.equal(parsed.tracks.length, 2)
+  assert.equal(parsed.loop, true)
+})
+
+test('shader parameter motion tracks creation, validation, and interpolation', () => {
+  const store = fixture()
+  // Add shader to rect1
+  store.update('rect1', 'rectangle', {
+    style: {
+      fill: null,
+      shader: {
+        kind: 'neuro-noise',
+        animated: true,
+        speed: 1.5,
+        frame: 0,
+        scale: 1.2,
+        rotation: 45,
+        offsetX: 0.1,
+        offsetY: 0.2,
+        composite: { blendMode: 'normal', opacity: 0.85 },
+        params: { colorFront: '#edebe1', colorMid: '#81adec', colorBack: '#080808', brightness: 1, contrast: 1 },
+      },
+    },
+  })
+  const elements = store.getSnapshot().elements
+  const rect = elements.rect1
+
+  // Test isShaderProperty
+  assert.equal(isShaderProperty('shaderSpeed'), true)
+  assert.equal(isShaderProperty('shaderScale'), true)
+  assert.equal(isShaderProperty('shaderRotation'), true)
+  assert.equal(isShaderProperty('shaderOffsetX'), true)
+  assert.equal(isShaderProperty('shaderOffsetY'), true)
+  assert.equal(isShaderProperty('shaderOpacity'), true)
+  assert.equal(isShaderProperty('x'), false)
+  assert.equal(isShaderProperty('scale'), false)
+
+  // Create shader tracks with element initial design values
+  const trackSpeed = createTrack('rect1', 'shaderSpeed', 3000, rect)
+  assert.equal(trackSpeed.elementId, 'rect1')
+  assert.equal(trackSpeed.property, 'shaderSpeed')
+  assert.equal(trackSpeed.keyframes[0].value, 1.5) // Picked up from rect.style.shader.speed!
+  assert.ok(trackSpeed.keyframes[1].value > 1.5)
+
+  const trackScale = createTrack('rect1', 'shaderScale', 3000, rect)
+  assert.equal(trackScale.keyframes[0].value, 1.2) // Picked up from rect.style.shader.scale!
+
+  const trackRot = createTrack('rect1', 'shaderRotation', 3000, rect)
+  assert.equal(trackRot.keyframes[0].value, 45) // Picked up from rect.style.shader.rotation!
+
+  const trackOffX = createTrack('rect1', 'shaderOffsetX', 3000, rect)
+  assert.equal(trackOffX.keyframes[0].value, 0.1)
+
+  const trackOffY = createTrack('rect1', 'shaderOffsetY', 3000, rect)
+  assert.equal(trackOffY.keyframes[0].value, 0.2)
+
+  const trackOpac = createTrack('rect1', 'shaderOpacity', 3000, rect)
+  assert.equal(trackOpac.keyframes[0].value, 0.85) // Picked up from composite.opacity!
+
+  // Validate motion document with all shader tracks
+  const doc = {
+    duration: 3000,
+    tracks: [trackSpeed, trackScale, trackRot, trackOffX, trackOffY, trackOpac],
+  }
+  const validated = validateMotion(doc, elements)
+  assert.equal(validated.tracks.length, 6)
+
+  // Interpolation along timeline
+  assert.equal(trackValue(trackSpeed, 0), 1.5)
+  assert.ok(trackValue(trackSpeed, 1500) > 1.5)
+  assert.equal(trackValue(trackSpeed, 3000), trackSpeed.keyframes[1].value)
+
+  // Clamping at extremes
+  assert.equal(trackValue(trackSpeed, -500), 1.5)
+  assert.equal(trackValue(trackSpeed, 9999), trackSpeed.keyframes[1].value)
+
+  // Export with shader properties
+  const css = exportMotion(doc, elements, 'css')
+  assert.ok(css.includes('--shader-speed:'))
+  assert.ok(css.includes('--shader-scale:'))
+  assert.ok(css.includes('--shader-rotation:'))
+  assert.ok(css.includes('--shader-offset-x:'))
+  assert.ok(css.includes('--shader-offset-y:'))
+  assert.ok(css.includes('--shader-opacity:'))
+
+  const framer = exportMotion(doc, elements, 'framer')
+  assert.ok(framer.includes('"--shader-speed"'))
+  assert.ok(framer.includes('"--shader-scale"'))
+  assert.ok(framer.includes('"--shader-rotation"'))
+
+  const waapi = exportMotion(doc, elements, 'waapi')
+  assert.ok(waapi.includes('"--shader-speed"'))
+  assert.ok(waapi.includes('"--shader-scale"'))
+
+  // Read initial property values via helper
+  assert.equal(getElementPropertyValue(rect, 'shaderSpeed'), 1.5)
+  assert.equal(getElementPropertyValue(rect, 'shaderScale'), 1.2)
+  assert.equal(getElementPropertyValue(rect, 'shaderRotation'), 45)
+  assert.equal(getElementPropertyValue(rect, 'shaderOpacity'), 0.85)
+  assert.equal(getElementPropertyValue(rect, 'scale'), 1)
+})
+
+test('keyframe manipulation helpers: add, delete, duplicate, retime, and formatTime', () => {
+  const track = createTrack('rect1', 'scale', 2000)
+  assert.equal(track.keyframes.length, 2)
+  assert.equal(track.keyframes[0].time, 0)
+
+  // Add keyframe at 1000ms
+  const added = addKeyframeAtTime(track, 1000, 1.75)
+  assert.ok(added)
+  assert.equal(added.track.keyframes.length, 3)
+  const midKey = added.track.keyframes.find(k => k.id === added.keyframeId)
+  assert.ok(midKey)
+  assert.equal(midKey.time, 1000)
+  assert.equal(midKey.value, 1.75)
+
+  // Cannot add duplicate keyframe at the exact same timestamp
+  const dupAdd = addKeyframeAtTime(added.track, 1000)
+  assert.equal(dupAdd, null)
+
+  // Duplicate keyframe
+  const dup = duplicateKeyframeInTrack(added.track, midKey.id, 2000, 200)
+  assert.ok(dup)
+  assert.equal(dup.track.keyframes.length, 4)
+  const dupKey = dup.track.keyframes.find(k => k.id === dup.newKeyId)
+  assert.ok(dupKey)
+  assert.equal(dupKey.time, 1200)
+  assert.equal(dupKey.value, 1.75)
+
+  // Delete keyframe
+  const afterDelete = deleteKeyframeFromTrack(dup.track, dupKey.id)
+  assert.ok(afterDelete)
+  assert.equal(afterDelete.keyframes.length, 3)
+
+  // Refuses to delete if keyframe count <= 2
+  const twoKeyTrack = track
+  assert.equal(deleteKeyframeFromTrack(twoKeyTrack, twoKeyTrack.keyframes[0].id), null)
+
+  // Adjacent keyframe navigation
+  const doc = { duration: 2000, tracks: [afterDelete] }
+  const adj1 = findAdjacentKeyframeTimes(doc, 500)
+  assert.equal(adj1.prev, 0)
+  assert.equal(adj1.next, 1000)
+
+  const adj2 = findAdjacentKeyframeTimes(doc, 1000)
+  assert.equal(adj2.prev, 0)
+  assert.ok(adj2.next !== null && adj2.next > 1000)
+
+  // formatTime helper
+  const formatted = formatTime(1500, 60)
+  assert.equal(formatted.seconds, '1.50s')
+  assert.equal(formatted.frames, 'F90')
+  assert.equal(formatted.full, '1.50s (90f)')
+})
+
+test('Bézier presets and spring curve evaluation', () => {
+  // Check that all presets exist and have valid cubic bezier coordinate bounds
+  for (const [name, preset] of Object.entries(MOTION_BEZIER_PRESETS)) {
+    assert.ok(preset.label, `Preset ${name} must have a label`)
+    assert.equal(preset.curve.length, 4, `Preset ${name} must have 4 control numbers`)
+    assert.ok(preset.curve[0] >= 0 && preset.curve[0] <= 1, `${name} x1 in [0, 1]`)
+    assert.ok(preset.curve[2] >= 0 && preset.curve[2] <= 1, `${name} x2 in [0, 1]`)
+  }
+
+  // Overshoot preset should exceed 1.0 at some point
+  const overshoot = MOTION_BEZIER_PRESETS.overshoot
+  const overshootValues = Array.from({ length: 40 }, (_, i) =>
+    easingProgress(i / 40, { kind: 'bezier', curve: overshoot.curve })
+  )
+  assert.ok(Math.max(...overshootValues) > 1.05, 'Overshoot preset must overshoot 1.0')
+
+  // Anticipate preset should drop below 0.0 initially
+  const anticipate = MOTION_BEZIER_PRESETS.anticipate
+  const anticipateValues = Array.from({ length: 20 }, (_, i) =>
+    easingProgress(i / 20, { kind: 'bezier', curve: anticipate.curve })
+  )
+  assert.ok(Math.min(...anticipateValues) < -0.01, 'Anticipate preset must drop below 0.0')
+
+  // Bounce preset exhibits oscillation
+  const bounce = MOTION_BEZIER_PRESETS.bounce
+  assert.ok(bounce.curve[1] < 0 || bounce.curve[3] > 1)
 })

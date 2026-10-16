@@ -176,6 +176,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
         return
       }
       if (event.key === 'Escape' && physicsOpen) { event.preventDefault(); setPhysicsOpen(false); return }
+      if (event.key === 'Escape' && motionOpen) { event.preventDefault(); setMotionOpen(false); return }
       if (event.key === 'Escape' && interactiveMode) { event.preventDefault(); setInteractiveMode(false); return }
       if (event.key === 'Escape' && tool === 'comment') { event.preventDefault(); setTool('select'); return }
       if (event.ctrlKey || event.metaKey || event.altKey) return
@@ -200,7 +201,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
     }
     document.addEventListener('keydown', keydown)
     return () => document.removeEventListener('keydown', keydown)
-  }, [prototypeMode, presenting, addElement, tool, startComment, interactiveMode, physicsOpen])
+  }, [prototypeMode, presenting, addElement, tool, startComment, interactiveMode, physicsOpen, motionOpen])
 
   return <div className="paper-app">
     <header className="app-header">

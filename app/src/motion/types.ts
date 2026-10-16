@@ -1,7 +1,16 @@
 import type { BezierCurve, SpringParameters } from '../prototype/types.ts'
 
-/** Translations and rotation are offsets from the design; scale is a multiplier. */
-export type MotionProperty = 'x' | 'y' | 'rotation' | 'scale' | 'opacity'
+export type MotionTransformProperty = 'x' | 'y' | 'rotation' | 'scale' | 'opacity'
+export type MotionShaderProperty =
+  | 'shaderSpeed'
+  | 'shaderScale'
+  | 'shaderRotation'
+  | 'shaderOffsetX'
+  | 'shaderOffsetY'
+  | 'shaderOpacity'
+
+/** Translations and rotation are offsets from the design; scale is a multiplier; shader parameters modulate material uniforms. */
+export type MotionProperty = MotionTransformProperty | MotionShaderProperty
 export type MotionEasing = { readonly kind: 'bezier'; readonly curve: BezierCurve } | { readonly kind: 'spring'; readonly spring: SpringParameters }
 export interface MotionKeyframe {
   readonly id: string
@@ -20,4 +29,6 @@ export interface MotionTrack {
 export interface MotionDocument {
   readonly duration: number
   readonly tracks: readonly MotionTrack[]
+  readonly loop?: boolean
+  readonly fps?: number
 }
