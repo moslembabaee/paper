@@ -59,6 +59,18 @@ skills:
 
 ---
 
+## 🛠 Available MCP Tools (Code Intelligence)
+
+This project has three MCP servers available to Claude Code, Codex, and Antigravity:
+
+1. **codebase-memory-mcp** — pre-built knowledge graph of the whole codebase. Tools: `get_architecture`, `search_code`, `get_code_snippet`, `query_graph`, `trace_path`. Handy for understanding module structure without reading files one by one.
+2. **context7** — official API documentation for React, Tailwind, and other libraries. Tools: `resolve-library-id`, `query-docs`.
+3. **playwright** — browser testing and UI verification. Tools: `browser_navigate`, `browser_click`, `screenshot`, etc.
+
+The codebase index is auto-updated on every commit (via watchdog). No manual setup needed.
+
+---
+
 ## 🚀 How to Run Autonomous Development
 
 1. **Verify Environment:**
