@@ -27,8 +27,8 @@ export function PhysicsOverlay({ store, controller, onExit }: { store: SceneStor
   const [paused, setPaused] = useState(false)
   const settingsRef = useRef(settings)
   const pausedRef = useRef(paused)
-  const runtime = useRef({ wake: () => {}, reset: () => {}, cancelDrag: () => {} })
-  useLayoutEffect(() => { settingsRef.current = settings; pausedRef.current = paused; if (paused) runtime.current.cancelDrag(); runtime.current.wake() }, [settings, paused])
+  const runtime = useRef({ wake: () => {}, reset: () => {}, cancelDrag: () => {}, paint: () => {} })
+  useLayoutEffect(() => { settingsRef.current = settings; pausedRef.current = paused; if (paused) runtime.current.cancelDrag(); runtime.current.paint(); runtime.current.wake() }, [settings, paused])
 
   useLayoutEffect(() => {
     const root = overlay.current!
@@ -38,6 +38,7 @@ export function PhysicsOverlay({ store, controller, onExit }: { store: SceneStor
     const magnets = new Map(Array.from(root.querySelectorAll<SVGCircleElement>('[data-magnet]')).map(circle => [circle.dataset.magnet!, circle]))
     const originals = new Map(scene.bodies.map(body => { const node = nodes.get(body.id); return [body.id, { translate: node?.style.translate ?? '', willChange: node?.style.willChange ?? '' }] }))
     const clock = new PhysicsClock()
+    const positions = new Float64Array(scene.bodies.length * 2)
     let frame = 0, last = 0, stillFrames = 0
     let drag: { body: PhysicsBody; pointerId: number; offset: Point; last: Point; time: number } | null = null
     let disposed = false
@@ -50,7 +51,7 @@ export function PhysicsOverlay({ store, controller, onExit }: { store: SceneStor
         if (node) { node.style.translate = `${basis.a * dx + basis.b * dy}px ${basis.c * dx + basis.d * dy}px`; node.style.willChange = 'translate' }
         const line = lines.get(body.id)
         if (line) { line.setAttribute('x2', String(body.x + body.width / 2)); line.setAttribute('y2', String(body.y + body.height / 2)); line.style.visibility = settingsRef.current.tether ? 'visible' : 'hidden' }
-        const target = !settingsRef.current.tether && settingsRef.current.magnets ? magneticTarget(body) : null
+        const target = !settingsRef.current.tether && settingsRef.current.magnets ? magneticTarget(body, scene.arena) : null
         const magnet = magnets.get(body.id)
         if (magnet) { magnet.style.visibility = target ? 'visible' : 'hidden'; if (target) { magnet.setAttribute('cx', String(target.x + body.width / 2)); magnet.setAttribute('cy', String(target.y + body.height / 2)) } }
         speed = Math.max(speed, Math.hypot(body.vx, body.vy))
@@ -60,12 +61,12 @@ export function PhysicsOverlay({ store, controller, onExit }: { store: SceneStor
     const tick = (now: number) => {
       frame = 0
       if (disposed || pausedRef.current || document.hidden) { last = 0; return }
-      const positions = scene.bodies.map(body => ({ x: body.x, y: body.y }))
+      scene.bodies.forEach((body, index) => { positions[index * 2] = body.x; positions[index * 2 + 1] = body.y })
       let active = false
       clock.advance(last ? (now - last) / 1000 : 1 / 60, () => { active = stepPhysics(scene.bodies, scene.arena, settingsRef.current) || active })
       last = now
       paint()
-      const moved = scene.bodies.some((body, index) => Math.hypot(body.x - positions[index].x, body.y - positions[index].y) > .001)
+      const moved = scene.bodies.some((body, index) => Math.hypot(body.x - positions[index * 2], body.y - positions[index * 2 + 1]) > .001)
       stillFrames = moved || drag ? 0 : stillFrames + 1
       if ((active || drag) && stillFrames < 60) frame = requestAnimationFrame(tick)
       else { last = 0; clock.reset() }
@@ -114,8 +115,9 @@ export function PhysicsOverlay({ store, controller, onExit }: { store: SceneStor
     }
     const unsubscribeCamera = controller.subscribe(camera)
     camera(); paint()
-    runtime.current = { wake, cancelDrag: () => finish(true), reset: () => {
+    runtime.current = { wake, paint, cancelDrag: () => finish(true), reset: () => {
       finish(true)
+      cancelAnimationFrame(frame); frame = 0
       for (const body of scene.bodies) { body.x = body.home.x; body.y = body.home.y; body.vx = 0; body.vy = 0 }
       clock.reset(); last = 0; paint()
     } }
@@ -128,7 +130,7 @@ export function PhysicsOverlay({ store, controller, onExit }: { store: SceneStor
     document.addEventListener('visibilitychange', visibility)
     return () => {
       disposed = true; finish(true); cancelAnimationFrame(frame); unsubscribeCamera()
-      runtime.current = { wake: () => {}, reset: () => {}, cancelDrag: () => {} }
+      runtime.current = { wake: () => {}, reset: () => {}, cancelDrag: () => {}, paint: () => {} }
       for (const [id, original] of originals) { const node = nodes.get(id); if (node) { node.style.translate = original.translate; node.style.willChange = original.willChange } }
       root.removeEventListener('pointerdown', down); root.removeEventListener('pointermove', move); root.removeEventListener('pointerup', up); root.removeEventListener('pointercancel', up); root.removeEventListener('lostpointercapture', up)
       window.removeEventListener('blur', blur); document.removeEventListener('visibilitychange', visibility)

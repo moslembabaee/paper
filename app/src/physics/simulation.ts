@@ -32,19 +32,21 @@ export function createBody(id: string, bounds: Bounds): PhysicsBody {
   return { ...bounds, id, home: { x: bounds.x, y: bounds.y }, vx: 0, vy: 0, held: false }
 }
 
-export function magneticTarget(body: PhysicsBody): Point | null {
+export function magneticTarget(body: PhysicsBody, arena?: Bounds): Point | null {
   const x = Math.round((body.x + body.width / 2) / 120) * 120 - body.width / 2
   const y = Math.round((body.y + body.height / 2) / 120) * 120 - body.height / 2
+  // A magnet outside the arena would keep pulling against the wall indefinitely.
+  if (arena && (x < arena.x || y < arena.y || x + body.width > arena.x + arena.width || y + body.height > arena.y + arena.height)) return null
   return Math.hypot(x - body.x, y - body.y) <= 42 ? { x, y } : null
 }
 
 export function containBody(body: PhysicsBody, arena: Bounds, restitution: number): void {
   const maxX = Math.max(arena.x, arena.x + arena.width - body.width)
   const maxY = Math.max(arena.y, arena.y + arena.height - body.height)
-  if (body.x < arena.x) { body.x = arena.x; body.vx = Math.abs(body.vx) * restitution }
-  if (body.x > maxX) { body.x = maxX; body.vx = -Math.abs(body.vx) * restitution }
-  if (body.y < arena.y) { body.y = arena.y; body.vy = Math.abs(body.vy) * restitution }
-  if (body.y > maxY) { body.y = maxY; body.vy = -Math.abs(body.vy) * restitution }
+  if (body.x < arena.x) { body.x = arena.x; if (body.vx < 0) body.vx = -body.vx * restitution }
+  if (body.x > maxX) { body.x = maxX; if (body.vx > 0) body.vx = -body.vx * restitution }
+  if (body.y < arena.y) { body.y = arena.y; if (body.vy < 0) body.vy = -body.vy * restitution }
+  if (body.y > maxY) { body.y = maxY; if (body.vy > 0) body.vy = -body.vy * restitution }
 }
 
 function collide(a: PhysicsBody, b: PhysicsBody, restitution: number): void {
@@ -67,15 +69,22 @@ function collide(a: PhysicsBody, b: PhysicsBody, restitution: number): void {
 export function stepPhysics(bodies: PhysicsBody[], arena: Bounds, settings: PhysicsSettings, dt = FIXED_STEP): boolean {
   if (!Number.isFinite(dt) || dt <= 0) return false
   dt = Math.min(dt, .05)
-  const speed = bodies.reduce((v, body) => Math.max(v, Math.abs(body.vx), Math.abs(body.vy)), 0)
+  const mass = clamp(settings.mass, .2, 5), stiffness = clamp(settings.stiffness, 20, 400)
+  // Include acceleration: a stationary thin body can cross a neighbour in its
+  // first spring step, before it has a measured velocity to size substeps with.
+  const speed = bodies.reduce((v, body) => {
+    const target = settings.tether ? body.home : settings.magnets ? magneticTarget(body, arena) : null
+    const acceleration = target && !body.held ? Math.max(Math.abs(target.x - body.x), Math.abs(target.y - body.y)) * stiffness / mass : 0
+    return Math.max(v, Math.min(MAX_SPEED, Math.max(Math.abs(body.vx), Math.abs(body.vy)) + acceleration * dt))
+  }, 0)
   const extent = bodies.reduce((v, body) => Math.min(v, body.width, body.height), 120)
   const steps = Math.min(128, Math.max(1, Math.ceil(speed * dt / Math.max(.25, extent / 2))))
-  const h = dt / steps, mass = clamp(settings.mass, .2, 5), stiffness = clamp(settings.stiffness, 20, 400)
+  const h = dt / steps
   const damping = clamp(settings.damping, 1, 40), restitution = clamp(settings.restitution, 0, 1)
   for (let step = 0; step < steps; step++) {
     for (const body of bodies) {
       if (body.held) continue
-      const target = settings.tether ? body.home : settings.magnets ? magneticTarget(body) : null
+      const target = settings.tether ? body.home : settings.magnets ? magneticTarget(body, arena) : null
       body.vx = clamp(body.vx + ((target ? (target.x - body.x) * stiffness : 0) - damping * body.vx) / mass * h, -MAX_SPEED, MAX_SPEED)
       body.vy = clamp(body.vy + ((target ? (target.y - body.y) * stiffness : 0) - damping * body.vy) / mass * h, -MAX_SPEED, MAX_SPEED)
       body.x += body.vx * h; body.y += body.vy * h
@@ -86,7 +95,7 @@ export function stepPhysics(bodies: PhysicsBody[], arena: Bounds, settings: Phys
   let active = false
   for (const body of bodies) {
     if (body.held) { active = true; continue }
-    const target = settings.tether ? body.home : settings.magnets ? magneticTarget(body) : null
+    const target = settings.tether ? body.home : settings.magnets ? magneticTarget(body, arena) : null
     if (Math.hypot(body.vx, body.vy) > .08 || (target && Math.hypot(target.x - body.x, target.y - body.y) > .08)) active = true
     else { body.vx = 0; body.vy = 0; if (target) { body.x = target.x; body.y = target.y } }
   }

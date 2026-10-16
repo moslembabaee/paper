@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createBody, DEFAULT_PHYSICS, FIXED_STEP, PHYSICS_PRESETS, PhysicsClock, stepPhysics } from '../src/physics/simulation.ts'
+import { containBody, createBody, DEFAULT_PHYSICS, FIXED_STEP, magneticTarget, PHYSICS_PRESETS, PhysicsClock, stepPhysics } from '../src/physics/simulation.ts'
 import { createPhysicsScene } from '../src/physics/scene.ts'
 import { SceneStore } from '../src/scene/store.ts'
 
@@ -34,6 +34,32 @@ test('fast thin bodies exchange impulses instead of passing through each other',
   stepPhysics([a, b], arena, { ...free, restitution: 1 })
   assert.ok(a.x + a.width <= b.x + 1e-6)
   assert.ok(b.vx > 2000 && Math.abs(a.vx) < 10)
+})
+
+test('spring acceleration from rest cannot tunnel through a thin held body', () => {
+  const a = body('a', 0, 2), b = body('b', 8, 2)
+  a.home.x = 300
+  b.held = true
+  stepPhysics([a, b], arena, { ...DEFAULT_PHYSICS, mass: .2, stiffness: 400, damping: 1 })
+  assert.ok(a.x + a.width <= b.x + 1e-6)
+  assert.equal(b.x, 8)
+})
+
+test('boundary correction preserves velocity already pointing into the arena', () => {
+  const a = body('a', -501)
+  a.vx = 100
+  containBody(a, arena, .5)
+  assert.equal(a.x, -500)
+  assert.equal(a.vx, 100)
+})
+
+test('magnets ignore grid targets that would place a body outside the arena', () => {
+  const a = body('a', 1)
+  const bounded = { x: 0, y: 0, width: 100, height: 100 }
+  assert.equal(magneticTarget(a, bounded), null)
+  for (let i = 0; i < 300; i++) stepPhysics([a], bounded, { ...DEFAULT_PHYSICS, tether: false })
+  assert.ok(a.x >= 0 && a.y >= 0)
+  assert.equal(stepPhysics([a], bounded, { ...DEFAULT_PHYSICS, tether: false }), false)
 })
 
 test('held bodies remain under pointer control and push free bodies', () => {

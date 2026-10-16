@@ -204,8 +204,17 @@ export function CanvasViewport({ children, overlay, background, controller: prov
       setCursor()
     }
     const keydown = (event: KeyboardEvent) => {
-      if (isControl(event.target) || (!hovered && !root.contains(document.activeElement))) return
-      if (event.code === 'Space') { event.preventDefault(); space = true; setCursor(); return }
+      const isTextInput = event.target instanceof Element && !!event.target.closest('input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')
+      if (isTextInput || (!hovered && !root.contains(document.activeElement))) return
+      if (event.code === 'Space') {
+        if (hovered || !isControl(event.target)) {
+          event.preventDefault()
+          space = true
+          setCursor()
+          return
+        }
+      }
+      if (isControl(event.target)) return
       if (event.ctrlKey || event.metaKey || event.altKey) return
       if (event.key === '+' || event.key === '=') { event.preventDefault(); controller.zoomBy(1.25) }
       if (event.key === '-') { event.preventDefault(); controller.zoomBy(1 / 1.25) }
