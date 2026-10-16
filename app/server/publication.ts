@@ -5,9 +5,14 @@ import { PREVIEW_CSP_HEADER } from '../src/make/preview-sandbox.ts'
 export function publicationOrigin(value: string | undefined, editorOrigin: string): string | undefined {
   if (!value) return undefined
   const url = new URL(value), editor = new URL(editorOrigin)
-  const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+  // Absolute DNS names resolve to the same host with or without the final dot.
+  // Keep the configured origin for exact Host routing, but compare DNS names
+  // canonically so spelling/port changes cannot stand in for host isolation.
+  const hostname = url.hostname.replace(/\.$/, '')
+  const editorHostname = editor.hostname.replace(/\.$/, '')
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(hostname)
   if (url.username || url.password || url.pathname !== '/' || url.search || url.hash ||
-      (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) || url.hostname === editor.hostname) {
+      (url.protocol !== 'https:' && !(local && url.protocol === 'http:')) || hostname === editorHostname) {
     throw new Error('PAPER_RELEASE_ORIGIN requires a separate hostname and HTTPS (HTTP is allowed on loopback).')
   }
   return url.origin

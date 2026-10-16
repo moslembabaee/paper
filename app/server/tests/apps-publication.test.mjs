@@ -113,6 +113,53 @@ test('an unavailable real browser blocks publication without creating a public U
   assert.equal((await f.request('/r/anything/', { host: '127.0.0.1:4180' }, 'GET', {}, true)).status, 404)
 })
 
+test('browser failures during update preserve the public document and release metadata', async t => {
+  let status = 'passed'
+  const f = await fixture(t, { appValidator: async () => ({ status, diagnostics: [], viewports: [], screenshots: [] }) })
+  const alice = await f.login('alice'), id = 'app_browser_update', path = `/api/apps/${id}/release`
+  const project = await f.storage.apps.put(alice.user.id, id, {}, null)
+  const published = await f.request(path, alice.headers, 'POST', { expectedRevision: 1 })
+  assert.equal(published.status, 201)
+  const url = new URL(published.data.url)
+  const publicGet = () => f.request(url.pathname, { host: url.host }, 'GET', {}, true)
+  const original = await publicGet()
+  assert.equal(original.status, 200)
+  await f.storage.apps.put(alice.user.id, id, { ...project, files: {
+    'src/App.tsx': { path: 'src/App.tsx', content: 'export default () => <main>Unreleased update</main>' },
+  } }, 1)
+  for (status of ['failed', 'blocked']) {
+    assert.equal((await f.request(path, alice.headers, 'POST', { expectedRevision: 2 })).status, 422)
+    assert.deepEqual((await f.request(path, alice.headers)).data, published.data)
+    const live = await publicGet()
+    assert.equal(live.status, 200)
+    assert.deepEqual(live.bytes, original.bytes)
+  }
+})
+
+test('a hostile first build never reaches browser validation or creates a public release', async t => {
+  let validations = 0
+  const f = await fixture(t, { appValidator: async () => {
+    validations++
+    return { status: 'passed', diagnostics: [], viewports: [], screenshots: [] }
+  } })
+  const alice = await f.login('alice'), id = 'app_hostile_first', path = `/api/apps/${id}/release`
+  let project = await f.storage.apps.put(alice.user.id, id, {}, null)
+  for (const content of [
+    "import fs from 'node:fs'; export default () => <main>{fs}</main>",
+    'export default () => <main>{</main>',
+    'export default () => <img src="paper-asset:ast_missing123"/>',
+  ]) {
+    project = await f.storage.apps.put(alice.user.id, id, { ...project, files: {
+      'src/App.tsx': { path: 'src/App.tsx', content },
+    } }, project.revision)
+    const response = await f.request(path, alice.headers, 'POST', { expectedRevision: project.revision })
+    assert.equal(response.status, 422)
+    assert.match(response.data.error, /build validation failed/)
+    assert.equal((await f.request(path, alice.headers)).data, null)
+  }
+  assert.equal(validations, 0)
+})
+
 test('edits during browser validation reject publication', async t => {
   let started, finish
   const start = new Promise(resolve => { started = resolve })

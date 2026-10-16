@@ -1,8 +1,8 @@
 # 🗺️ Live Development Roadmap & Task Tracker
 
-> **Last Updated:** `2026-10-16 09:37:14 UTC`  
+> **Last Updated:** `2026-10-16 09:45:15 UTC`  
 > **Supervisor:** Autonomous Tri-Agent Orchestra (`Claude Code` ↔ `OpenAI Codex` ↔ `Google Antigravity`)  
-> **Progress:** `[██████████████████░░]` **95 / 101** tasks completed (**94%**)
+> **Progress:** `[███████████████████░]` **96 / 101** tasks completed (**95%**)
 
 ---
 
@@ -18,10 +18,9 @@ _No task currently executing. The orchestrator is running continuous architectur
 |:---:|:---|:---|:---:|:---|
 | **#1** | `T-ISSUE-5` | Issue #5: feat: Spring Physics Motion Timeline and Easing Curve Editor | `CLAUDE` | Community & Issues |
 | **#2** | `T-ISSUE-35` | Issue #35: feat(make 18): Agent build/runtime/visual validation loop | `CLAUDE` | Paper Make |
-| **#3** | `T-ISSUE-37` | Issue #37: feat(make 20): Publish static app on isolated origin | `CODEX` | Paper Make |
-| **#4** | `T-EVOLVE-1792141753-1` | Variable Font Kinetic Typography and Vector Path Alignment Engine | `CODEX` | Continuous Polish & Evolution |
-| **#5** | `T-EVOLVE-1792141753-2` | Non-Destructive Vector Boolean Operations and Modifier Stack | `CLAUDE` | Continuous Polish & Evolution |
-| **#6** | `T-EVOLVE-1792141753-3` | Audio-Reactive WebGL Shader Modulator and Frequency Analysis Engine | `CODEX` | Continuous Polish & Evolution |
+| **#3** | `T-EVOLVE-1792141753-1` | Variable Font Kinetic Typography and Vector Path Alignment Engine | `CODEX` | Continuous Polish & Evolution |
+| **#4** | `T-EVOLVE-1792141753-2` | Non-Destructive Vector Boolean Operations and Modifier Stack | `CLAUDE` | Continuous Polish & Evolution |
+| **#5** | `T-EVOLVE-1792141753-3` | Audio-Reactive WebGL Shader Modulator and Frequency Analysis Engine | `CODEX` | Continuous Polish & Evolution |
 
 ---
 
@@ -40,6 +39,7 @@ _No task currently executing. The orchestrator is running continuous architectur
 | 🟢 Done | `T-ISSUE-40` | Issue #40: feat(make 23): Scoped app data operations | `CLAUDE` | Paper Make | `2026-10-15 22:36:33` |
 | 🟢 Done | `T-ISSUE-39` | Issue #39: feat(make 22): Server-held scoped secret handles for apps | `CLAUDE` | Paper Make | `2026-10-15 21:59:28` |
 | 🟢 Done | `T-ISSUE-38` | Issue #38: feat(make 21): Share Make projects with explicit permissions | `CLAUDE` | Paper Make | `2026-10-15 21:30:05` |
+| 🟢 Done | `T-ISSUE-37` | Issue #37: feat(make 20): Publish static app on isolated origin | `CODEX` | Paper Make | `2026-10-16 09:45:15` |
 | 🟢 Done | `T-ISSUE-36` | Issue #36: feat(make 19): Download runnable source ZIP | `CODEX` | Paper Make | `2026-10-16 09:37:14` |
 | 🟢 Done | `T-ISSUE-34` | Issue #34: feat(make 17): Immutable app version history and restore | `CLAUDE` | Paper Make | `2026-10-15 11:54:10` |
 | 🟢 Done | `T-ISSUE-33` | Issue #33: feat(make 16): Source editor with diagnostics and conflict guard | `CLAUDE` | Paper Make | `2026-10-15 10:38:11` |

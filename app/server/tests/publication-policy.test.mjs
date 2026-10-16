@@ -22,3 +22,16 @@ test('release configuration permits separate HTTPS origins and loopback only for
     assert.throws(() => publicationOrigin(candidate, 'https://paper.example'), /separate hostname/)
   }
 })
+
+test('DNS absolute names cannot disguise the editor hostname as an isolated release host', () => {
+  for (const [release, editor] of [
+    ['https://paper.example.', 'https://paper.example'],
+    ['https://paper.example', 'https://paper.example.'],
+    ['https://PAPER.example.:8443', 'https://paper.example'],
+    ['http://localhost.:4180', 'http://localhost:4173'],
+  ]) {
+    assert.throws(() => publicationOrigin(release, editor), /separate hostname/)
+  }
+  // A distinct absolute DNS name is still usable behind an exact-Host proxy.
+  assert.equal(publicationOrigin('https://apps.example.net.', 'https://paper.example'), 'https://apps.example.net.')
+})

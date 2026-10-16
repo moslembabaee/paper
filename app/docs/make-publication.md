@@ -17,10 +17,11 @@ server does not remove a live release. Deleting the saved app revokes its URLs.
 Set `PAPER_RELEASE_ORIGIN=https://apps.example.net` on the API process, and route
 that hostname to its dedicated `PAPER_RELEASE_PORT` listener (default `3002`).
 The editor continues to use `PAPER_PUBLIC_URL` and API port `3001`. The release
-hostname must differ from the editor hostname; changing only the port is
-rejected. Use a separate registrable domain in production and never configure
-editor cookies with a shared Domain. The public listener does not dispatch auth,
-API, preview or MCP routes and ignores incoming cookies and authorization.
+hostname must differ from the editor hostname; changing only the port, letter
+case or a DNS name's final dot is rejected. Use a separate registrable domain in
+production and never configure editor cookies with a shared Domain. The public
+listener does not dispatch auth, API, preview or MCP routes and ignores incoming
+cookies and authorization.
 
 For the existing Docker Compose deployment, add `PAPER_RELEASE_ORIGIN` and
 `PAPER_RELEASE_PORT: 3002` to the API environment and expose port 3002 to your

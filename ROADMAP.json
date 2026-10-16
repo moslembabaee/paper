@@ -1051,7 +1051,8 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
       "github_issue_number": 36,
-      "completed_at": "2026-10-16T09:37:14.988225+00:00"
+      "completed_at": "2026-10-16T09:37:14.988225+00:00",
+      "closed_at": "2026-10-16T09:37:18Z"
     },
     {
       "id": "T-ISSUE-37",
@@ -1059,10 +1060,11 @@
       "title": "Issue #37: feat(make 20): Publish static app on isolated origin",
       "description": "Scope: Publish a validated immutable release to a separate origin with CSP/cache and versioned URL; update and unpublish explicitly. No preview session cookies.\nAcceptance: Public browser smoke test, unpublish 404, cross-origin isolation, stale revision and hostile source tests; no live release on build failure.\nRead docs/MAKE_PLAN.md and the linked GitHub issue. Write a failing behavior test first, then implement and run targeted browser/security tests when applicable. Preserve existing scene/MCP work and do not bypass a failed validation.",
       "assigned_agent": "codex",
-      "status": "approved",
+      "status": "completed",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm test && npm run build",
-      "github_issue_number": 37
+      "github_issue_number": 37,
+      "completed_at": "2026-10-16T09:45:15.413381+00:00"
     },
     {
       "id": "T-ISSUE-38",
