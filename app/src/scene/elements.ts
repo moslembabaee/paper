@@ -2,7 +2,7 @@ import { validateEffects } from '../tokens/library.ts'
 import type { LayerEffect } from '../tokens/types.ts'
 import type { BooleanCompound, ElementGeometry, ElementInput, ElementOf, ElementType, SceneElement, VectorElement } from './types.ts'
 import { freezeShader, validateShader } from '../shaders/catalog.ts'
-import { serializePath } from './pathGeometry.ts'
+import { parsePath, serializePath } from './pathGeometry.ts'
 import { freezeComponent, validateComponent } from './components.ts'
 
 const names: Record<ElementType, string> = { frame: 'Frame', rectangle: 'Rectangle', ellipse: 'Ellipse', path: 'Vector path', text: 'Text', image: 'Image' }
@@ -31,6 +31,7 @@ export function freezeElement(element: SceneElement): SceneElement {
   const tokenBindings = element.tokenBindings ? Object.freeze({ ...element.tokenBindings }) : undefined
   element = { ...element, ...(tokenBindings ? { tokenBindings } : {}), ...(element.sharedStyleBindings ? { sharedStyleBindings: Object.freeze({ ...element.sharedStyleBindings }) } : {}) }
   if (element.component) element = { ...element, component: freezeComponent(element.component) }
+  if (element.type === 'text') element = { ...element, ...(element.variableAxes ? { variableAxes: Object.freeze({ ...element.variableAxes }) } : {}), ...(element.openTypeFeatures ? { openTypeFeatures: Object.freeze({ ...element.openTypeFeatures }) } : {}), ...(element.textOnPath ? { textOnPath: Object.freeze({ ...element.textOnPath }) } : {}) }
   if (element.mask) element = { ...element, mask: Object.freeze({ ...element.mask }) }
   if (element.sizing) element = { ...element, sizing: Object.freeze({ ...element.sizing }) }
   if (element.type === 'frame' && element.layout) element = { ...element, layout: Object.freeze({ ...element.layout, padding: Object.freeze({ ...element.layout.padding }) }) }
@@ -119,16 +120,17 @@ export function validateElement(element: SceneElement, depth = 0): void {
   }
   if (element.type === 'text') {
     if (typeof element.text !== 'string' || typeof element.fontFamily !== 'string' || ![element.fontSize, element.fontWeight, element.lineHeight, element.letterSpacing].every(Number.isFinite) || element.fontSize <= 0 || element.lineHeight <= 0 || element.fontWeight < 1 || element.fontWeight > 1000 || !['left', 'center', 'right'].includes(element.textAlign)) throw new Error('Invalid text')
+    if (element.fontSource !== undefined && (typeof element.fontSource !== 'string' || !/^data:font\/(woff2?|ttf|otf);base64,[A-Za-z0-9+/=]+$/.test(element.fontSource) || element.fontSource.length > 4_200_000)) throw new Error('Invalid embedded font')
     if (element.variableAxes !== undefined) {
       if (!element.variableAxes || typeof element.variableAxes !== 'object' || Array.isArray(element.variableAxes)) throw new Error('Invalid variable axes')
       for (const [tag, val] of Object.entries(element.variableAxes)) {
-        if (val !== undefined && (!Number.isFinite(val))) throw new Error(`Invalid variable axis ${tag}`)
+        if (!/^[a-zA-Z0-9 ]{4}$/.test(tag) || (val !== undefined && !Number.isFinite(val))) throw new Error(`Invalid variable axis ${tag}`)
       }
     }
     if (element.openTypeFeatures !== undefined) {
       if (!element.openTypeFeatures || typeof element.openTypeFeatures !== 'object' || Array.isArray(element.openTypeFeatures)) throw new Error('Invalid OpenType features')
       for (const [feat, val] of Object.entries(element.openTypeFeatures)) {
-        if (val !== undefined && typeof val !== 'boolean') throw new Error(`Invalid OpenType feature ${feat}`)
+        if (!/^[a-zA-Z0-9 ]{4}$/.test(feat) || (val !== undefined && typeof val !== 'boolean')) throw new Error(`Invalid OpenType feature ${feat}`)
       }
     }
     if (element.fontKerning !== undefined && !['auto', 'normal', 'none', 'optical'].includes(element.fontKerning)) throw new Error('Invalid font kerning')
@@ -138,6 +140,9 @@ export function validateElement(element: SceneElement, depth = 0): void {
       if (!element.textOnPath || typeof element.textOnPath !== 'object' || typeof element.textOnPath.enabled !== 'boolean') throw new Error('Invalid text on path')
       if (element.textOnPath.pathId !== undefined && element.textOnPath.pathId !== null && typeof element.textOnPath.pathId !== 'string') throw new Error('Invalid text on path reference')
       if (element.textOnPath.pathData !== undefined && typeof element.textOnPath.pathData !== 'string') throw new Error('Invalid text on path data')
+      if (element.textOnPath.pathData?.trim()) {
+        if (!parsePath(element.textOnPath.pathData).some(contour => contour.anchors.length > 1)) throw new Error('Invalid text on path data')
+      }
       if (element.textOnPath.offset !== undefined && !Number.isFinite(element.textOnPath.offset)) throw new Error('Invalid text on path offset')
       if (element.textOnPath.side !== undefined && !['left', 'right'].includes(element.textOnPath.side)) throw new Error('Invalid text on path side')
       if (element.textOnPath.align !== undefined && !['start', 'center', 'end'].includes(element.textOnPath.align)) throw new Error('Invalid text on path align')

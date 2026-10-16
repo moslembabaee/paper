@@ -5,6 +5,9 @@ import { unionBounds } from '../canvas/math.ts'
 import { getWorldBounds, getWorldMatrix } from '../scene/geometry.ts'
 import { selectionRoots } from '../scene/selectionGeometry.ts'
 import { frameMask, maskPathData, maskFillRule } from '../scene/maskGeometry.ts'
+import { parsePath, pathBounds } from '../scene/pathGeometry.ts'
+import { resolveTextPathD } from '../scene/typography.ts'
+import { textMarkup } from '../scene/textMarkup.ts'
 import type { SceneElement, SceneSnapshot, TextElement } from '../scene/types.ts'
 
 export interface ExportOptions {
@@ -48,7 +51,14 @@ export function exportBounds(state: SceneSnapshot, scope: ExportOptions['scope']
   const visit = (id: string, crop: boolean) => {
     const node = state.elements[id]
     if (!node.visible) return
-    const b = getWorldBounds(state, id)
+    let b = getWorldBounds(state, id)
+    if (node.type === 'text' && node.textOnPath?.enabled && !crop) {
+      const curve = pathBounds(parsePath(resolveTextPathD(node, state.elements)), node.fontSize * 1.5)
+      const [a, c, d, e, f, g] = getWorldMatrix(state, id)
+      const corners = [[curve.x, curve.y], [curve.x + curve.width, curve.y], [curve.x, curve.y + curve.height], [curve.x + curve.width, curve.y + curve.height]]
+      const xs = corners.map(([x, y]) => a * x + d * y + f), ys = corners.map(([x, y]) => c * x + e * y + g)
+      b = unionBounds([b, { x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) }])!
+    }
     // Selected frames are artboards: export their exact dimensions. Unclipped
     // descendants contribute to the extent of a whole-canvas export.
     const shadow = node.style.shadow
@@ -61,27 +71,7 @@ export function exportBounds(state: SceneSnapshot, scope: ExportOptions['scope']
   return unionBounds(bounds)
 }
 
-/** Same pre-wrap/word-break model as the canvas, emitted as editable SVG text. */
-export function textMarkup(node: TextElement, fill: string, measure?: ExportAssets['measureText'], baseline?: ExportAssets['textBaseline']): string {
-  const width = (text: string) => (measure ? measure(text, node) : text.length * node.fontSize * .55) + Math.max(0, text.length - 1) * node.letterSpacing
-  const lines: string[] = []
-  for (const paragraph of node.text.split('\n')) {
-    let line = ''
-    for (const char of paragraph) {
-      if (line && width(line + char) > node.width) {
-        const space = line.lastIndexOf(' ')
-        if (space > 0) { lines.push(line.slice(0, space + 1)); line = line.slice(space + 1) }
-        else { lines.push(line); line = '' }
-      }
-      line += char
-    }
-    lines.push(line)
-  }
-  const x = node.textAlign === 'center' ? node.width / 2 : node.textAlign === 'right' ? node.width : 0
-  const anchor = node.textAlign === 'center' ? 'middle' : node.textAlign === 'right' ? 'end' : 'start'
-  const y = baseline?.(node) ?? node.fontSize * (.85 + (node.lineHeight - 1) / 2)
-  return `<text fill="${xml(fill)}" font-family="${xml(node.fontFamily)}" font-size="${num(node.fontSize)}" font-weight="${node.fontWeight}" letter-spacing="${num(node.letterSpacing)}" text-anchor="${anchor}" xml:space="preserve">${lines.map((line, i) => `<tspan x="${num(x)}" y="${num(y + i * node.fontSize * node.lineHeight)}">${xml(line)}</tspan>`).join('')}</text>`
-}
+export { textMarkup } from '../scene/textMarkup.ts'
 
 /** Native SVG, with no editor chrome, CSS dependency, or foreignObject. */
 export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets = EMPTY_ASSETS, outputSize?: Pick<Bounds, 'width' | 'height'>): string {
@@ -120,7 +110,7 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
     const strokeAttrs = `stroke="${xml(stroke?.color ?? 'none')}" stroke-width="${num(stroke?.width ?? 0)}" stroke-dasharray="${stroke?.dash.map(num).join(' ') ?? ''}" stroke-linejoin="round"`
     let content = ''
     if (shaderSrc) {
-      const maskContent = node.type === 'text' ? textMarkup(node, '#ffffff', assets.measureText, assets.textBaseline) : shape(node)
+      const maskContent = node.type === 'text' ? textMarkup(node, '#ffffff', assets.measureText, assets.textBaseline, state.elements, unique()) : shape(node)
       const base = `<rect width="${num(node.width)}" height="${num(node.height)}" fill="${xml(fill ?? 'none')}"/>`
       const imageBase = node.type === 'image' ? `<image href="${xml(assets.images.get(id) ?? node.src)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="${node.fit === 'fill' ? 'none' : node.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}"/>` : ''
       content += `<g ${clip(maskContent)} style="isolation:isolate">${base}${imageBase}<image href="${xml(shaderSrc)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="none" opacity="${num(shader?.composite?.opacity ?? 1)}" style="mix-blend-mode:${shader?.composite?.blendMode ?? 'normal'}"/></g>`
@@ -133,7 +123,7 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
       content += `<g ${node.clipContent ? clip(rect(node)) : ''}>${masked}</g>`
       content += `<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`
     } else if (node.type === 'text') {
-      content += `<g ${clip(rect(node))} ${strokeAttrs}>${textMarkup(node, shaderSrc ? 'none' : fill ?? 'none', assets.measureText, assets.textBaseline)}</g>`
+      content += `<g ${node.textOnPath?.enabled ? '' : clip(rect(node))} ${strokeAttrs}>${textMarkup(node, shaderSrc ? 'none' : fill ?? 'none', assets.measureText, assets.textBaseline, state.elements, unique())}</g>`
     } else if (node.type === 'image') {
       const src = assets.images.get(id) ?? node.src
       content += `${shaderSrc ? '' : `<g ${clip(rect(node))}><g fill="${xml(fill ?? 'none')}">${rect(node)}</g><image href="${xml(src)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="${node.fit === 'fill' ? 'none' : node.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}"/></g>`}<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`

@@ -7,7 +7,7 @@ import { equalValue } from './history.ts'
 import { detachEditedBindings, resolveTokenBindings } from '../tokens/model.ts'
 import type { DesignToken, SharedStyleKind, StyleLibrary, TokenProperty } from '../tokens/types.ts'
 
-const PROPERTY_KEYS = new Set(['name', 'x', 'y', 'width', 'height', 'rotation', 'visible', 'locked', 'sizing', 'cornerRadius', 'clipContent', 'layout', 'd', 'viewBox', 'fillRule', 'nodes', 'text', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign', 'src', 'alt', 'fit', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'])
+const PROPERTY_KEYS = new Set(['name', 'x', 'y', 'width', 'height', 'rotation', 'visible', 'locked', 'sizing', 'cornerRadius', 'clipContent', 'layout', 'd', 'viewBox', 'fillRule', 'nodes', 'text', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign', 'src', 'alt', 'fit', 'fontSource', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'])
 const STYLE_KEYS = new Set(['fill', 'stroke', 'opacity', 'shadow', 'shader', 'effects'])
 const STROKE_KEYS = new Set(['color', 'width', 'dash'])
 const TOKEN_KEYS = new Set(['fill', 'stroke', 'shadow', 'cornerRadius', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight', 'letterSpacing', 'x', 'y', 'width', 'height'])

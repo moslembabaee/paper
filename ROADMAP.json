@@ -14,7 +14,8 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 47,
-      "completed_at": "2026-10-16T03:58:00.846423+00:00"
+      "completed_at": "2026-10-16T03:58:00.846423+00:00",
+      "closed_at": "2026-10-16T03:58:05Z"
     },
     {
       "id": "T-ISSUE-48",
@@ -22,10 +23,11 @@
       "title": "Issue #48: feat: Kinetic Variable Font Typography Inspector with Text-on-Path Deformation",
       "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792121164-2`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nIntegrate an advanced typography control panel supporting OpenType variable font axes (weight, width, slant, optical size). Add interactive text-on-path curve deformation allowing text nodes to bind and flow dynamically along arbitrary vector bezier curves.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #48",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 48
+      "github_issue_number": 48,
+      "completed_at": "2026-10-16T04:27:57.486601+00:00"
     },
     {
       "id": "T-ISSUE-49",
@@ -1116,7 +1118,8 @@
       "retry_count": 2,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 47,
-      "completed_at": "2026-10-16T03:51:06.574693+00:00"
+      "completed_at": "2026-10-16T03:51:06.574693+00:00",
+      "closed_at": "2026-10-16T03:58:05Z"
     },
     {
       "id": "T-EVOLVE-1792121164-2",

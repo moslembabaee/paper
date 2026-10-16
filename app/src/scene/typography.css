@@ -414,3 +414,14 @@
   pointer-events: none;
   z-index: 2147483640;
 }
+
+.typo-hint { margin: 0; color: var(--paper-text-secondary); font-size: 10px; line-height: 1.5; }
+.typo-font-import { display: flex; gap: 6px; align-items: center; padding: 8px; border: 1px dashed var(--paper-border-strong); border-radius: 4px; color: var(--paper-text-secondary); font-size: 11px; cursor: pointer; }
+.typo-font-import:focus-within { outline: 2px solid #81adec; outline-offset: 2px; }
+.typo-font-import input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.typography-studio .axis-slider-input { min-width: 0; }
+.typography-studio .axis-slider-input:focus-visible { outline: 2px solid #81adec; outline-offset: 4px; }
+.typography-studio button:focus-visible { outline: 2px solid #81adec; outline-offset: 2px; }
+.typography-studio .opentype-preview-text { max-height: 120px; overflow: auto; }
+.axis-slider-input::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #81adec; border: 2px solid var(--paper-surface); }
+@media (prefers-reduced-motion: reduce) { .typography-tab-pane { animation: none; } }

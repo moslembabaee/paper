@@ -1,3 +1,4 @@
+import { applyTextTransform, compileTypographyStyles, embeddedFontCSS, resolveTextPathD, textAnchorForPath, textPathOffset, typographyCSS } from '../scene/typography.ts'
 import { effectsCSS, effectFilterMarkup } from './effects.ts'
 import { frameMask, maskPathData, maskFillRule } from '../scene/maskGeometry.ts'
 import type { SceneElement, TextElement } from '../scene/types.ts'
@@ -106,6 +107,13 @@ export function buildCSSProps(node: SceneElement, tokens: readonly DesignToken[]
     props.push({ property: 'line-height', value: String(t.lineHeight) })
     if (t.letterSpacing !== 0 || node.tokenBindings?.letterSpacing) props.push({ property: 'letter-spacing', value: `${t.letterSpacing}px` })
     if (t.textAlign !== 'left') props.push({ property: 'text-align', value: t.textAlign })
+    for (const [property, value] of Object.entries(typographyCSS(t))) {
+      if (!['font-family', 'font-size', 'line-height', 'text-align', 'letter-spacing', 'font-weight'].includes(property)) props.push({ property, value })
+    }
+    const tracking = compileTypographyStyles(t).letterSpacing
+    if (tracking) { const current = props.find(prop => prop.property === 'letter-spacing'); if (current) current.value = String(tracking); else props.push({ property: 'letter-spacing', value: String(tracking) }) }
+    const weight = props.find(prop => prop.property === 'font-weight')
+    if (weight) weight.value = String(t.variableAxes?.wght ?? t.fontWeight)
   }
 
   if (node.type === 'frame' && node.clipContent) {
@@ -259,7 +267,11 @@ export function buildReactComponent(node: SceneElement, tokens: readonly DesignT
     return !node.tokenBindings?.[property]
   }).map(property => `${property === 'x' ? 'left' : property === 'y' ? 'top' : property}: ${node[property]}`)
   if (node.rotation !== 0) geometryStyle.push(`transform: 'rotate(${node.rotation}deg)'`)
-  if (node.type === 'text' && !node.tokenBindings?.fontFamily) geometryStyle.push(`fontFamily: ${JSON.stringify(node.fontFamily)}`)
+  if (node.type === 'text') {
+    for (const [key, value] of Object.entries(compileTypographyStyles(node))) {
+      if (value !== undefined && !node.tokenBindings?.[key as TokenProperty]) geometryStyle.push(`${key}: ${JSON.stringify(value)}`)
+    }
+  }
   if (node.style.effects?.some(effect => effect.enabled) && node.type !== 'path') {
     const effects = effectsCSS(node.style.effects)
     if (effects.boxShadow) geometryStyle.push(`boxShadow: ${JSON.stringify(effects.boxShadow)}`)
@@ -270,11 +282,16 @@ export function buildReactComponent(node: SceneElement, tokens: readonly DesignT
 
   if (node.type === 'text') {
     const t = node as TextElement
+    if (t.textOnPath?.enabled) {
+      const pathD = resolveTextPathD(t, elements)
+      const styles = { ...compileTypographyStyles(t), letterSpacing: `${Number.parseFloat(String(compileTypographyStyles(t).letterSpacing ?? 0)) + (t.textOnPath.spacing ?? 0)}px` }
+      return `import { useId } from 'react'\n\nexport function ${name}() {\n  const pathId = useId()\n  return (\n    <svg className={${JSON.stringify(tw)}}${styleAttribute} viewBox="0 0 ${t.width} ${t.height}" overflow="visible">\n      ${t.fontSource ? `<style>{${JSON.stringify(embeddedFontCSS(t))}}</style>` : ''}\n      <defs><path id={pathId} d={${JSON.stringify(pathD)}} /></defs>\n      <text fill={${JSON.stringify(t.style.fill ?? 'none')}} stroke={${JSON.stringify(t.style.stroke?.color ?? 'none')}} strokeWidth={${t.style.stroke?.width ?? 0}} style={${JSON.stringify(styles)}} textAnchor="${textAnchorForPath(t.textOnPath.align, t.textAlign)}" xmlSpace="preserve">\n        <textPath href={\`#\${pathId}\`} startOffset="${textPathOffset(t)}%">{${JSON.stringify(applyTextTransform(t.text, t.textTransform).replace(/\n/g, ' '))}}</textPath>\n      </text>\n    </svg>\n  )\n}`
+    }
     const tag = t.fontSize >= 36 ? 'h2' : t.fontSize >= 24 ? 'h3' : 'p'
     if (inlineStyle) {
-      return `export function ${name}() {\n  return (\n    <${tag}\n      className={${JSON.stringify(tw)}}\n      style=${inlineStyle}\n    >\n      {${JSON.stringify(t.text)}}\n    </${tag}>\n  )\n}`
+      return `export function ${name}() {\n  return (\n    <${tag}\n      className={${JSON.stringify(tw)}}\n      style=${inlineStyle}\n    >\n      ${t.fontSource ? `<style>{${JSON.stringify(embeddedFontCSS(t))}}</style>` : ''}{${JSON.stringify(t.text)}}\n    </${tag}>\n  )\n}`
     }
-    return `export function ${name}() {\n  return (\n    <${tag} className={${JSON.stringify(tw)}}>\n      {${JSON.stringify(t.text)}}\n    </${tag}>\n  )\n}`
+    return `export function ${name}() {\n  return (\n    <${tag} className={${JSON.stringify(tw)}}>\n      ${t.fontSource ? `<style>{${JSON.stringify(embeddedFontCSS(t))}}</style>` : ''}{${JSON.stringify(t.text)}}\n    </${tag}>\n  )\n}`
   }
 
   if (node.type === 'image') {

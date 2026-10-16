@@ -6,6 +6,8 @@ import type { SceneElement } from './types'
 import { useScene } from './useScene'
 import { ShapeShader } from '../shaders/ShapeShader'
 import { frameMask, maskPathData, maskFillRule } from './maskGeometry'
+import { compileTypographyStyles, embeddedFontCSS, resolveTextPathD } from './typography'
+import { textMarkup } from './textMarkup'
 import './scene.css'
 
 interface NodeProps { store: SceneStore; id: string; interactive: boolean; inheritedLocked?: boolean; presentationRoot?: boolean; presentation?: boolean }
@@ -21,14 +23,20 @@ function BooleanCanvasPreview({ store, parentId }: { store: SceneStore; parentId
   </div>
 }
 
-function Paint({ node }: { node: SceneElement }) {
+function Paint({ node, pathD, paintId }: { node: SceneElement; pathD: string; paintId: string }) {
   const { fill: solidFill, stroke, shader } = node.style
   const shadow = node.style.effects?.some(effect => effect.enabled) ? null : node.style.shadow
   const fill = shader ? null : solidFill
   const shadowStyle = shadow ? { filter: `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` } : undefined
   if (node.type === 'frame') return null
   if (node.type === 'text') {
-    return <div className="scene-text" style={{ ...shadowStyle, color: fill ?? 'transparent', fontFamily: node.fontFamily, fontSize: node.fontSize, fontWeight: node.fontWeight, lineHeight: node.lineHeight, letterSpacing: node.letterSpacing, textAlign: node.textAlign, WebkitTextStroke: stroke ? `${stroke.width}px ${stroke.color}` : undefined }}>{node.text}</div>
+    if (node.textOnPath?.enabled) {
+      const pathNode = { ...node, textOnPath: { ...node.textOnPath, pathId: null, preset: 'custom' as const, pathData: pathD, reverse: false, side: 'left' as const } }
+      return <svg className="scene-text-on-path" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" style={shadowStyle} role="img" aria-label={node.text}>
+        <g stroke={stroke?.color ?? 'none'} strokeWidth={stroke?.width ?? 0} dangerouslySetInnerHTML={{ __html: textMarkup(pathNode, fill ?? 'none', undefined, undefined, undefined, paintId) }} />
+      </svg>
+    }
+    return <div className="scene-text" style={{ ...shadowStyle, ...compileTypographyStyles(node), color: fill ?? 'transparent', WebkitTextStroke: stroke ? `${stroke.width}px ${stroke.color}` : undefined }}>{node.text}</div>
   }
   if (node.type === 'image') {
     return <div className="scene-image" style={{ background: fill ?? undefined, borderRadius: node.cornerRadius, boxShadow: shadow ? `${shadow.x}px ${shadow.y}px ${shadow.blur}px ${shadow.color}` : undefined }}>
@@ -49,6 +57,10 @@ function Paint({ node }: { node: SceneElement }) {
 const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLocked = false, presentationRoot = false, presentation = false }: NodeProps) {
   const effectId = useId().replace(/:/g, "")
   const node = useScene(store, state => state.elements[id])
+  const pathD = useScene(store, state => {
+    const text = state.elements[id]
+    return text?.type === 'text' && text.textOnPath?.enabled ? resolveTextPathD(text, state.elements) : ''
+  })
   const mask = useScene(store, state => { const frame = state.elements[id]; return frame?.type === 'frame' ? frameMask(state.elements, frame) : undefined })
   const maskSelected = useScene(store, state => !!mask && state.selection.includes(mask.id))
   const selected = useScene(store, state => state.selection.includes(id))
@@ -74,8 +86,10 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
     {isFrame && node.parentId === null && !presentation && <div className="artboard-label">{node.name}<span>{node.width} × {node.height}</span></div>}
     {hasEffects && <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }} aria-hidden="true"><defs dangerouslySetInnerHTML={{ __html: effectMarkup }} /></svg>}
     <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity, filter: hasEffects ? `url(#${effectId})` : undefined }}>
-      {node.style.shader && <ShapeShader node={node} />}
-      <Paint node={node} />
+      {node.type === 'text' && node.fontSource && <style>{embeddedFontCSS(node)}</style>}
+      {node.style.shader && <ShapeShader node={node} textPathD={pathD} />}
+      <Paint node={node} pathD={pathD} paintId={`${effectId}-text`} />
+      {selected && !presentation && node.type === 'text' && node.textOnPath?.enabled && <svg className="scene-text-path-guide" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true"><path d={pathD} fill="none" stroke="#81adec" strokeWidth="1" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" /></svg>}
       {isFrame && mask && <svg width="0" height="0" className="scene-mask-defs" aria-hidden="true"><defs><clipPath id={`${effectId}-mask`} clipPathUnits="userSpaceOnUse"><path d={maskPathData(mask)} clipRule={maskFillRule(mask)} /></clipPath></defs></svg>}
       {isFrame && <div className="scene-children" data-mask-source={mask?.id} style={{ clipPath: mask ? `url(#${effectId}-mask)` : undefined }}>{node.children.filter(childId => childId !== mask?.id).map(childId => <SceneNode key={childId} store={store} id={childId} interactive={interactive} inheritedLocked={locked} presentation={presentation} />)}{!presentation && <BooleanCanvasPreview store={store} parentId={id} />}</div>}
       {isFrame && mask && !presentation && (mask.mask?.showOutline || maskSelected) && <svg className="scene-mask-outline" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true"><path d={maskPathData(mask)} fill="none" stroke="#81adec" strokeWidth="1" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" /></svg>}

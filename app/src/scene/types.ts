@@ -227,6 +227,8 @@ export interface TextElement extends BaseElement {
   readonly letterSpacing: number
   readonly textAlign: 'left' | 'center' | 'right'
   /** Variable font axis controls (wght, wdth, slnt, opsz, etc.) */
+  /** Embedded local font; persists with this layer for offline use. */
+  readonly fontSource?: string
   readonly variableAxes?: VariableFontAxes
   /** OpenType feature toggles (liga, dlig, calt, smcp, zero, frac, tnum, etc.) */
   readonly openTypeFeatures?: OpenTypeFeatures

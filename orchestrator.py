@@ -30,7 +30,7 @@ LOG_DIR = PROJECT_ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "orchestrator.log"
 
-AGENT_CHAIN = ["claude", "antigravity", "codex"]
+AGENT_CHAIN = ["claude", "codex"]
 
 def log(msg: str):
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -116,7 +116,7 @@ def execute_agent_task(agent: str, prompt: str, is_retry: bool = False) -> tuple
     
     if agent == "claude":
         # Run Claude Code in non-interactive print mode (clamped to 40 turns, 12m timeout)
-        cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 40'
+        cmd = f'CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 claude -p {shlex.quote(prompt)} --max-turns 80'
         return run_cmd(cmd, timeout=720)
 
     elif agent == "antigravity":
@@ -206,8 +206,6 @@ Output ONLY a raw JSON array of 3 new tasks in this format (no markdown, no back
             c_code, c_out = run_cmd(f'claude -p {shlex.quote(audit_prompt)} --max-turns 2', timeout=180)
             if c_code != 0 or not c_out.strip():
                 c_code, c_out = execute_agent_task("codex", audit_prompt)
-            if c_code != 0 or not c_out.strip():
-                c_code, c_out = execute_agent_task("antigravity", audit_prompt)
             try:
                 raw_json = c_out.strip()
                 if "```json" in raw_json:

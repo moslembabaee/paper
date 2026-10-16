@@ -156,7 +156,7 @@ export function detachEditedSharedStyles(bindings: SharedStyleBindings | undefin
   if (!bindings) return undefined
   const next = { ...bindings }, style = patch.style as Record<string, unknown> | undefined
   if (style && Object.hasOwn(style, 'fill')) delete next.color
-  if (typographyKeys.some(key => Object.hasOwn(patch, key)) || Object.hasOwn(patch, 'textAlign')) delete next.typography
+  if (typographyKeys.some(key => Object.hasOwn(patch, key)) || ['textAlign', 'fontSource', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'].some(key => Object.hasOwn(patch, key))) delete next.typography
   if (style && (Object.hasOwn(style, 'effects') || Object.hasOwn(style, 'shadow'))) delete next.effects
   return next
 }

@@ -1,4 +1,6 @@
 import type { CSSProperties } from 'react'
+import { getWorldMatrix } from './geometry.ts'
+import { parsePath, serializePath } from './pathGeometry.ts'
 import type {
   OpenTypeFeatures,
   SceneElement,
@@ -146,8 +148,8 @@ export function compileFontVariationSettings(axes?: VariableFontAxes, fallbackWe
     for (const [tag, val] of Object.entries(axes)) {
       if (['wght', 'wdth', 'slnt', 'opsz'].includes(tag)) continue
       if (val !== undefined && Number.isFinite(val)) {
-        const cleanTag = tag.length === 4 ? tag : tag.slice(0, 4).padEnd(4, ' ')
-        parts.push(`'${cleanTag}' ${Number(val.toFixed(2))}`)
+        const cleanTag = VARIABLE_AXES_META[tag]?.tag ?? tag
+        if (/^[a-zA-Z0-9 ]{4}$/.test(cleanTag)) parts.push(`'${cleanTag}' ${Number(val.toFixed(2))}`)
       }
     }
   }
@@ -187,6 +189,7 @@ export function compileTypographyStyles(node: TextElement): CSSProperties {
     lineHeight: node.lineHeight,
     letterSpacing: effectiveSpacing !== 0 ? `${effectiveSpacing}px` : undefined,
     textAlign: node.textAlign,
+    fontOpticalSizing: node.variableAxes?.opsz === undefined ? 'auto' : 'none',
     textTransform: node.textTransform && node.textTransform !== 'none' ? node.textTransform : undefined,
   }
 
@@ -200,10 +203,6 @@ export function compileTypographyStyles(node: TextElement): CSSProperties {
 
   if (node.fontKerning) {
     styles.fontKerning = node.fontKerning === 'optical' ? 'normal' : node.fontKerning
-  }
-
-  if (node.variableAxes?.slnt && node.variableAxes.slnt !== 0) {
-    styles.fontStyle = `oblique ${node.variableAxes.slnt}deg`
   }
 
   if (node.variableAxes?.wdth && node.variableAxes.wdth !== 100) {
@@ -277,55 +276,98 @@ export function generatePathPreset(preset: TextPathPreset, width: number, height
       // Smooth sinusoidal cubic wave
       const yMid = h * 0.5
       const amp = h * 0.35
-      const cp1x = w * 0.25
+      const cp1x = w * 0.16
       const cp1y = yMid - amp
-      const cp2x = w * 0.25
-      const cp2y = yMid + amp
+      const cp2x = w * 0.34
+      const cp2y = yMid - amp
       const midX = w * 0.5
-      const cp3x = w * 0.75
-      const cp3y = yMid - amp
-      const cp4x = w * 0.75
+      const cp3x = w * 0.66
+      const cp3y = yMid + amp
+      const cp4x = w * 0.84
       const cp4y = yMid + amp
       return `M 0,${yMid.toFixed(2)} C ${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${midX.toFixed(2)},${yMid.toFixed(2)} C ${cp3x.toFixed(2)},${cp3y.toFixed(2)} ${cp4x.toFixed(2)},${cp4y.toFixed(2)} ${w.toFixed(2)},${yMid.toFixed(2)}`
     }
   }
 }
 
-/** Reverse SVG path data direction by parsing simple commands if needed */
+/** Reverse SVG path data direction with mathematically exact cubic contour inversion */
 export function reversePathD(d: string): string {
-  // A simple reversal fallback for SVG paths
-  const parts = d.trim().split(/(?=[MLCQAZ])/i)
-  if (parts.length <= 1) return d
-  // For basic preset lines/curves, reversing endpoints:
-  return parts.reverse().join(' ').replace(/^L/i, 'M')
+  try {
+    const contours = parsePath(d)
+    if (!contours.length) return d
+    const reversed = contours.map(contour => {
+      // Keep the seam of a closed contour fixed when changing direction.
+      const ordered = contour.closed ? [contour.anchors[0], ...contour.anchors.slice(1).reverse()] : contour.anchors.slice().reverse()
+      const reversedAnchors = ordered.map(anchor => ({
+        ...anchor,
+        in: anchor.out ? { ...anchor.out } : undefined,
+        out: anchor.in ? { ...anchor.in } : undefined,
+      }))
+      return {
+        closed: contour.closed,
+        anchors: reversedAnchors,
+      }
+    })
+    return serializePath(reversed)
+  } catch {
+    // Fallback to original path if parsing fails
+    return d
+  }
 }
 
-/** Resolve SVG path data for a text element with Text-on-Path */
+/** Map a linked vector's viewBox through both frame hierarchies into text-local space. */
+function linkedPathD(node: TextElement, target: Extract<SceneElement, { type: 'path' }>, elements: Readonly<Record<string, SceneElement>>): string {
+  const state = { elements }
+  const [a, b, c, d, e, f] = getWorldMatrix(state, node.id)
+  const [pa, pb, pc, pd, pe, pf] = getWorldMatrix(state, target.id)
+  const det = a * d - b * c
+  const [vx, vy, vw, vh] = target.viewBox
+  const transform = (p: { x: number; y: number }) => {
+    const px = (p.x - vx) * target.width / vw, py = (p.y - vy) * target.height / vh
+    const x = pa * px + pc * py + pe - e, y = pb * px + pd * py + pf - f
+    return { x: (d * x - c * y) / det, y: (a * y - b * x) / det }
+  }
+  return serializePath(parsePath(target.d).map(contour => ({
+    ...contour,
+    anchors: contour.anchors.map(anchor => ({ ...transform(anchor), ...(anchor.in ? { in: transform(anchor.in) } : {}), ...(anchor.out ? { out: transform(anchor.out) } : {}) })),
+  })))
+}
+
+/** Resolve on every geometry change; no DOM measurements or animation loop needed. */
 export function resolveTextPathD(node: TextElement, elements?: Readonly<Record<string, SceneElement>>): string {
   const top = node.textOnPath
-  if (!top) return generatePathPreset('wave', node.width, node.height)
-
-  // 1. Linked to another path layer in the document
-  if (top.pathId && elements && elements[top.pathId]?.type === 'path') {
-    const targetPath = elements[top.pathId]
-    if (targetPath.type === 'path' && targetPath.d) {
-      return top.reverse ? reversePathD(targetPath.d) : targetPath.d
-    }
+  let path = generatePathPreset(top?.preset ?? 'wave', node.width, node.height)
+  const target = top?.pathId && elements ? elements[top.pathId] : undefined
+  if (target?.type === 'path' && elements) {
+    try { path = linkedPathD(node, target, elements) }
+    catch { /* Keep text visible while the source path is being edited. */ }
+  } else if (top?.preset === 'custom' && top.pathData?.trim()) {
+    path = top.pathData
   }
-
-  // 2. Explicit custom pathData
-  if (top.pathData && top.pathData.trim()) {
-    return top.reverse ? reversePathD(top.pathData) : top.pathData
-  }
-
-  // 3. Preset curve
-  const presetD = generatePathPreset(top.preset ?? 'wave', node.width, node.height)
-  return top.reverse ? reversePathD(presetD) : presetD
+  // Reversing the baseline implements the opposite side portably in SVG renderers.
+  return Boolean(top?.reverse) !== (top?.side === 'right') ? reversePathD(path) : path
 }
 
-/** Determine SVG text-anchor based on alignment */
 export function textAnchorForPath(align?: 'start' | 'center' | 'end', textAlign?: 'left' | 'center' | 'right'): 'start' | 'middle' | 'end' {
-  if (align === 'center' || textAlign === 'center') return 'middle'
-  if (align === 'end' || textAlign === 'right') return 'end'
-  return 'start'
+  const effective = align ?? (textAlign === 'center' ? 'center' : textAlign === 'right' ? 'end' : 'start')
+  return effective === 'center' ? 'middle' : effective
+}
+
+export function textPathOffset(node: TextElement): number {
+  const anchor = textAnchorForPath(node.textOnPath?.align, node.textAlign)
+  return node.textOnPath?.offset ?? (anchor === 'middle' ? 50 : anchor === 'end' ? 100 : 0)
+}
+
+/** One set of declarations for canvas, SVG and developer handoff. */
+export function typographyCSS(node: TextElement): Record<string, string> {
+  return Object.fromEntries(Object.entries(compileTypographyStyles(node))
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => [key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`), `${value}${key === 'fontSize' ? 'px' : ''}`]))
+}
+
+/** Embedded fonts use a generated family name so documents never depend on remote services. */
+export function embeddedFontCSS(node: TextElement): string {
+  if (!node.fontSource || !/^data:font\/(woff2?|ttf|otf);base64,[A-Za-z0-9+/=]+$/.test(node.fontSource)) return ''
+  const family = node.fontFamily.replace(/[^a-zA-Z0-9_-]/g, '')
+  return `@font-face{font-family:"${family}";src:url("${node.fontSource}");font-weight:1 1000;font-stretch:25% 200%;font-display:swap;}`
 }

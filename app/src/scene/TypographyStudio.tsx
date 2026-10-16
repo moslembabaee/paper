@@ -5,12 +5,15 @@ import {
   AlignCenter,
   AlignRight,
   Check,
+  Plus,
   RotateCcw,
   Sliders,
   Sparkles,
   Spline,
+  Trash2,
   Type,
   Unlink,
+  Upload,
 } from 'lucide-react'
 import type { SceneStore } from './store.ts'
 import type {
@@ -25,9 +28,12 @@ import {
   OPENTYPE_CATALOG,
   VARIABLE_AXES_META,
   VARIABLE_AXIS_PRESETS,
+  compileTypographyStyles,
   compileFontFeatureSettings,
   compileFontVariationSettings,
+  textPathOffset,
 } from './typography.ts'
+import { parsePath } from './pathGeometry'
 import './typography.css'
 
 interface TypographyStudioProps {
@@ -58,31 +64,48 @@ const PATH_PRESETS: readonly { id: TextPathPreset; label: string; icon: string }
   { id: 'spiral', label: 'Spiral', icon: '◎' },
   { id: 'banner', label: 'Banner', icon: '⌢' },
   { id: 'zigzag', label: 'Zigzag', icon: '⋀' },
+  { id: 'custom', label: 'Custom', icon: '✎' },
 ]
 
 export function TypographyStudio({ store, node, binding }: TypographyStudioProps) {
+  const [fontError, setFontError] = useState('')
+  const [fontLoading, setFontLoading] = useState(false)
+  const [pathError, setPathError] = useState('')
   const [tab, setTab] = useState<StudioTab>('type')
   const [customFont, setCustomFont] = useState(false)
   const [sampleText, setSampleText] = useState('0 1/2 fi fl $1,420 -> !=')
+  const [showExtendedAxes, setShowExtendedAxes] = useState(false)
+  const [newAxisTag, setNewAxisTag] = useState('')
+  const [newAxisVal, setNewAxisVal] = useState(0)
 
   const update = (patch: Partial<TextElement>) => {
     store.update(node.id, 'text', patch)
   }
 
   // Active variable axes
-  const axes: VariableFontAxes = node.variableAxes ?? {
+  const axes: VariableFontAxes = {
     wght: node.fontWeight,
     wdth: 100,
     slnt: 0,
     opsz: node.fontSize,
+    ...(node.variableAxes ?? {}),
   }
 
   const updateAxis = (axis: string, value: number) => {
+    if (!Number.isFinite(value)) return
+    const meta = VARIABLE_AXES_META[axis]
+    if (meta) value = Math.max(meta.min, Math.min(meta.max, value))
     const nextAxes = { ...axes, [axis]: value }
     update({
       variableAxes: nextAxes,
       ...(axis === 'wght' ? { fontWeight: Math.round(value) } : {}),
     })
+  }
+
+  const removeAxis = (axis: string) => {
+    const nextAxes = { ...axes }
+    delete nextAxes[axis]
+    update({ variableAxes: nextAxes })
   }
 
   // OpenType features
@@ -106,7 +129,6 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
   const top = node.textOnPath ?? {
     enabled: false,
     preset: 'wave',
-    offset: 0,
     side: 'left',
     align: 'start',
     spacing: 0,
@@ -119,17 +141,18 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
   )
 
   return (
-    <div className="inspector-section">
+    <div className="inspector-section typography-studio">
       <div className="property-heading">
         <span className="section-caption">VARIABLE TYPOGRAPHY STUDIO</span>
         {top.enabled && <span className="axis-tag-badge">Path Active</span>}
       </div>
 
       {/* Tabs */}
-      <div className="typography-tabs" role="tablist">
+      <div className="typography-tabs" role="group" aria-label="Typography controls">
         <button
           type="button"
           className={`typography-tab-btn ${tab === 'type' ? 'is-active' : ''}`}
+          aria-pressed={tab === 'type'}
           onClick={() => setTab('type')}
           title="Typeface, Content & Alignment"
         >
@@ -139,6 +162,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
         <button
           type="button"
           className={`typography-tab-btn ${tab === 'axes' ? 'is-active' : ''}`}
+          aria-pressed={tab === 'axes'}
           onClick={() => setTab('axes')}
           title="Variable Font Axes"
         >
@@ -148,6 +172,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
         <button
           type="button"
           className={`typography-tab-btn ${tab === 'opentype' ? 'is-active' : ''}`}
+          aria-pressed={tab === 'opentype'}
           onClick={() => setTab('opentype')}
           title="OpenType Features"
         >
@@ -157,6 +182,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
         <button
           type="button"
           className={`typography-tab-btn ${tab === 'kerning' ? 'is-active' : ''}`}
+          aria-pressed={tab === 'kerning'}
           onClick={() => setTab('kerning')}
           title="Optical Kerning & Tracking"
         >
@@ -165,6 +191,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
         <button
           type="button"
           className={`typography-tab-btn ${tab === 'path' ? 'is-active' : ''}`}
+          aria-pressed={tab === 'path'}
           onClick={() => setTab('path')}
           title="Text-on-Vector Path Deformation"
         >
@@ -197,14 +224,14 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                     if (event.currentTarget.value === 'custom') {
                       setCustomFont(true)
                     } else {
-                      update({ fontFamily: event.currentTarget.value })
+                      update({ fontFamily: event.currentTarget.value, fontSource: undefined })
                     }
                   }}
                 >
                   {CURATED_FONTS.map(font => (
                     <option key={font.value} value={font.value}>{font.label}</option>
                   ))}
-                  <option value="custom">Custom Font Name...</option>
+                  <option value="custom">{node.fontSource ? 'Embedded local font' : 'Custom Font Name…'}</option>
                 </select>
               </div>
             ) : (
@@ -215,7 +242,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                   defaultValue={node.fontFamily}
                   onBlur={event => {
                     const next = event.currentTarget.value.trim()
-                    if (next) update({ fontFamily: next })
+                    if (next) update({ fontFamily: next, fontSource: undefined })
                   }}
                   onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }}
                 />
@@ -231,6 +258,36 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
             )}
           </label>
           {binding?.('fontFamily', 'Font family')}
+          <label className="typo-font-import">
+            <Upload size={12} /> {fontLoading ? 'Loading font…' : node.fontSource ? 'Replace embedded font' : 'Import local font'}
+            <input type="file" aria-label="Import local font" accept=".woff2,.woff,.ttf,.otf" disabled={fontLoading} onChange={async event => {
+              const file = event.currentTarget.files?.[0]
+              event.currentTarget.value = ''
+              if (!file) return
+              if (file.size > 3_000_000) { setFontError('Choose a font smaller than 3 MB.'); return }
+              const ext = file.name.split('.').at(-1)?.toLowerCase()
+              if (!ext || !['woff2', 'woff', 'ttf', 'otf'].includes(ext)) { setFontError('Choose a WOFF, WOFF2, TTF or OTF font.'); return }
+              setFontLoading(true)
+              try {
+                const family = `PaperFont-${crypto.randomUUID()}`
+                const data = await new Promise<string>((resolve, reject) => {
+                  const reader = new FileReader()
+                  reader.onload = () => resolve(String(reader.result).split(',')[1])
+                  reader.onerror = () => reject(new Error('Could not read font'))
+                  reader.readAsDataURL(file)
+                })
+                const source = `data:font/${ext};base64,${data}`
+                const face = new FontFace(family, `url("${source}")`, { weight: '1 1000', stretch: '25% 200%' })
+                await face.load()
+                update({ fontFamily: family, fontSource: source, variableAxes: undefined })
+                setFontError('')
+              } catch { setFontError('This font could not be loaded. Choose a valid font file.') }
+              finally { setFontLoading(false) }
+            }} />
+          </label>
+          {fontError && <p className="typo-hint" role="alert">{fontError}</p>}
+          {node.fontSource && <p className="typo-hint">Font embedded in this document · available offline</p>}
+
 
           <div className="property-pair">
             <div className="token-number-field" style={{ flex: 1 }}>
@@ -357,6 +414,25 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
       {/* Tab 2: Variable Font Axis Sliders */}
       {tab === 'axes' && (
         <div className="typography-tab-pane">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 10, color: 'var(--paper-text-secondary)' }}>Variable Font Axes</span>
+            <button
+              type="button"
+              className="quiet-button"
+              onClick={() => {
+                update({
+                  variableAxes: { wght: 400, wdth: 100, slnt: 0, opsz: node.fontSize },
+                  fontWeight: 400,
+                })
+              }}
+              title="Reset axes to defaults"
+              style={{ fontSize: 10 }}
+            >
+              <RotateCcw size={10} style={{ marginRight: 3 }} />
+              Reset
+            </button>
+          </div>
+
           <div className="typo-chips-scroll" role="toolbar" aria-label="Variable Axis Presets">
             {VARIABLE_AXIS_PRESETS.map(preset => {
               const matches = preset.axes.wght === axes.wght && preset.axes.wdth === axes.wdth && preset.axes.slnt === axes.slnt
@@ -379,140 +455,227 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
             })}
           </div>
 
-          {/* Weight axis (wght) */}
-          <div className="axis-slider-row">
-            <div className="axis-slider-header">
-              <span className="axis-label-name">Weight</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="axis-tag-badge">wght</span>
-                <span className="axis-val-display">{Math.round(axes.wght ?? node.fontWeight)}</span>
+          <p className="typo-hint">Axes require a variable font installed on this device, or an imported font. Each typeface supports its own ranges.</p>
+          {(['wght', 'wdth', 'slnt', 'opsz'] as const).map(tag => {
+            const meta = VARIABLE_AXES_META[tag]
+            const value = axes[tag] ?? meta.default
+            return <div className="axis-slider-row" key={tag}>
+              <div className="axis-slider-header"><span className="axis-label-name">{meta.label}</span><span className="axis-tag-badge">{meta.tag}</span></div>
+              <div className="axis-slider-track">
+                <input type="range" className="axis-slider-input" aria-label={`Variable ${meta.label.toLowerCase()} axis`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
+                <input type="number" className="axis-num-input" aria-label={`${meta.label} value`} min={meta.min} max={meta.max} step={meta.step} value={value} onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)} />
               </div>
+              {tag === 'opsz' && <button type="button" className="quiet-button" onClick={() => updateAxis('opsz', node.fontSize)}>Match font size</button>}
             </div>
-            <div className="axis-slider-track">
-              <input
-                type="range"
-                className="axis-slider-input"
-                aria-label="Variable weight axis"
-                min={VARIABLE_AXES_META.wght.min}
-                max={VARIABLE_AXES_META.wght.max}
-                step={VARIABLE_AXES_META.wght.step}
-                value={axes.wght ?? node.fontWeight}
-                onChange={event => updateAxis('wght', event.currentTarget.valueAsNumber)}
-              />
-              <input
-                type="number"
-                className="axis-num-input"
-                aria-label="Weight value"
-                value={Math.round(axes.wght ?? node.fontWeight)}
-                min={1}
-                max={1000}
-                onChange={event => {
-                  const val = event.currentTarget.valueAsNumber
-                  if (Number.isFinite(val)) updateAxis('wght', val)
-                }}
-              />
-            </div>
+          })}
+          <div className="opentype-preview-box"><span className="opentype-preview-label">Live specimen</span><div className="opentype-preview-text" style={{ fontFamily: node.fontFamily, fontVariationSettings: compileFontVariationSettings(axes), fontOpticalSizing: 'none' }}>{node.text || 'Aa / 012345'}</div></div>
+
+          {/* Extended & Custom Variable Axes */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+            <button
+              type="button"
+              className="quiet-button"
+              style={{ fontSize: 10, display: 'flex', alignItems: 'center', gap: 4 }}
+              onClick={() => setShowExtendedAxes(!showExtendedAxes)}
+            >
+              <span>{showExtendedAxes ? 'Hide Extended & Custom Axes' : 'Show Extended & Custom Axes (GRAD, CASL, CRSV)'}</span>
+            </button>
           </div>
 
-          {/* Width axis (wdth) */}
-          <div className="axis-slider-row">
-            <div className="axis-slider-header">
-              <span className="axis-label-name">Width</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="axis-tag-badge">wdth</span>
-                <span className="axis-val-display">{Math.round(axes.wdth ?? 100)}%</span>
+          {showExtendedAxes && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+              {/* Grade axis (GRAD) */}
+              <div className="axis-slider-row">
+                <div className="axis-slider-header">
+                  <span className="axis-label-name">Grade</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="axis-tag-badge">GRAD</span>
+                    <span className="axis-val-display">{Math.round(axes.grad ?? 0)}</span>
+                  </div>
+                </div>
+                <div className="axis-slider-track">
+                  <input
+                    type="range"
+                    className="axis-slider-input"
+                    aria-label="Variable grade axis"
+                    min={VARIABLE_AXES_META.grad.min}
+                    max={VARIABLE_AXES_META.grad.max}
+                    step={VARIABLE_AXES_META.grad.step}
+                    value={axes.grad ?? 0}
+                    onChange={event => updateAxis('grad', event.currentTarget.valueAsNumber)}
+                  />
+                  <input
+                    type="number"
+                    className="axis-num-input"
+                    aria-label="Grade value"
+                    value={Math.round(axes.grad ?? 0)}
+                    min={-200}
+                    max={200}
+                    onChange={event => {
+                      const val = event.currentTarget.valueAsNumber
+                      if (Number.isFinite(val)) updateAxis('grad', val)
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="axis-slider-track">
-              <input
-                type="range"
-                className="axis-slider-input"
-                aria-label="Variable width axis"
-                min={VARIABLE_AXES_META.wdth.min}
-                max={VARIABLE_AXES_META.wdth.max}
-                step={VARIABLE_AXES_META.wdth.step}
-                value={axes.wdth ?? 100}
-                onChange={event => updateAxis('wdth', event.currentTarget.valueAsNumber)}
-              />
-              <input
-                type="number"
-                className="axis-num-input"
-                aria-label="Width percentage value"
-                value={Math.round(axes.wdth ?? 100)}
-                min={25}
-                max={200}
-                onChange={event => {
-                  const val = event.currentTarget.valueAsNumber
-                  if (Number.isFinite(val)) updateAxis('wdth', val)
-                }}
-              />
-            </div>
-          </div>
 
-          {/* Slant axis (slnt) */}
-          <div className="axis-slider-row">
-            <div className="axis-slider-header">
-              <span className="axis-label-name">Slant</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="axis-tag-badge">slnt</span>
-                <span className="axis-val-display">{(axes.slnt ?? 0).toFixed(1)}°</span>
+              {/* Casual axis (CASL) */}
+              <div className="axis-slider-row">
+                <div className="axis-slider-header">
+                  <span className="axis-label-name">Casual</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="axis-tag-badge">CASL</span>
+                    <span className="axis-val-display">{(axes.casl ?? 0).toFixed(2)}</span>
+                  </div>
+                </div>
+                <div className="axis-slider-track">
+                  <input
+                    type="range"
+                    className="axis-slider-input"
+                    aria-label="Variable casual axis"
+                    min={VARIABLE_AXES_META.casl.min}
+                    max={VARIABLE_AXES_META.casl.max}
+                    step={VARIABLE_AXES_META.casl.step}
+                    value={axes.casl ?? 0}
+                    onChange={event => updateAxis('casl', event.currentTarget.valueAsNumber)}
+                  />
+                  <input
+                    type="number"
+                    className="axis-num-input"
+                    aria-label="Casual value"
+                    value={Number((axes.casl ?? 0).toFixed(2))}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onChange={event => {
+                      const val = event.currentTarget.valueAsNumber
+                      if (Number.isFinite(val)) updateAxis('casl', val)
+                    }}
+                  />
+                </div>
               </div>
-            </div>
-            <div className="axis-slider-track">
-              <input
-                type="range"
-                className="axis-slider-input"
-                aria-label="Variable slant axis"
-                min={VARIABLE_AXES_META.slnt.min}
-                max={VARIABLE_AXES_META.slnt.max}
-                step={VARIABLE_AXES_META.slnt.step}
-                value={axes.slnt ?? 0}
-                onChange={event => updateAxis('slnt', event.currentTarget.valueAsNumber)}
-              />
-              <input
-                type="number"
-                className="axis-num-input"
-                aria-label="Slant degrees value"
-                value={Number((axes.slnt ?? 0).toFixed(1))}
-                step={0.5}
-                onChange={event => {
-                  const val = event.currentTarget.valueAsNumber
-                  if (Number.isFinite(val)) updateAxis('slnt', val)
-                }}
-              />
-            </div>
-          </div>
 
-          {/* Optical Size axis (opsz) */}
-          <div className="axis-slider-row">
-            <div className="axis-slider-header">
-              <span className="axis-label-name">Optical Size</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="axis-tag-badge">opsz</span>
-                <span className="axis-val-display">{Math.round(axes.opsz ?? node.fontSize)}pt</span>
+              {/* Cursive axis (CRSV) */}
+              <div className="axis-slider-row">
+                <div className="axis-slider-header">
+                  <span className="axis-label-name">Cursive</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="axis-tag-badge">CRSV</span>
+                    <span className="axis-val-display">{(axes.crsv ?? 0).toFixed(2)}</span>
+                  </div>
+                </div>
+                <div className="axis-slider-track">
+                  <input
+                    type="range"
+                    className="axis-slider-input"
+                    aria-label="Variable cursive axis"
+                    min={VARIABLE_AXES_META.crsv.min}
+                    max={VARIABLE_AXES_META.crsv.max}
+                    step={VARIABLE_AXES_META.crsv.step}
+                    value={axes.crsv ?? 0}
+                    onChange={event => updateAxis('crsv', event.currentTarget.valueAsNumber)}
+                  />
+                  <input
+                    type="number"
+                    className="axis-num-input"
+                    aria-label="Cursive value"
+                    value={Number((axes.crsv ?? 0).toFixed(2))}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onChange={event => {
+                      const val = event.currentTarget.valueAsNumber
+                      if (Number.isFinite(val)) updateAxis('crsv', val)
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Any additional custom axes */}
+              {Object.entries(axes)
+                .filter(([tag]) => !['wght', 'wdth', 'slnt', 'opsz', 'grad', 'casl', 'crsv'].includes(tag))
+                .map(([tag, val]) => (
+                  <div key={tag} className="axis-slider-row">
+                    <div className="axis-slider-header">
+                      <span className="axis-label-name">Custom Axis</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="axis-tag-badge">{tag}</span>
+                        <span className="axis-val-display">{(val ?? 0).toFixed(1)}</span>
+                        <button
+                          type="button"
+                          className="quiet-button"
+                          onClick={() => removeAxis(tag)}
+                          title={`Remove axis ${tag}`}
+                        >
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="axis-slider-track">
+                      <input
+                        type="range"
+                        className="axis-slider-input"
+                        aria-label={`Custom axis ${tag}`}
+                        min={0}
+                        max={1000}
+                        step={1}
+                        value={val ?? 0}
+                        onChange={event => updateAxis(tag, event.currentTarget.valueAsNumber)}
+                      />
+                      <input
+                        type="number"
+                        className="axis-num-input"
+                        aria-label={`Custom axis ${tag} value`}
+                        value={Number((val ?? 0).toFixed(1))}
+                        onChange={event => {
+                          const numVal = event.currentTarget.valueAsNumber
+                          if (Number.isFinite(numVal)) updateAxis(tag, numVal)
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+
+              {/* Add Custom Axis Input */}
+              <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginTop: 4 }}>
+                <input
+                  type="text"
+                  className="property-input"
+                  style={{ width: 60, textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontSize: 10 }}
+                  maxLength={4}
+                  placeholder="TAG"
+                  aria-label="Custom axis tag"
+                  value={newAxisTag}
+                  onChange={event => setNewAxisTag(event.currentTarget.value.toUpperCase())}
+                />
+                <input
+                  type="number"
+                  className="property-input"
+                  style={{ flex: 1, fontSize: 10 }}
+                  placeholder="Value"
+                  aria-label="Custom axis initial value"
+                  value={newAxisVal}
+                  onChange={event => setNewAxisVal(event.currentTarget.valueAsNumber || 0)}
+                />
+                <button
+                  type="button"
+                  className="quiet-button"
+                  disabled={!/^[A-Z0-9]{4}$/.test(newAxisTag)}
+                  onClick={() => {
+                    if (/^[A-Z0-9]{4}$/.test(newAxisTag)) {
+                      updateAxis(newAxisTag, newAxisVal)
+                      setNewAxisTag('')
+                      setNewAxisVal(0)
+                    }
+                  }}
+                  title="Add custom 4-character OpenType axis tag"
+                >
+                  <Plus size={11} style={{ marginRight: 2 }} />
+                  Add
+                </button>
               </div>
             </div>
-            <div className="axis-slider-track">
-              <input
-                type="range"
-                className="axis-slider-input"
-                aria-label="Variable optical size axis"
-                min={VARIABLE_AXES_META.opsz.min}
-                max={VARIABLE_AXES_META.opsz.max}
-                step={VARIABLE_AXES_META.opsz.step}
-                value={axes.opsz ?? node.fontSize}
-                onChange={event => updateAxis('opsz', event.currentTarget.valueAsNumber)}
-              />
-              <button
-                type="button"
-                className="quiet-button"
-                title="Match font size"
-                onClick={() => updateAxis('opsz', node.fontSize)}
-              >
-                Auto
-              </button>
-            </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -655,9 +818,8 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
             <div
               className="opentype-preview-text"
               style={{
-                fontFamily: node.fontFamily,
-                letterSpacing: `${node.letterSpacing + (currentKerning === 'optical' ? (node.opticalKerning ?? 0) * 0.1 : 0)}px`,
-                fontKerning: currentKerning === 'optical' ? 'normal' : currentKerning,
+                ...compileTypographyStyles(node),
+                fontSize: 15,
               }}
             >
               AV WA To Ly 1984
@@ -699,6 +861,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                   {PATH_PRESETS.map(preset => (
                     <button
                       key={preset.id}
+                      aria-label={preset.label}
                       type="button"
                       className={`path-preset-btn ${top.preset === preset.id && !top.pathId ? 'is-active' : ''}`}
                       onClick={() => {
@@ -707,6 +870,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                             ...top,
                             preset: preset.id,
                             pathId: null,
+                            pathData: preset.id === 'custom' ? top.pathData : undefined,
                           },
                         })
                       }}
@@ -719,7 +883,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
               </label>
 
               {/* Attach to Canvas Path layer */}
-              {canvasPathLayers.length > 0 && (
+              {(canvasPathLayers.length > 0 || top.pathId) && (
                 <label className="property-label">
                   Link Canvas Path Layer
                   <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
@@ -763,11 +927,26 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                 </label>
               )}
 
+              {top.preset === 'custom' && !top.pathId && <label className="property-label">Bézier path data
+                <textarea key={node.id + top.pathData} className="property-textarea property-mono" aria-label="Custom text path data" defaultValue={top.pathData ?? ''} placeholder="M 0 120 C 80 0 240 240 360 120" onBlur={event => {
+                  const d = event.currentTarget.value.trim()
+                  try {
+                    if (d && !parsePath(d).some(contour => contour.anchors.length > 1)) throw new Error('Add at least two anchors.')
+                    update({ textOnPath: { ...top, pathData: d } })
+                    setPathError('')
+                  } catch { setPathError('Enter a valid SVG path with at least two anchors.') }
+                }} />
+              </label>}
+              {pathError && <p className="typo-hint" role="alert">{pathError}</p>}
+              {top.pathId && !canvasPathLayers.some(path => path.id === top.pathId) && <p className="typo-hint">Linked path is unavailable. Showing the fallback curve.</p>}
+              <label className="property-label">Path tracking
+                <input type="number" className="property-input" aria-label="Path letter spacing" value={top.spacing ?? 0} step={0.5} onChange={event => { const spacing = event.currentTarget.valueAsNumber; if (Number.isFinite(spacing)) update({ textOnPath: { ...top, spacing } }) }} />
+              </label>
               {/* Start Offset Slider */}
               <div className="axis-slider-row">
                 <div className="axis-slider-header">
                   <span className="axis-label-name">Start Offset</span>
-                  <span className="axis-val-display">{Math.round(top.offset ?? 0)}%</span>
+                  <span className="axis-val-display">{Math.round(textPathOffset(node))}%</span>
                 </div>
                 <div className="axis-slider-track">
                   <input
@@ -777,7 +956,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                     min={0}
                     max={100}
                     step={1}
-                    value={top.offset ?? 0}
+                    value={textPathOffset(node)}
                     onChange={event => {
                       update({
                         textOnPath: {
@@ -827,21 +1006,21 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                 <button
                   type="button"
                   className={`kerning-mode-btn ${(top.align ?? 'start') === 'start' ? 'is-active' : ''}`}
-                  onClick={() => update({ textOnPath: { ...top, align: 'start' } })}
+                  onClick={() => update({ textOnPath: { ...top, align: 'start', offset: 0 } })}
                 >
                   Start Align
                 </button>
                 <button
                   type="button"
                   className={`kerning-mode-btn ${top.align === 'center' ? 'is-active' : ''}`}
-                  onClick={() => update({ textOnPath: { ...top, align: 'center' } })}
+                  onClick={() => update({ textOnPath: { ...top, align: 'center', offset: 50 } })}
                 >
                   Center Align
                 </button>
                 <button
                   type="button"
                   className={`kerning-mode-btn ${top.align === 'end' ? 'is-active' : ''}`}
-                  onClick={() => update({ textOnPath: { ...top, align: 'end' } })}
+                  onClick={() => update({ textOnPath: { ...top, align: 'end', offset: 100 } })}
                 >
                   End Align
                 </button>
