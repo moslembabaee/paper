@@ -173,9 +173,9 @@ export const validateAppInBrowser: AppBrowserValidator = async (assets, signal) 
           if (rect.right > w + 1) return true
         }
         return false
-      })
+      }, undefined, { timeout: 1000 }).catch(() => false)
       if (overflow) issue('VISUAL_ERROR', `${viewport}: Content overflows the viewport horizontally.`)
-      const capture = await page.screenshot({ type: 'jpeg', quality: 35, timeout: 2000, animations: 'disabled' })
+      const capture = await page.screenshot({ type: 'jpeg', quality: 35, timeout: 2000 })
       // Resize only on the trusted, empty parent. Never expose image bytes to
       // the generated frame, and never take a screenshot of the Paper host.
       const dataUrl = await page.evaluate(async ({ encoded, limit }) => {

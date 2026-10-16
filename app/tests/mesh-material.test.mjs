@@ -40,6 +40,7 @@ import {
   setMeshPlacementMode,
   subscribeMeshState,
 } from '../src/shaders/meshState.ts'
+import { grainBlendModes, noiseGenerators } from '../src/shaders/types.ts'
 import { exportMeshReact } from '../src/shaders/shaderExport.ts'
 import { createProject } from '../src/io/project.ts'
 import { mutateCanvas } from '../src/mcp/operations.ts'
@@ -489,6 +490,58 @@ test('direct scene canvas binding applies mesh gradient to elements, background,
 
   store.redo()
   assert.ok(store.getSnapshot().elements['canvas-node'].style.shader?.mesh?.grid)
+})
+
+test('grain blend modes, noise generators, and warp modulation encode correctly into GPU uniforms', () => {
+  for (let idx = 0; idx < grainBlendModes.length; idx++) {
+    const blendMode = grainBlendModes[idx]
+    const mesh = createMeshMaterial(3, {
+      grainBlend: blendMode,
+      warpModulation: 0.75,
+      noiseType: 'perlin',
+      lacunarity: 2.5,
+      octaves: 4,
+      normalPerturbation: 0.3,
+      grainDisplacement: 0.25,
+    })
+    const paint = {
+      kind: 'mesh-gradient',
+      params: { colors: ['#edebe1', '#81adec', '#222222'], distortion: 0.4, swirl: 0.2, grainMixer: 0.1, grainOverlay: 0.3 },
+      animated: true,
+      speed: 0.5,
+      frame: 120,
+      scale: 1,
+      rotation: 0,
+      offsetX: 0,
+      offsetY: 0,
+      mesh,
+    }
+    const uniforms = meshUniforms(paint)
+    assert.equal(uniforms.u_grainBlend, idx, `Grain blend mode ${blendMode} should map to index ${idx}`)
+    assert.equal(uniforms.u_warpModulation, 0.75)
+    assert.equal(uniforms.u_noiseType, 1) // perlin = 1
+    assert.equal(uniforms.u_lacunarity, 2.5)
+    assert.equal(uniforms.u_octaves, 4)
+    assert.equal(uniforms.u_normalPerturbation, 0.3)
+    assert.equal(uniforms.u_grainDisplacement, 0.25)
+  }
+})
+
+test('procedural color field synthesizer and bicubic patch evaluate smooth color transitions across all harmonies', () => {
+  const seed = '#81adec'
+  for (const harmony of meshHarmonyModes) {
+    const stops = synthesizeProceduralColorField(seed, 4, harmony)
+    const patch = [
+      [stops[0], stops[1]],
+      [stops[2], stops[3]],
+    ]
+    const center = evaluateBicubicPatch(patch, 0.5, 0.5)
+    assert.match(center, /^#[\da-f]{6}$/i)
+    const parsed = parseHexColor(center)
+    assert.ok(parsed.r >= 0 && parsed.r <= 1)
+    assert.ok(parsed.g >= 0 && parsed.g <= 1)
+    assert.ok(parsed.b >= 0 && parsed.b <= 1)
+  }
 })
 
 
