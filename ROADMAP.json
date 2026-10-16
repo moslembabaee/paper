@@ -14,7 +14,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 44,
-      "completed_at": "2026-10-16T01:12:43.871038+00:00"
+      "completed_at": "2026-10-16T01:12:43.871038+00:00",
+      "closed_at": "2026-10-16T03:20:10Z"
     },
     {
       "id": "T-ISSUE-45",
@@ -26,7 +27,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 45,
-      "completed_at": "2026-10-16T01:47:22.585533+00:00"
+      "completed_at": "2026-10-16T01:47:22.585533+00:00",
+      "closed_at": "2026-10-16T03:20:06Z"
     },
     {
       "id": "T-ISSUE-46",
@@ -1040,7 +1042,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 44,
-      "completed_at": "2026-10-16T02:56:05.780744+00:00"
+      "completed_at": "2026-10-16T02:56:05.780744+00:00",
+      "closed_at": "2026-10-16T03:20:10Z"
     },
     {
       "id": "T-EVOLVE-1792110294-2",
@@ -1052,7 +1055,8 @@
       "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 45,
-      "completed_at": "2026-10-16T03:10:53.085154+00:00"
+      "completed_at": "2026-10-16T03:10:53.085154+00:00",
+      "closed_at": "2026-10-16T03:20:06Z"
     },
     {
       "id": "T-EVOLVE-1792110294-3",
@@ -1060,10 +1064,11 @@
       "title": "Interactive Component Variant State Machine and Micro-Interaction Transitions",
       "description": "Introduce component variant definition and interactive prototyping states (default, hover, pressed, active). Include configurable spring physics transition curves (stiffness, damping, mass), trigger bindings (on-click, on-hover, while-pressed), and live interactive preview mode on the canvas.",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "completed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 46
+      "github_issue_number": 46,
+      "completed_at": "2026-10-16T03:25:33.907653+00:00"
     }
   ]
 }
