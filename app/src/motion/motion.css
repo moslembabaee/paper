@@ -7,9 +7,9 @@
   left: 0;
   right: 0;
   height: 350px;
-  background: #0f0f11;
+  background: #080808;
   color: #edebe1;
-  border-top: 1px solid #222225;
+  border-top: 1px solid #222222;
   box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
   display: flex;
   flex-direction: column;
@@ -22,11 +22,11 @@
   --motion-accent-soft: rgba(129, 173, 236, 0.16);
   --motion-shader: #c084fc;
   --motion-shader-soft: rgba(192, 132, 252, 0.16);
-  --motion-surface: #141417;
-  --motion-surface-raised: #1c1c20;
-  --motion-surface-inset: #09090b;
-  --motion-border: #242429;
-  --motion-border-subtle: #1a1a1d;
+  --motion-surface: #141414;
+  --motion-surface-raised: #222222;
+  --motion-surface-inset: #080808;
+  --motion-border: #222222;
+  --motion-border-subtle: #1a1a1a;
   --motion-text: #edebe1;
   --motion-text-muted: #8b8b94;
   --motion-text-dim: #5c5c66;
@@ -34,7 +34,7 @@
 
 /* Light theme overrides */
 :root[data-theme='light'] .motion-drawer {
-  background: #fbfbf9;
+  background: #edebe1;
   color: #080808;
   border-top-color: #e2e2dd;
   box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.08);

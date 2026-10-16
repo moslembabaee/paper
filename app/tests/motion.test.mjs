@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import vm from 'node:vm'
+import ts from 'typescript'
 import { SceneStore } from '../src/scene/store.ts'
 import { SceneReplica } from '../src/collaboration/model.ts'
 import { CURVES } from '../src/prototype/model.ts'
@@ -226,7 +228,7 @@ test('motion code export for Framer Motion, CSS keyframes, WAAPI and JSON', () =
   assert.ok(framerCode.includes('animate='))
   assert.ok(framerCode.includes('transition='))
   assert.ok(framerCode.includes('"ease":"linear"'))
-  assert.ok(framerCode.includes('"repeat":"Infinity"'))
+  assert.ok(framerCode.includes('"repeat":Infinity'))
 
   // CSS keyframes export
   const cssCode = exportMotion(motionDoc, elements, 'css')
@@ -234,6 +236,7 @@ test('motion code export for Framer Motion, CSS keyframes, WAAPI and JSON', () =
   assert.ok(cssCode.includes('@keyframes paper-motion-1'))
   assert.ok(cssCode.includes('translate:'))
   assert.ok(cssCode.includes('scale:'))
+  assert.ok(cssCode.includes('Spring { stiffness: 170, damping: 20, mass: 1 }'))
   assert.ok(cssCode.includes('@media (prefers-reduced-motion: reduce)'))
   assert.ok(cssCode.includes('0% {'))
   assert.ok(cssCode.includes('100% {'))
@@ -244,7 +247,7 @@ test('motion code export for Framer Motion, CSS keyframes, WAAPI and JSON', () =
   assert.ok(waapiCode.includes('export function animateLayer1(element: HTMLElement)'))
   assert.ok(waapiCode.includes('element.animate('))
   assert.ok(waapiCode.includes('duration: 2000'))
-  assert.ok(waapiCode.includes("iterations: 'Infinity'"))
+  assert.ok(waapiCode.includes('iterations: Infinity'))
 
   // JSON export
   const jsonCode = exportMotion(motionDoc, elements, 'json')
@@ -252,6 +255,46 @@ test('motion code export for Framer Motion, CSS keyframes, WAAPI and JSON', () =
   assert.equal(parsed.duration, 2000)
   assert.equal(parsed.tracks.length, 2)
   assert.equal(parsed.loop, true)
+})
+
+test('exported loops use numeric infinity and retain authored segment timing', () => {
+  const store = fixture()
+  const elements = store.getSnapshot().elements
+  const track = createTrack('rect1', 'x', 2000)
+  const middle = addKeyframeAtTime(track, 731, 65)
+  assert.ok(middle)
+
+  for (const loop of [true, false]) {
+    const motion = { duration: 2000, tracks: [middle.track], loop }
+    for (const format of ['framer', 'waapi']) {
+      const source = exportMotion(motion, elements, format)
+      const { outputText } = ts.transpileModule(source, {
+        compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+        fileName: 'motion-export.tsx',
+      })
+      const exported = {}
+      vm.runInNewContext(outputText, {
+        exports: exported,
+        require: name => {
+          if (name === 'framer-motion') return { motion: { div: 'div' } }
+          if (name === 'react/jsx-runtime') return { jsx: (_type, props) => props }
+          throw new Error(`Unexpected import: ${name}`)
+        },
+      })
+      if (format === 'framer') {
+        const props = exported.MotionLayer1()
+        assert.equal(props.transition.repeat, loop ? Infinity : undefined)
+        const index = props.transition.times.indexOf(731 / 2000)
+        assert.ok(index >= 0, 'Export must preserve the exact authored timestamp')
+        assert.equal(props.animate.x[index], 65)
+      } else {
+        exported.animateLayer1({ animate: (frames, options) => {
+          assert.equal(options.iterations, loop ? Infinity : 1)
+          assert.ok(frames.some(frame => frame.offset === 731 / 2000))
+        } })
+      }
+    }
+  }
 })
 
 test('shader parameter motion tracks creation, validation, and interpolation', () => {

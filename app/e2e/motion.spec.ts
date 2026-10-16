@@ -214,3 +214,62 @@ test('spring physics controls, sliders, telemetry, and test bounce simulation', 
   await expect(testBounceBtn).toBeVisible()
   await testBounceBtn.click()
 })
+
+test('layer picker can target a different layer while a canvas selection exists', async ({ page }) => {
+  await page.getByTestId('tool-motion').click()
+  const drawer = page.getByTestId('motion-drawer')
+  const picker = drawer.getByLabel('Target layer for new track')
+  const ids = await picker.locator('option').evaluateAll(options =>
+    options.slice(0, 2).map(option => (option as HTMLOptionElement).value))
+  expect(ids).toHaveLength(2)
+
+  for (const id of ids) {
+    await picker.selectOption(id)
+    await expect(picker).toHaveValue(id)
+    await drawer.getByRole('button', { name: 'Add Track', exact: true }).click()
+  }
+  await expect(drawer.locator('.motion-layer-group')).toHaveCount(2)
+})
+
+test('keyframe and Bézier arrow controls do not also step the timeline', async ({ page }) => {
+  await page.getByTestId('tool-motion').click()
+  const drawer = page.getByTestId('motion-drawer')
+  await drawer.getByRole('button', { name: 'Animate Position (X/Y)' }).click()
+  const diamond = drawer.locator('.motion-diamond').first()
+  await diamond.click()
+  await diamond.focus()
+  await diamond.press('ArrowRight')
+  await expect(drawer.getByLabel('Keyframe time milliseconds')).toHaveValue('10')
+  await expect(drawer.getByLabel('Motion playback scrubber')).toHaveValue('10')
+
+  await drawer.getByRole('button', { name: 'Cubic Bézier' }).click()
+  await drawer.getByLabel('Motion Bézier preset').selectOption('linear')
+  await drawer.getByRole('button', { name: /Bézier control point 1/ }).press('ArrowRight')
+  await expect(drawer.getByLabel('Motion Bézier x1', { exact: true })).toHaveValue('0.05')
+  await expect(drawer.getByLabel('Motion playback scrubber')).toHaveValue('10')
+})
+
+test('shader preview restores original surface styles and clears overrides', async ({ page }) => {
+  const surface = page.locator('.viewport-world .paper-shader-surface').first()
+  const original = await surface.evaluate(node => ({
+    id: node.closest<HTMLElement>('.scene-node')!.dataset.elementId!,
+    transform: (node as HTMLElement).style.transform,
+    transformOrigin: (node as HTMLElement).style.transformOrigin,
+  }))
+  await page.getByTestId('tool-motion').click()
+  const drawer = page.getByTestId('motion-drawer')
+  await drawer.getByLabel('Target layer for new track').selectOption(original.id)
+  await drawer.getByLabel('Motion property to add').selectOption('shaderScale')
+  await drawer.getByRole('button', { name: 'Add Track', exact: true }).click()
+  await drawer.getByRole('button', { name: 'Jump to end', exact: true }).click()
+  await expect.poll(() => surface.evaluate(node => (node as HTMLElement).style.transform))
+    .not.toBe(original.transform)
+
+  await drawer.getByRole('button', { name: 'Restore design' }).click()
+  await expect(drawer.getByRole('button', { name: 'Restore design' })).toHaveCount(0)
+  await expect.poll(() => surface.evaluate(node => ({
+    transform: (node as HTMLElement).style.transform,
+    transformOrigin: (node as HTMLElement).style.transformOrigin,
+    override: (node.closest('.scene-node') as HTMLElement).style.getPropertyValue('--shader-scale'),
+  }))).toEqual({ transform: original.transform, transformOrigin: original.transformOrigin, override: '' })
+})

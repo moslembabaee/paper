@@ -54,6 +54,8 @@ export function exportMotion(
           ease: 'linear',
           ...(motion.loop ? { repeat: 'Infinity' } : {}),
         }
+        // JSX expects a numeric repeat count; JSON cannot represent Infinity.
+        const transitionCode = JSON.stringify(transition).replace('"repeat":"Infinity"', '"repeat":Infinity')
         const springNotes = group
           .filter(t => t.keyframes.some(k => k.easing.kind === 'spring'))
           .map(t => {
@@ -65,7 +67,7 @@ export function exportMotion(
           .filter(Boolean)
           .join('\n')
         const noteBlock = springNotes ? `${springNotes}\n` : ''
-        return `\n// Layer ${JSON.stringify(id)}\n${noteBlock}export function MotionLayer${index + 1}() {\n  return <motion.div\n    initial={${JSON.stringify(initial)}}\n    animate={${JSON.stringify(animate)}}\n    transition={${JSON.stringify(transition)}}\n  />;\n}`
+        return `\n// Layer ${JSON.stringify(id)}\n${noteBlock}export function MotionLayer${index + 1}() {\n  return <motion.div\n    initial={${JSON.stringify(initial)}}\n    animate={${JSON.stringify(animate)}}\n    transition={${transitionCode}}\n  />;\n}`
       })
       .join('\n')}\n`
   }
@@ -91,7 +93,7 @@ export function exportMotion(
           if ('shaderSpeed' in values) frame['--shader-speed'] = String(values.shaderSpeed)
           return frame
         })
-        return `\n// Layer ${JSON.stringify(id)}\nexport function animateLayer${index + 1}(element: HTMLElement) {\n  return element.animate(\n    ${JSON.stringify(keyframes, null, 2)},\n    {\n      duration: ${motion.duration},\n      fill: 'both',\n      easing: 'linear',\n      iterations: ${motion.loop ? "'Infinity'" : '1'},\n    }\n  );\n}`
+        return `\n// Layer ${JSON.stringify(id)}\nexport function animateLayer${index + 1}(element: HTMLElement) {\n  return element.animate(\n    ${JSON.stringify(keyframes, null, 2)},\n    {\n      duration: ${motion.duration},\n      fill: 'both',\n      easing: 'linear',\n      iterations: ${motion.loop ? 'Infinity' : '1'},\n    }\n  );\n}`
       })
       .join('\n')}\n`
   }
@@ -120,7 +122,18 @@ export function exportMotion(
       }
       const frames = Array.from(percentageMap.values())
       const iter = motion.loop ? 'infinite' : 'both'
-      return `\n/* Layer ${JSON.stringify(id).replaceAll('*/', '* /')} */\n.${name} { animation: ${name} ${motion.duration}ms linear ${iter}; }\n@keyframes ${name} {\n${frames.join('\n')}\n}\n@media (prefers-reduced-motion: reduce) {\n  .${name} { animation-duration: 1ms; }\n}`
+      const springNotes = group
+        .filter(t => t.keyframes.some(k => k.easing.kind === 'spring'))
+        .map(t => {
+          const firstSpring = t.keyframes.find(k => k.easing.kind === 'spring')
+          if (!firstSpring || firstSpring.easing.kind !== 'spring') return ''
+          const sp = firstSpring.easing.spring
+          return `/* Track "${t.property}": Spring { stiffness: ${sp.stiffness}, damping: ${sp.damping}, mass: ${sp.mass} } */`
+        })
+        .filter(Boolean)
+        .join('\n')
+      const noteBlock = springNotes ? `${springNotes}\n` : ''
+      return `\n/* Layer ${JSON.stringify(id).replaceAll('*/', '* /')} */\n${noteBlock}.${name} { animation: ${name} ${motion.duration}ms linear ${iter}; }\n@keyframes ${name} {\n${frames.join('\n')}\n}\n@media (prefers-reduced-motion: reduce) {\n  .${name} { animation-duration: 1ms; }\n}`
     })
     .join('\n')}\n`
 }

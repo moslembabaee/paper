@@ -9,6 +9,7 @@ interface ModifiedNodeRecord {
   readonly shaderSurface: HTMLElement | null
   readonly originalTransform: string
   readonly originalOpacity: string
+  readonly originalTransformOrigin: string
 }
 
 /** Native paused animations and WebGL shader modulations isolate preview from scene edits, history and autosave. */
@@ -23,6 +24,7 @@ export function useMotionPlayback(
   const [currentTimeMs, setCurrentTimeMs] = useState(0)
 
   const time = useRef(0)
+  const publishedTime = useRef(0)
   const looping = useRef(!!motion.loop)
   const playbackRateRef = useRef(playbackRate)
 
@@ -48,6 +50,7 @@ export function useMotionPlayback(
       if (record.shaderSurface) {
         record.shaderSurface.style.opacity = record.originalOpacity
         record.shaderSurface.style.transform = record.originalTransform
+        record.shaderSurface.style.transformOrigin = record.originalTransformOrigin
       }
       record.node.style.removeProperty('--shader-opacity')
       record.node.style.removeProperty('--shader-scale')
@@ -60,9 +63,13 @@ export function useMotionPlayback(
   }, [])
 
   const paint = useCallback(
-    (value: number) => {
+    (value: number, applyPreview = preview, publish = true) => {
       time.current = Math.max(0, Math.min(duration, value))
-      setCurrentTimeMs(time.current)
+      // Keep the playhead at display refresh rate; React telemetry needs only 20 Hz.
+      if (publish || Math.abs(time.current - publishedTime.current) >= 50) {
+        publishedTime.current = time.current
+        setCurrentTimeMs(time.current)
+      }
 
       // Update Web Animations API animations
       animations.current.forEach(animation => {
@@ -71,11 +78,11 @@ export function useMotionPlayback(
 
       // Update shader properties directly on canvas elements
       const shaderTracks = motion.tracks.filter(t => t.enabled && isShaderProperty(t.property))
-      if (shaderTracks.length > 0 && stage.current) {
+      if (applyPreview && shaderTracks.length > 0 && stage.current) {
         const shaderElementIds = new Set(shaderTracks.map(t => t.elementId))
         for (const id of shaderElementIds) {
           const node = stage.current.querySelector<HTMLElement>(
-            `.viewport-world .scene-node[data-element-id="${id}"]`
+            `.viewport-world .scene-node[data-element-id="${CSS.escape(id)}"]`
           )
           if (!node) continue
 
@@ -87,6 +94,7 @@ export function useMotionPlayback(
               shaderSurface,
               originalTransform: shaderSurface?.style.transform ?? '',
               originalOpacity: shaderSurface?.style.opacity ?? '',
+              originalTransformOrigin: shaderSurface?.style.transformOrigin ?? '',
             })
           }
 
@@ -133,7 +141,7 @@ export function useMotionPlayback(
       if (readout.current) readout.current.value = `${(time.current / 1000).toFixed(2)} s`
       if (scrubber.current) scrubber.current.value = String(time.current)
     },
-    [duration, motion.tracks, stage]
+    [duration, motion.tracks, stage, preview]
   )
 
   // Construct Web Animations when preview starts or tracks change
@@ -217,9 +225,9 @@ export function useMotionPlayback(
           setPlaying(false)
           return
         }
-        paint(next % duration)
+        paint(next % duration, true, false)
       } else {
-        paint(next)
+        paint(next, true, false)
       }
       frame = requestAnimationFrame(tick)
     }
@@ -260,13 +268,14 @@ export function useMotionPlayback(
 
   const pause = useCallback(() => {
     setPlaying(false)
-  }, [])
+    paint(time.current)
+  }, [paint])
 
   const restore = useCallback(() => {
     setPlaying(false)
     setPreview(false)
     cleanShaderOverrides()
-    paint(0)
+    paint(0, false)
   }, [paint, cleanShaderOverrides])
 
   const stepFrame = useCallback(

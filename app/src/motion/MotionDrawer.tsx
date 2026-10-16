@@ -76,7 +76,7 @@ export function MotionDrawer({
   const [active, setActive] = useState<{ trackId: string; keyId: string } | null>(null)
   const [selectedLayerId, setSelectedLayerId] = useState<string>('')
   const [property, setProperty] = useState<MotionProperty>('x')
-  const [loop, setLoop] = useState(motion.loop ?? false)
+  const loop = motion.loop ?? false
   const [format, setFormat] = useState<ExportFormat>('framer')
   const [exportOpen, setExportOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -84,6 +84,7 @@ export function MotionDrawer({
   const {
     playing,
     preview,
+    time,
     currentTimeMs,
     playbackRate,
     setPlaybackRate,
@@ -196,7 +197,7 @@ export function MotionDrawer({
       setNotice('Select a track to add a keyframe.')
       return
     }
-    const result = addKeyframeAtTime(track, currentTimeMs)
+    const result = addKeyframeAtTime(track, time.current)
     if (!result) {
       setNotice('Playhead is too close to an existing keyframe or track limit reached.')
       return
@@ -307,7 +308,10 @@ export function MotionDrawer({
     return map
   }, [motion.tracks])
 
-  const code = exportOpen ? exportMotion(motion, elements, format) : ''
+  const code = useMemo(
+    () => exportOpen ? exportMotion(motion, elements, format) : '',
+    [exportOpen, motion, elements, format],
+  )
   const formattedTime = formatTime(currentTimeMs)
 
   return (
@@ -318,7 +322,8 @@ export function MotionDrawer({
       data-testid="motion-drawer"
       tabIndex={0}
       onKeyDown={event => {
-        if ((event.target as HTMLElement).tagName === 'INPUT' || (event.target as HTMLElement).tagName === 'SELECT') {
+        if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey ||
+          (event.target as Element).closest('input, textarea, select, [contenteditable="true"]')) {
           return
         }
         if (event.code === 'Space') {
@@ -333,10 +338,10 @@ export function MotionDrawer({
         } else if (event.key === 'ArrowRight' && !keyDrag.current) {
           event.preventDefault()
           stepFrame(1)
-        } else if (event.key === '[' || event.key === 'j') {
+        } else if (event.key === '[') {
           event.preventDefault()
           jumpKeyframe('prev')
-        } else if (event.key === ']' || event.key === 'k') {
+        } else if (event.key === ']') {
           event.preventDefault()
           jumpKeyframe('next')
         } else if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -414,7 +419,6 @@ export function MotionDrawer({
             onClick={() => {
               const nextLoop = !loop
               setLooping(nextLoop)
-              setLoop(nextLoop)
               store.setMotion({ ...motion, loop: nextLoop })
             }}
           >
@@ -497,7 +501,10 @@ export function MotionDrawer({
               aria-label="Target layer for new track"
               className="motion-layer-select"
               value={effectiveLayerId}
-              onChange={event => setSelectedLayerId(event.target.value)}
+              onChange={event => {
+                setSelectedLayerId(event.target.value)
+                store.select([event.target.value])
+              }}
               title="Target layer"
             >
               {availableLayerIds.map(id => (

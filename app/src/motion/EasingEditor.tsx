@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Play, RotateCcw } from 'lucide-react'
 import type { BezierCurve } from '../prototype/types.ts'
 import { SPRING_LIMITS, SPRING_PRESETS, springDuration, springProgress } from '../prototype/spring.ts'
@@ -100,6 +100,12 @@ export const EasingEditor = memo(function EasingEditor({
     }
     bounceTimer.current = requestAnimationFrame(tick)
   }, [value])
+
+  useEffect(() => {
+    return () => {
+      if (bounceTimer.current) cancelAnimationFrame(bounceTimer.current)
+    }
+  }, [])
 
   return (
     <div className="motion-easing-editor">
@@ -210,7 +216,7 @@ export const EasingEditor = memo(function EasingEditor({
         {value.kind === 'spring' && peakPoint && (
           <g className="motion-spring-peak-marker">
             <circle cx={peakPoint.x.toFixed(1)} cy={peakPoint.y.toFixed(1)} r="3.5" className="motion-spring-peak-dot" />
-            <text x={Math.min(200, peakPoint.x + 5).toFixed(1)} y={(peakPoint.y - 4).toFixed(1)} className="motion-spring-peak-text">
+            <text x={Math.min(200, peakPoint.x + 5).toFixed(1)} y={Math.max(12, peakPoint.y - 4).toFixed(1)} className="motion-spring-peak-text">
               +{peakPoint.overshoot}%
             </text>
           </g>
@@ -318,7 +324,7 @@ export const EasingEditor = memo(function EasingEditor({
                   if (preset) onChange({ kind: 'spring', spring: preset.spring })
                 }}
               >
-                <option value="custom" disabled>
+                <option value="custom">
                   Custom Feel
                 </option>
                 {Object.entries(SPRING_PRESETS).map(([key, preset]) => (
@@ -392,6 +398,13 @@ export const EasingEditor = memo(function EasingEditor({
                     max={max}
                     step={step}
                     value={value.spring[key]}
+                    onPointerDown={event => {
+                      event.currentTarget.setPointerCapture(event.pointerId)
+                      onBegin()
+                    }}
+                    onPointerUp={onEnd}
+                    onPointerCancel={onEnd}
+                    onLostPointerCapture={onEnd}
                     onChange={event => {
                       const n = Number(event.target.value)
                       if (Number.isFinite(n) && n >= min && n <= max) {
