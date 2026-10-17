@@ -33,6 +33,19 @@ const DEFAULT_CONFIG: Required<DeadReckoningConfig> = {
 }
 
 /**
+ * Normalizes timestamps to the performance.now() monotonic clock domain.
+ * If an epoch timestamp (Date.now()) is passed, preserves relative flight latency.
+ */
+export function normalizeTimestamp(ts?: number): number {
+  if (ts === undefined || !Number.isFinite(ts)) return performance.now()
+  if (ts > 1e11) {
+    const epochDelta = Date.now() - ts
+    return Math.max(0, performance.now() - Math.max(0, epochDelta))
+  }
+  return ts
+}
+
+/**
  * High-precision dead-reckoning interpolator for peer cursors and active points.
  * Combines velocity estimation from discrete network updates, forward dead-reckoning
  * projection to eliminate network latency lag, and critically damped convergence.
@@ -53,28 +66,33 @@ export class DeadReckoningCursor {
   }
 
   reset(point: Point, timestamp: number = performance.now()): void {
+    const effectiveTs = normalizeTimestamp(timestamp)
     this.current = { ...point }
     this.target = { ...point }
     this.velocity = { x: 0, y: 0 }
-    this.lastSampleTime = timestamp
+    this.lastSampleTime = effectiveTs
     this.initialized = true
   }
 
   update(point: Point, timestamp: number = performance.now()): void {
+    const effectiveTs = normalizeTimestamp(timestamp)
     if (!this.initialized) {
-      this.reset(point)
-      this.lastSampleTime = timestamp
+      this.reset(point, effectiveTs)
       return
     }
 
     const dist = Math.hypot(point.x - this.target.x, point.y - this.target.y)
     if (dist > this.config.teleportThreshold) {
-      this.reset(point)
-      this.lastSampleTime = timestamp
+      this.reset(point, effectiveTs)
       return
     }
 
-    const dtSec = Math.max(0.001, (timestamp - this.lastSampleTime) / 1000)
+    const rawDt = (effectiveTs - this.lastSampleTime) / 1000
+    if (rawDt > 0.35) {
+      this.velocity = { x: 0, y: 0 }
+    }
+    const dtSec = Math.max(0.001, Math.min(0.25, rawDt > 0.35 ? 0.033 : rawDt))
+
     // Instantaneous velocity
     const instVx = (point.x - this.target.x) / dtSec
     const instVy = (point.y - this.target.y) / dtSec
@@ -95,7 +113,7 @@ export class DeadReckoningCursor {
     }
 
     this.target = { ...point }
-    this.lastSampleTime = timestamp
+    this.lastSampleTime = effectiveTs
   }
 
   step(
@@ -114,7 +132,9 @@ export class DeadReckoningCursor {
       return { point: { ...this.target }, velocity: { x: 0, y: 0 }, moving: false }
     }
 
-    const elapsedMs = Math.max(0, currentTime - this.lastSampleTime)
+    const effectiveCurrent = normalizeTimestamp(currentTime)
+    const sampleTime = this.lastSampleTime > 1e11 ? normalizeTimestamp(this.lastSampleTime) : this.lastSampleTime
+    const elapsedMs = Math.max(0, effectiveCurrent - sampleTime)
     const windowMs = this.config.predictionWindowMs
 
     let predictedX = this.target.x
@@ -248,6 +268,17 @@ export function formatCursorCoordinates(x: number, y: number, zoom: number): str
     return `X: ${x.toFixed(1)}  Y: ${y.toFixed(1)}`
   }
   return `X: ${Math.round(x)}  Y: ${Math.round(y)}`
+}
+
+/**
+ * Detects whether coordinates are aligned with the canvas engineering grid (default 120px major grid).
+ */
+export function isNearGrid(x: number, y: number, gridSize = 120, threshold = 1.5): boolean {
+  const remX = Math.abs(x % gridSize)
+  const remY = Math.abs(y % gridSize)
+  const nearX = remX <= threshold || (gridSize - remX) <= threshold
+  const nearY = remY <= threshold || (gridSize - remY) <= threshold
+  return nearX && nearY
 }
 
 /**

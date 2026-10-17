@@ -4,7 +4,7 @@ import { getHandleType, isSmoothNode, evaluateSegmentCurvature } from './pathGeo
 import type { AnchorSelection, CurveMode, HandleType, PathContour } from './pathGeometry'
 
 export type NodeAction = 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete' | 'toggle-closed' | 'toggle-smooth' | 'curve-mode' | 'quad-apex-x' | 'quad-apex-y'
-interface Props { contours: PathContour[]; selection: AnchorSelection[]; onEdit: (action: NodeAction, value?: number) => void }
+interface Props { contours: PathContour[]; selection: AnchorSelection[]; title?: string; onEdit: (action: NodeAction, value?: number) => void }
 
 function NodeNumber({ label, value, disabled, min, onCommit }: { label: string; value: number | undefined; disabled?: boolean; min?: number; onCommit: (value: number) => void }) {
   const format = (n: number | undefined) => n === undefined ? '' : String(Number(n.toFixed(2)))
@@ -30,7 +30,7 @@ const modes = [
   { type: 'disconnected', name: 'Disconnected', hint: 'Move each handle independently' },
 ] as const
 
-export function PathNodeInspector({ contours, selection, onEdit }: Props) {
+export function PathNodeInspector({ contours, selection, title, onEdit }: Props) {
   const anchors = selection.flatMap(p => contours[p.contour]?.anchors[p.anchor] ? [contours[p.contour].anchors[p.anchor]] : [])
   const first = anchors[0]
   const common = (key: 'x' | 'y' | 'cornerRadius') => anchors.length && anchors.every(a => (a[key] ?? 0) === (first[key] ?? 0)) ? first[key] ?? 0 : undefined
@@ -51,7 +51,7 @@ export function PathNodeInspector({ contours, selection, onEdit }: Props) {
   }
 
   return <aside className="node-inspector viewport-ui" aria-label="Vector node properties" data-testid="node-inspector">
-    <div className="node-inspector-heading"><span className="pen-tool-label">VECTOR NODES</span><span className="node-selection-count">{anchors.length ? `${anchors.length} selected` : `${contours.length} subpath${contours.length === 1 ? '' : 's'}`}</span></div>
+    <div className="node-inspector-heading"><span className="pen-tool-label">{title ?? 'VECTOR NODES'}</span><span className="node-selection-count">{anchors.length ? `${anchors.length} selected` : `${contours.length} subpath${contours.length === 1 ? '' : 's'}`}</span></div>
     <button type="button" className="node-toggle-smooth" disabled={!anchors.length} aria-label="Toggle Corner vs Smooth" title="Toggle between sharp corner and smooth Bézier curvature (Hotkey: S)" onClick={() => onEdit('toggle-smooth')}>
       <Spline size={12} /><span>{hasSmooth ? 'Convert to Corner (S)' : 'Convert to Smooth (S)'}</span>
     </button>

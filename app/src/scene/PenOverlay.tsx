@@ -12,7 +12,8 @@ import { PathDraftHistory } from './pathDraftHistory'
 import { getPixelSnap, subscribePixelSnap, togglePixelSnap } from './pixelSnap'
 import { getSnapConfig } from './snapConfig'
 import type { SceneStore } from './store'
-import type { PathElement } from './types'
+import { vectorToContours } from './booleanGeometry'
+import type { PathElement, VectorElement } from './types'
 import { useScene } from './useScene'
 import './pen.css'
 
@@ -34,20 +35,65 @@ interface Gesture {
   mode?: CurveMode
   closing?: boolean
 }
-interface Props { store: SceneStore; controller: ViewportController; editingId: string | null; penMode: boolean; onFinish: () => void }
+interface Props { store: SceneStore; controller: ViewportController; editingId: string | null; operandId?: string | null; penMode: boolean; onFinish: () => void }
 const mapPoint = (matrix: readonly number[], p: Point): Point => ({ x: matrix[0] * p.x + matrix[2] * p.y + matrix[4], y: matrix[1] * p.x + matrix[3] * p.y + matrix[5] })
 const inversePoint = (matrix: readonly number[], p: Point): Point => {
   const determinant = matrix[0] * matrix[3] - matrix[1] * matrix[2], x = p.x - matrix[4], y = p.y - matrix[5]
   return { x: (matrix[3] * x - matrix[2] * y) / determinant, y: (-matrix[1] * x + matrix[0] * y) / determinant }
 }
 
+function operandLocalToWorld(operand: VectorElement, p: Point, parentMatrix: readonly number[] | null): Point {
+  const normX = (operand.type === 'path' ? (p.x - operand.viewBox[0]) * operand.width / operand.viewBox[2] : p.x) - operand.width / 2
+  const normY = (operand.type === 'path' ? (p.y - operand.viewBox[1]) * operand.height / operand.viewBox[3] : p.y) - operand.height / 2
+  const rad = operand.rotation * Math.PI / 180, cos = Math.cos(rad), sin = Math.sin(rad)
+  const parentX = operand.x + operand.width / 2 + cos * normX - sin * normY
+  const parentY = operand.y + operand.height / 2 + sin * normX + cos * normY
+  return parentMatrix ? mapPoint(parentMatrix, { x: parentX, y: parentY }) : { x: parentX, y: parentY }
+}
+
+function worldToOperandLocal(operand: VectorElement, world: Point, parentMatrix: readonly number[] | null): Point {
+  const parentPoint = parentMatrix ? inversePoint(parentMatrix, world) : world
+  const dx = parentPoint.x - (operand.x + operand.width / 2)
+  const dy = parentPoint.y - (operand.y + operand.height / 2)
+  const rad = -operand.rotation * Math.PI / 180, cos = Math.cos(rad), sin = Math.sin(rad)
+  const normX = cos * dx - sin * dy
+  const normY = sin * dx + cos * dy
+  if (operand.type === 'path') {
+    return {
+      x: (normX + operand.width / 2) / operand.width * operand.viewBox[2] + operand.viewBox[0],
+      y: (normY + operand.height / 2) / operand.height * operand.viewBox[3] + operand.viewBox[1],
+    }
+  }
+  return {
+    x: normX + operand.width / 2,
+    y: normY + operand.height / 2,
+  }
+}
+
 /** Draft geometry is transient. Pointer updates are coalesced to one animation frame. */
-export function PenOverlay({ store, controller, editingId, penMode, onFinish }: Props) {
+export function PenOverlay({ store, controller, editingId, operandId, penMode, onFinish }: Props) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [initial] = useState(() => {
     const node = editingId ? store.getSnapshot().elements[editingId] : undefined
     const session: Session = { contours: [], id: null, parentId: null }
     if (node?.type !== 'path' || store.isLocked(node.id) || !store.isVisible(node.id)) return { session, error: '' }
+    if (operandId && node.boolean) {
+      const operand = store.getCompoundOperand(node.id, operandId)
+      if (operand) {
+        try {
+          return {
+            session: {
+              contours: vectorToContours(operand),
+              id: node.id,
+              parentId: node.parentId,
+            },
+            error: '',
+          }
+        } catch (error) {
+          return { session, error: (error as Error).message }
+        }
+      }
+    }
     try { return { session: { contours: node.nodes ? copyContours(node.nodes) : parsePath(node.d), id: node.id, parentId: node.parentId }, error: '' } }
     catch (error) { return { session, error: (error as Error).message } }
   })
@@ -89,9 +135,12 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
   const state = useScene(store, value => value)
   const [camera, setCamera] = useState(() => controller.getSnapshot().camera)
   const node = session.id ? state.elements[session.id] as PathElement | undefined : undefined
-  const worldMatrix = node?.type === 'path' ? getWorldMatrix(state, node.id) : session.parentId && state.elements[session.parentId] ? getWorldMatrix(state, session.parentId) : null
+  const operand = operandId && node?.type === 'path' && node.boolean ? store.getCompoundOperand(node.id, operandId) : null
+  const parentMatrix = node ? (node.parentId ? getWorldMatrix(state, node.parentId) : null) : (session.parentId && state.elements[session.parentId] ? getWorldMatrix(state, session.parentId) : null)
+  const worldMatrix = node?.type === 'path' ? getWorldMatrix(state, node.id) : parentMatrix
   const selectionKeys = new Set(selected.map(p => `${p.contour}:${p.anchor}`))
   const toWorld = (p: Point): Point => {
+    if (operand) return operandLocalToWorld(operand, p, parentMatrix)
     if (node?.type === 'path') return mapPoint(worldMatrix!, { x: (p.x - node.viewBox[0]) * node.width / node.viewBox[2], y: (p.y - node.viewBox[1]) * node.height / node.viewBox[3] })
     return worldMatrix ? mapPoint(worldMatrix, p) : p
   }
@@ -123,17 +172,40 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
     let dragBefore: PathContour[] | null = null
     const localPoint = (event: PointerEvent): Point => {
       const rect = root.getBoundingClientRect(), world = controller.screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top })
-      const s = sessionRef.current, state = store.getSnapshot(), node = s.id ? state.elements[s.id] : undefined
-      if (node?.type === 'path') {
-        const p = inversePoint(getWorldMatrix(state, node.id), world)
-        return { x: p.x / node.width * node.viewBox[2] + node.viewBox[0], y: p.y / node.height * node.viewBox[3] + node.viewBox[1] }
+      const s = sessionRef.current, state = store.getSnapshot(), n = s.id ? state.elements[s.id] : undefined
+      const op = operandId && n?.type === 'path' && n.boolean ? store.getCompoundOperand(n.id, operandId) : null
+      if (op) {
+        const pMat = n?.parentId ? getWorldMatrix(state, n.parentId) : null
+        return worldToOperandLocal(op, world, pMat)
+      }
+      if (n?.type === 'path') {
+        const p = inversePoint(getWorldMatrix(state, n.id), world)
+        return { x: p.x / n.width * n.viewBox[2] + n.viewBox[0], y: p.y / n.height * n.viewBox[3] + n.viewBox[1] }
       }
       return s.parentId ? inversePoint(getWorldMatrix(state, s.parentId), world) : world
     }
     const worldPoint = (p: Point): Point => {
       const s = sessionRef.current, state = store.getSnapshot(), n = s.id ? state.elements[s.id] : undefined
+      const op = operandId && n?.type === 'path' && n.boolean ? store.getCompoundOperand(n.id, operandId) : null
+      if (op) {
+        const pMat = n?.parentId ? getWorldMatrix(state, n.parentId) : null
+        return operandLocalToWorld(op, p, pMat)
+      }
       if (n?.type === 'path') return mapPoint(getWorldMatrix(state, n.id), { x: (p.x - n.viewBox[0]) * n.width / n.viewBox[2], y: (p.y - n.viewBox[1]) * n.height / n.viewBox[3] })
       return s.parentId ? mapPoint(getWorldMatrix(state, s.parentId), p) : p
+    }
+    const snapPointToLocal = (pt: Point): Point => {
+      const s = sessionRef.current, state = store.getSnapshot(), n = s.id ? state.elements[s.id] : undefined
+      const op = operandId && n?.type === 'path' && n.boolean ? store.getCompoundOperand(n.id, operandId) : null
+      if (op) {
+        const pMat = n?.parentId ? getWorldMatrix(state, n.parentId) : null
+        return worldToOperandLocal(op, pt, pMat)
+      }
+      if (n?.type === 'path') {
+        const p = inversePoint(getWorldMatrix(state, n.id), pt)
+        return { x: p.x / n.width * n.viewBox[2] + n.viewBox[0], y: p.y / n.height * n.viewBox[3] + n.viewBox[1] }
+      }
+      return s.parentId ? inversePoint(getWorldMatrix(state, s.parentId), pt) : pt
     }
     let indexedElements: ReturnType<SceneStore['getSnapshot']>['elements'] | null = null
     let vertexIndex = new VertexIndex([])
@@ -147,12 +219,7 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
           const zoom = controller.getSnapshot().camera.zoom
           const res = snapToGrid(world, true, 120, 24, 8, zoom)
           if (res.snapped) {
-            const s = sessionRef.current, state = store.getSnapshot(), n = s.id ? state.elements[s.id] : undefined
-            if (n?.type === 'path') {
-              const p = inversePoint(getWorldMatrix(state, n.id), res.point)
-              return { x: p.x / n.width * n.viewBox[2] + n.viewBox[0], y: p.y / n.height * n.viewBox[3] + n.viewBox[1] }
-            }
-            return s.parentId ? inversePoint(getWorldMatrix(state, s.parentId), res.point) : res.point
+            return snapPointToLocal(res.point)
           }
         }
         return base
@@ -167,6 +234,11 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
         const n = s.id ? state.elements[s.id] : undefined
         const matrix = n ? getWorldMatrix(state, n.id) : s.parentId ? getWorldMatrix(state, s.parentId) : null
         const toWorld = (p: Point): Point => {
+          const op = operandId && n?.type === 'path' && n.boolean ? store.getCompoundOperand(n.id, operandId) : null
+          if (op) {
+            const pMat = n?.parentId ? getWorldMatrix(state, n.parentId) : null
+            return operandLocalToWorld(op, p, pMat)
+          }
           const local = n?.type === 'path' ? { x: (p.x - n.viewBox[0]) * n.width / n.viewBox[2], y: (p.y - n.viewBox[1]) * n.height / n.viewBox[3] } : p
           return matrix ? mapPoint(matrix, local) : local
         }
@@ -183,31 +255,28 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
           const res = snapToGrid(world, true, 120, 24, 8, zoom)
           if (res.snapped) {
             setSnapTarget({ x: res.point.x, y: res.point.y, label: res.type === 'major' ? '120px Grid' : '24px Grid' })
-            const n = s.id ? state.elements[s.id] : undefined
-            if (n?.type === 'path') {
-              const p = inversePoint(getWorldMatrix(state, n.id), res.point)
-              return { x: p.x / n.width * n.viewBox[2] + n.viewBox[0], y: p.y / n.height * n.viewBox[3] + n.viewBox[1] }
-            }
-            return s.parentId ? inversePoint(getWorldMatrix(state, s.parentId), res.point) : res.point
+            return snapPointToLocal(res.point)
           }
         }
         return base
       }
-      const n = s.id ? state.elements[s.id] : undefined
-      if (n?.type === 'path') {
-        const p = inversePoint(getWorldMatrix(state, n.id), target)
-        return { x: p.x / n.width * n.viewBox[2] + n.viewBox[0], y: p.y / n.height * n.viewBox[3] + n.viewBox[1] }
-      }
-      return s.parentId ? inversePoint(getWorldMatrix(state, s.parentId), target) : target
+      return snapPointToLocal(target)
     }
     const publish = () => {
       const s = sessionRef.current, node = s.id ? store.getSnapshot().elements[s.id] : undefined
-      if (node?.type === 'path' && !node.boolean && !store.isLocked(node.id) && store.isVisible(node.id)) store.update(node.id, 'path', { nodes: s.contours })
+      if (node?.type === 'path' && !store.isLocked(node.id) && store.isVisible(node.id)) {
+        if (operandId && node.boolean) {
+          store.updateBooleanOperandNodes(node.id, operandId, s.contours)
+        } else if (!node.boolean) {
+          store.update(node.id, 'path', { nodes: s.contours })
+        }
+      }
       redraw()
     }
     const chooseMany = (selection: AnchorSelection[]) => { selectedRef.current = selection; setSelected(selection) }
     const choose = (contour: number, anchor: number) => chooseMany(contour < 0 ? [] : [{ contour, anchor }])
     const normalize = () => {
+      if (operandId) return
       const s = sessionRef.current, node = s.id ? store.getSnapshot().elements[s.id] : undefined
       if (node?.type !== 'path' || node.boolean || store.isLocked(node.id) || !store.isVisible(node.id) || !s.contours.some(c => c.anchors.length > 1)) return
       const bounds = pathBounds(s.contours, (node.style.stroke?.width ?? 0) / 2)
@@ -626,8 +695,18 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
       const s = sessionRef.current, node = s.id ? store.getSnapshot().elements[s.id] : undefined
       if (!gesture && !store.getHistorySnapshot().active && node?.type === 'path') {
         try {
-          s.contours = node.nodes ? copyContours(node.nodes) : parsePath(node.d); setError('')
-          chooseMany(selectedRef.current.filter(p => s.contours[p.contour]?.anchors[p.anchor]))
+          if (operandId && node.boolean) {
+            const op = store.getCompoundOperand(node.id, operandId)
+            if (op) {
+              s.contours = vectorToContours(op)
+              setError('')
+              chooseMany(selectedRef.current.filter(p => s.contours[p.contour]?.anchors[p.anchor]))
+            }
+          } else if (!node.boolean) {
+            s.contours = node.nodes ? copyContours(node.nodes) : parsePath(node.d)
+            setError('')
+            chooseMany(selectedRef.current.filter(p => s.contours[p.contour]?.anchors[p.anchor]))
+          }
         } catch (e) { setError((e as Error).message) }
       }
       redraw()
@@ -732,9 +811,9 @@ export function PenOverlay({ store, controller, editingId, penMode, onFinish }: 
         </div>
       </div>
     )}
-    {!penMode && <PathNodeInspector contours={session.contours} selection={selected} onEdit={(action, value) => editRef.current(action, value)} />}
+    {!penMode && <PathNodeInspector contours={session.contours} selection={selected} title={operand ? `SUB-PATH: ${operand.name.toUpperCase()}` : undefined} onEdit={(action, value) => editRef.current(action, value)} />}
     <div className="pen-help viewport-ui" role="status">
-      <span className="pen-tool-label">{editingId ? 'EDIT PATH' : 'PEN'}</span>
+      <span className="pen-tool-label">{operand ? `SUB-PATH: ${operand.name.toUpperCase()}` : editingId ? 'EDIT PATH' : 'PEN'}</span>
       <span>{error || (penMode ? 'Click for corner · Drag for curve · Drag curve to bend · Click 1st point to close' : 'Drag curve to bend · Shift-click to select · Alt+Click to toggle smooth')}</span>
       {!session.id && <>
         <button disabled={!draftHistoryState.canUndo} aria-label="Undo pen point" title="Undo draft edit · Ctrl/⌘Z" onClick={() => draftUndoRef.current()}>Undo</button>

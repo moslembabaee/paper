@@ -124,6 +124,22 @@
   white-space: nowrap;
 }
 
+.remote-cursor[data-grid='120'] .remote-cursor-coords::after {
+  content: ' ⌗120';
+  font: 600 8px var(--font-mono);
+  color: #080808;
+  opacity: 0.85;
+  padding-left: 3px;
+}
+
+.remote-cursor[data-status='idle'] {
+  opacity: 0.65;
+}
+
+.remote-cursor[data-status='away'] {
+  opacity: 0.35;
+}
+
 .remote-cursor-click-ring {
   position: absolute;
   top: -6px;
@@ -186,7 +202,8 @@
 .remote-selection-handle.bottom-left { bottom: -3px; left: -3px; }
 .remote-selection-handle.bottom-right { bottom: -3px; right: -3px; }
 
-.remote-selection > span {
+.remote-selection > span,
+.remote-selection-badge {
   position: absolute;
   top: -21px;
   left: -1.5px;
@@ -203,6 +220,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   box-shadow: 0 1px 3px rgba(8, 8, 8, 0.2);
+  transition: transform 0.12s ease;
 }
 
 .remote-selection-avatar {

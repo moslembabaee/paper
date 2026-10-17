@@ -315,6 +315,20 @@ export function vectorToContours(node: VectorElement): PathContour[] {
 }
 
 /**
+ * Recursively searches for an operand by ID at any depth within a compound shape.
+ */
+export function findCompoundOperand(compound: BooleanCompound, operandId: string): VectorElement | undefined {
+  for (const op of compound.operands) {
+    if (op.id === operandId) return op
+    if (op.type === 'path' && op.boolean) {
+      const found = findCompoundOperand(op.boolean, operandId)
+      if (found) return found
+    }
+  }
+  return undefined
+}
+
+/**
  * Recursively evaluates a compound vector shape hierarchy.
  * If an operand is itself a compound shape, it is evaluated first so that
  * live edits at any depth propagate immediately to root compound outlines.
@@ -383,13 +397,14 @@ export function computeBoolean(operands: readonly VectorElement[], operation: Bo
 
 /** Recompute source geometry without changing its existing mapping into the scene. */
 export function refreshBooleanElement(node: PathElement, compound: BooleanCompound): PathElement {
-  const result = computeBoolean(compound.operands, compound.operation)
+  const evaluatedOperands = compound.operands.map(op => evaluateVectorElement(op))
+  const result = computeBoolean(evaluatedOperands, compound.operation)
   const [vx, vy, vw, vh] = node.viewBox, sx = node.width / vw, sy = node.height / vh
   const width = result.bounds.width * sx, height = result.bounds.height * sy
   const dx = (result.bounds.x + result.bounds.width / 2 - vx) * sx - node.width / 2
   const dy = (result.bounds.y + result.bounds.height / 2 - vy) * sy - node.height / 2
   const radians = node.rotation * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians)
-  return { ...node, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule, boolean: compound,
+  return { ...node, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule, boolean: { ...compound, operands: evaluatedOperands },
     x: node.x + node.width / 2 + cos * dx - sin * dy - width / 2,
     y: node.y + node.height / 2 + sin * dx + cos * dy - height / 2, width, height,
   }

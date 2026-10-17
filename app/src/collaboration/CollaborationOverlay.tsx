@@ -10,6 +10,7 @@ import {
   DeadReckoningCursor,
   computeZoomScale,
   formatCursorCoordinates,
+  isNearGrid,
   projectEdgePosition,
 } from './deadReckoning'
 import type { CollaborationSession } from './session'
@@ -101,6 +102,11 @@ export const CollaborationOverlay = memo(function CollaborationOverlay({
           if (cursor) {
             cursor.style.transform = `translate3d(${point.x * camera.zoom + camera.x}px, ${point.y * camera.zoom + camera.y}px, 0) scale(${zoomScale})`
             cursor.style.visibility = 'visible'
+            if (isNearGrid(point.x, point.y, 120)) {
+              cursor.dataset.grid = '120'
+            } else {
+              delete cursor.dataset.grid
+            }
           }
 
           const coordNode = coordElements.current.get(peer.id)
@@ -154,10 +160,13 @@ export const CollaborationOverlay = memo(function CollaborationOverlay({
         // Active element selection bounding boxes with zoom-aware handles
         if (geometryDirty) {
           for (const id of peer.selection) {
-            const node = sceneSnapshot.elements[id]
-            if (!node || !store.isVisible(id)) continue
             const box = selections.current.get(`${peer.id}:${id}`)
             if (!box) continue
+            const node = sceneSnapshot.elements[id]
+            if (!node || !store.isVisible(id)) {
+              box.style.visibility = 'hidden'
+              continue
+            }
             const [a, b, c, d, e, f] = getWorldMatrix(sceneSnapshot, id)
             box.style.width = `${node.width * camera.zoom}px`
             box.style.height = `${node.height * camera.zoom}px`
@@ -329,6 +338,12 @@ export const CollaborationOverlay = memo(function CollaborationOverlay({
                 .map(id => {
                   const key = `${peer.id}:${id}`
                   const node = scene.elements[id]
+                  const peersOnElement = state.peers.filter(
+                    p => p.status !== 'away' && p.selection.includes(id)
+                  )
+                  const peerIndex = peersOnElement.findIndex(p => p.id === peer.id)
+                  const badgeOffsetY = peerIndex > 0 ? peerIndex * 22 : 0
+
                   return (
                     <div
                       key={id}
@@ -339,12 +354,16 @@ export const CollaborationOverlay = memo(function CollaborationOverlay({
                       className="remote-selection"
                       data-selection-key={key}
                       data-remote-element-id={id}
+                      style={{ '--presence-color': peer.color } as CSSProperties}
                     >
                       <div className="remote-selection-handle top-left" />
                       <div className="remote-selection-handle top-right" />
                       <div className="remote-selection-handle bottom-left" />
                       <div className="remote-selection-handle bottom-right" />
-                      <span>
+                      <span
+                        className="remote-selection-badge"
+                        style={badgeOffsetY ? { transform: `translateY(-${badgeOffsetY}px)` } : undefined}
+                      >
                         <span className="remote-selection-avatar" style={{ background: peer.color }}>
                           {peer.avatar ? (
                             <img src={peer.avatar} alt="" className="remote-avatar-img" />
@@ -376,6 +395,7 @@ export const CollaborationOverlay = memo(function CollaborationOverlay({
                   }}
                   className={`remote-cursor${peer.pointerDown ? ' pointer-down' : ''}`}
                   data-cursor-id={peer.id}
+                  data-status={peer.status}
                   data-testid="remote-cursor"
                 >
                   <svg width="19" height="24" viewBox="0 0 19 24">

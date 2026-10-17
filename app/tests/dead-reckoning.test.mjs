@@ -5,6 +5,8 @@ import {
   projectEdgePosition,
   formatCursorCoordinates,
   computeZoomScale,
+  isNearGrid,
+  normalizeTimestamp,
 } from '../src/collaboration/deadReckoning.ts'
 
 test('DeadReckoningCursor initializes at initial point with zero velocity', () => {
@@ -114,3 +116,32 @@ test('computeZoomScale adjusts scale factor smoothly based on zoom level', () =>
   assert.equal(computeZoomScale(0.4), 1.12)
   assert.equal(computeZoomScale(5), 0.92)
 })
+
+test('normalizeTimestamp handles relative, performance.now, and Date.now epoch timestamps', () => {
+  assert.equal(normalizeTimestamp(1234), 1234)
+  const epochNow = Date.now()
+  const normalized = normalizeTimestamp(epochNow - 50)
+  assert.ok(normalized > 0)
+  assert.ok(normalized < 1e11)
+})
+
+test('DeadReckoningCursor handles Date.now epoch timestamps without numerical overflow', () => {
+  const epochStart = Date.now() - 200
+  const dr = new DeadReckoningCursor({ x: 50, y: 50 }, undefined, epochStart)
+  dr.update({ x: 150, y: 150 }, epochStart + 100)
+  const vel = dr.getVelocity()
+  assert.ok(vel.x > 0 && vel.y > 0)
+  const result = dr.step(performance.now(), 16.67, 1, false)
+  assert.ok(result.point.x > 50)
+  assert.ok(result.point.y > 50)
+})
+
+test('isNearGrid identifies points snapped to the 120px engineering grid', () => {
+  assert.equal(isNearGrid(0, 0, 120), true)
+  assert.equal(isNearGrid(120, 240, 120), true)
+  assert.equal(isNearGrid(120.5, 239.8, 120), true)
+  assert.equal(isNearGrid(360, 480, 120), true)
+  assert.equal(isNearGrid(50, 100, 120), false)
+  assert.equal(isNearGrid(120, 135, 120), false)
+})
+
