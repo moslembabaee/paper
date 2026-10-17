@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUpRight, Diamond, Component as Diamonds, PenTool, Plus, RotateCcw, Sparkles, Unlink } from 'lucide-react'
+import { ArrowDown, ArrowRight, ArrowUpRight, Diamond, Component as Diamonds, PenTool, Plus, RotateCcw, Sparkles, Unlink } from 'lucide-react'
 import type { ViewportController } from '../canvas'
 import type { Bounds, Point } from '../canvas/types'
 import { getWorldBounds } from './geometry'
@@ -413,6 +413,40 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
             <Diamonds size={11} />
             <span>Create Component ({state.selection.length} layers)</span>
           </button>
+        </div>
+      </div>
+    )}
+    {!panMode && box && selectedNode?.type === 'frame' && selectedNode.layout && !isMaster && !isInstance && !canMakeComponent && !activeCursor && (
+      <div
+        className="sel-component-badge is-autolayout"
+        data-testid="sel-autolayout-badge"
+        style={{
+          left: box.x * camera.zoom + camera.x,
+          top: badgeTop,
+        }}
+      >
+        <div className="sel-component-badge-inner">
+          <span className="sel-component-badge-tag" title={`Auto-Layout (${selectedNode.layout.direction})`}>
+            {selectedNode.layout.direction === 'horizontal' ? <ArrowRight size={11} /> : <ArrowDown size={11} />}
+            <span>Auto Layout</span>
+          </span>
+          <button
+            type="button"
+            className="sel-component-btn"
+            title={`Direction: ${selectedNode.layout.direction}. Click to toggle.`}
+            onClick={e => {
+              e.stopPropagation()
+              const currentLayout = selectedNode.layout
+              if (!currentLayout) return
+              const dir = currentLayout.direction === 'horizontal' ? 'vertical' : 'horizontal'
+              store.update(selectedNode.id, 'frame', { layout: { ...currentLayout, direction: dir } })
+            }}
+          >
+            <span>{selectedNode.layout.direction === 'horizontal' ? 'Horizontal' : 'Vertical'}</span>
+          </button>
+          <span className="sel-badge-stat" title={`Gap: ${selectedNode.layout.gap}px`}>
+            Gap {selectedNode.layout.gap}
+          </span>
         </div>
       </div>
     )}

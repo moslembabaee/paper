@@ -36,7 +36,8 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 61,
-      "completed_at": "2026-10-17T04:53:25.706953+00:00"
+      "completed_at": "2026-10-17T04:53:25.706953+00:00",
+      "closed_at": "2026-10-17T06:35:07Z"
     },
     {
       "id": "T-ISSUE-58-4",
@@ -1787,7 +1788,39 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 61,
-      "completed_at": "2026-10-17T06:35:04.471099+00:00"
+      "completed_at": "2026-10-17T06:35:04.471099+00:00",
+      "closed_at": "2026-10-17T06:35:07Z"
+    },
+    {
+      "id": "T-EVOLVE-1792218934-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Auto-Layout Frame Engine with Dynamic Hug/Fill Sizing and Alignment",
+      "description": "Implement a full auto-layout system for container frames supporting horizontal/vertical flow directions, customizable item spacing (gap), independent directional padding, dynamic alignment (start, center, end, space-between), and responsive child sizing constraints ('hug contents' and 'fill container') across canvas scene graph nodes.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "completed_at": "2026-10-17T06:52:55.829431+00:00"
+    },
+    {
+      "id": "T-EVOLVE-1792218934-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Non-Destructive Vector Boolean Operations on Scene Graph Paths",
+      "description": "Add non-destructive compound shape geometry operations (Union, Subtract, Intersect, Exclude) for vector nodes on the infinite canvas, featuring real-time bezier curve path combination, sub-shape hierarchy inspection, and live editable operand paths with stroke/fill inheritance.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
+    },
+    {
+      "id": "T-EVOLVE-1792218934-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive Prototyping Connections with Hotspot Triggers and Spring Transitions",
+      "description": "Introduce an interactive prototyping mode allowing designers to wire frames together using interactive connector noodles, configurable interaction triggers (on click, hover, drag), customizable transition animations (slide, push, dissolve with configurable spring physics curves), and an embedded live interactive preview modal.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build"
     }
   ]
 }

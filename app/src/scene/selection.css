@@ -453,6 +453,16 @@
   border-color: rgba(129, 173, 236, 0.35);
 }
 
+.sel-component-badge.is-autolayout .sel-component-badge-inner {
+  border-color: rgba(129, 173, 236, 0.4);
+}
+
+.sel-badge-stat {
+  font: 9px var(--font-mono);
+  color: var(--paper-text-muted);
+  padding: 0 4px;
+}
+
 .sel-component-badge-tag {
   display: inline-flex;
   align-items: center;

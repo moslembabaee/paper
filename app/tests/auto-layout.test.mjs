@@ -605,3 +605,110 @@ test('groupSelection and ungroupSelection handle hierarchy and convert coordinat
   assert.equal(node(store, 'r2').y, 150)
 })
 
+test('dynamic alignment matrix points in horizontal and vertical flows place children accurately', () => {
+  const store = new SceneStore()
+  store.add('frame', {
+    id: 'frame',
+    width: 300,
+    height: 200,
+    layout: layout({
+      direction: 'horizontal',
+      padding: { top: 10, right: 10, bottom: 10, left: 10 },
+      gap: 10,
+      justify: 'center',
+      align: 'center',
+    }),
+  })
+  store.add('rectangle', { id: 'c1', parentId: 'frame', width: 50, height: 40 })
+  store.add('rectangle', { id: 'c2', parentId: 'frame', width: 50, height: 60 })
+
+  // Horizontal flow: inner width = 280, children width = 100, gap = 10, total = 110. Remaining = 170.
+  // Center justify: start at 10 + 170/2 = 95.
+  // c1 x = 95, c2 x = 95 + 50 + 10 = 155.
+  // Center align: inner height = 180.
+  // c1 height 40: (180 - 40)/2 = 70 => y = 10 + 70 = 80.
+  // c2 height 60: (180 - 60)/2 = 60 => y = 10 + 60 = 70.
+  assert.deepEqual(geometry(node(store, 'c1')), [95, 80, 50, 40])
+  assert.deepEqual(geometry(node(store, 'c2')), [155, 70, 50, 60])
+
+  // Change to vertical flow with start justify and end align
+  store.update('frame', 'frame', {
+    layout: layout({
+      direction: 'vertical',
+      padding: { top: 10, right: 10, bottom: 10, left: 10 },
+      gap: 10,
+      justify: 'start',
+      align: 'end',
+    }),
+  })
+  // Vertical flow: inner height = 180, inner width = 280.
+  // Start justify: y starts at 10.
+  // c1 y = 10, c2 y = 10 + 40 + 10 = 60.
+  // End align: x = 10 + (280 - child.width).
+  // c1 width 50: x = 10 + 230 = 240.
+  // c2 width 50: x = 10 + 230 = 240.
+  assert.deepEqual(geometry(node(store, 'c1')), [240, 10, 50, 40])
+  assert.deepEqual(geometry(node(store, 'c2')), [240, 60, 50, 60])
+})
+
+test('nested auto-layout hierarchy with responsive hug and fill constraints reflows synchronously', () => {
+  const store = new SceneStore()
+  // Card container: vertical, fixed width 320, hug height
+  store.add('frame', {
+    id: 'card',
+    width: 320,
+    sizing: sizing('fixed', 'hug'),
+    layout: layout({
+      direction: 'vertical',
+      gap: 12,
+      padding: { top: 16, right: 16, bottom: 16, left: 16 },
+    }),
+  })
+
+  // Header row inside card: horizontal, fill width, hug height
+  store.add('frame', {
+    id: 'header',
+    parentId: 'card',
+    sizing: sizing('fill', 'hug'),
+    layout: layout({
+      direction: 'horizontal',
+      gap: 8,
+      padding: { top: 0, right: 0, bottom: 0, left: 0 },
+      justify: 'space-between',
+      align: 'center',
+    }),
+  })
+
+  // Title: fill width, fixed height 24
+  store.add('rectangle', { id: 'title', parentId: 'header', height: 24, sizing: sizing('fill', 'fixed') })
+  // Badge icon: fixed 24x24
+  store.add('rectangle', { id: 'badge', parentId: 'header', width: 24, height: 24, sizing: sizing('fixed', 'fixed') })
+
+  // Body content block: fill width, fixed height 80
+  store.add('rectangle', { id: 'body', parentId: 'card', height: 80, sizing: sizing('fill', 'fixed') })
+
+  // Card inner width = 320 - 32 = 288.
+  // Header should fill card inner width = 288.
+  assert.equal(node(store, 'header').width, 288)
+  assert.equal(node(store, 'header').x, 16)
+  assert.equal(node(store, 'header').y, 16)
+
+  // In header: total width 288, badge is 24, gap is 8. Remaining for title = 288 - 24 - 8 = 256.
+  assert.equal(node(store, 'title').width, 256)
+  assert.equal(node(store, 'badge').x, 264) // 256 + 8
+  assert.equal(node(store, 'body').width, 288)
+
+  // Card height = 16 (pad top) + 24 (header) + 12 (gap) + 80 (body) + 16 (pad bottom) = 148
+  assert.equal(node(store, 'card').height, 148)
+
+  // Resize card: width changes from 320 to 400
+  store.update('card', 'frame', { width: 400 })
+  // New inner width = 400 - 32 = 368
+  assert.equal(node(store, 'header').width, 368)
+  assert.equal(node(store, 'title').width, 336) // 368 - 24 - 8
+  assert.equal(node(store, 'badge').x, 344)
+  assert.equal(node(store, 'body').width, 368)
+  assert.equal(node(store, 'card').height, 148)
+})
+
+
