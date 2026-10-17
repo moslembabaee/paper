@@ -213,11 +213,31 @@ export const componentPropertySchema: JsonSchema = { anyOf: [
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['shader'] }, sourceId: str(), defaultValue: { anyOf: [str(), num, flag] }, targetProperty: { type: 'string', enum: ['speed', 'scale', 'rotation', 'frequency', 'octaves', 'turbulence', 'displacement', 'viewMode', 'blendMode', 'lacunarity', 'persistence', 'normalPerturbation', 'grainOverlay', 'chromaticAberration', 'warpModulation', 'fluidAdvection', 'fluidViscosity', 'noiseType'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue', 'targetProperty']),
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['variant'] }, defaultValue: str(), options: { ...list(object({ value: { ...str(), maxLength: 100 }, layers: { type: 'object', additionalProperties: componentOverridesSchema } }, ['value', 'layers'])), minItems: 1, maxItems: 100 }, stateMachine: componentStateMachineSchema }, ['id', 'name', 'kind', 'defaultValue', 'options']),
 ] }
+export const variantDimensionSchema: JsonSchema = object({
+  id: str(),
+  name: str(),
+  values: list(str()),
+  defaultValue: str(),
+}, ['id', 'name', 'values', 'defaultValue'])
+
+export const variantMatrixCellSchema: JsonSchema = object({
+  id: str(),
+  dimensions: { type: 'object', additionalProperties: str() },
+  layers: { type: 'object', additionalProperties: componentOverridesSchema },
+  description: str(),
+}, ['id', 'dimensions', 'layers'])
+
+export const componentVariantMatrixSchema: JsonSchema = object({
+  dimensions: list(variantDimensionSchema),
+  combinations: list(variantMatrixCellSchema),
+}, ['dimensions', 'combinations'])
+
 export const componentSchema: JsonSchema = { anyOf: [
   object({
     kind: { type: 'string', enum: ['master'] },
     properties: { ...list(componentPropertySchema), maxItems: 100 },
     stateMachine: componentStateMachineSchema,
+    variantMatrix: componentVariantMatrixSchema,
     description: str(),
     createdAt: num,
     updatedAt: num,
@@ -232,6 +252,7 @@ export const componentRegistryEntrySchema: JsonSchema = object({
   description: str(),
   properties: { ...list(componentPropertySchema), maxItems: 100 },
   stateMachine: componentStateMachineSchema,
+  variantMatrix: componentVariantMatrixSchema,
   instanceIds: list(str()),
   createdAt: num,
   updatedAt: num,

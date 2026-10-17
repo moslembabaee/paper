@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ArrowDown, ArrowUp, Check, Code, Copy, Download, Eye } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Code,
+  Copy,
+  Download,
+  Eye,
+  Scissors,
+} from 'lucide-react'
 import type { BooleanOperation, PathElement, VectorElement } from './types'
 import { vectorPathData } from './booleanGeometry'
 import { parsePath, pathBounds } from './pathGeometry'
@@ -9,6 +18,7 @@ import {
   extractCAGMetrics,
   cleanSvgPathGeometry,
   exportCleanSVGGeometry,
+  generateCompoundClipPath,
 } from './cagEngine'
 import type { SceneStore } from './store'
 import { useScene } from './useScene'
@@ -80,8 +90,8 @@ function CompoundPreview({
   compound: PathElement
   highlightedId: string | null
 }) {
-  const [viewMode, setViewMode] = useState<'visual' | 'code'>('visual')
-  const [copied, setCopied] = useState(false)
+  const [viewMode, setViewMode] = useState<'visual' | 'code' | 'clip'>('visual')
+  const [copied, setCopied] = useState<string | null>(null)
 
   const sources = useMemo(
     () => compound.boolean!.operands.map(source => ({ id: source.id, d: vectorPathData(source) })),
@@ -110,20 +120,25 @@ function CompoundPreview({
     [compound]
   )
 
-  const handleCopy = async () => {
+  const clipMarkup = useMemo(
+    () => generateCompoundClipPath(compound, { precision: 4 }),
+    [compound]
+  )
+
+  const handleCopy = async (text: string, label: string) => {
     try {
       if (navigator.clipboard) {
-        await navigator.clipboard.writeText(cleanD)
+        await navigator.clipboard.writeText(text)
       } else {
         const textarea = document.createElement('textarea')
-        textarea.value = cleanD
+        textarea.value = text
         document.body.appendChild(textarea)
         textarea.select()
         document.execCommand('copy')
         document.body.removeChild(textarea)
       }
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
+      setCopied(label)
+      setTimeout(() => setCopied(null), 1600)
     } catch {
       // Ignore clipboard write errors
     }
@@ -171,18 +186,42 @@ function CompoundPreview({
             <Code size={10} style={{ display: 'inline', marginRight: 3, verticalAlign: -1 }} />
             SVG CODE
           </button>
-        </div>
-        <div style={{ display: 'flex', gap: 4 }}>
           <button
             type="button"
-            className="cag-copy-btn"
-            onClick={handleCopy}
-            title="Copy clean, optimized SVG path data (d) to clipboard"
-            aria-label="Copy clean SVG path data"
+            role="tab"
+            aria-selected={viewMode === 'clip'}
+            className={`cag-tab-btn ${viewMode === 'clip' ? 'active' : ''}`}
+            onClick={() => setViewMode('clip')}
+            title="Generated SVG ClipPath Definition"
           >
-            {copied ? <Check size={10} color="#81adec" /> : <Copy size={10} />}
-            <span>{copied ? 'COPIED' : 'COPY PATH'}</span>
+            <Scissors size={10} style={{ display: 'inline', marginRight: 3, verticalAlign: -1 }} />
+            CLIP PATH
           </button>
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {viewMode === 'clip' ? (
+            <button
+              type="button"
+              className="cag-copy-btn"
+              onClick={() => handleCopy(clipMarkup, 'clip')}
+              title="Copy SVG <clipPath> definition to clipboard"
+              aria-label="Copy SVG clip path"
+            >
+              {copied === 'clip' ? <Check size={10} color="#81adec" /> : <Copy size={10} />}
+              <span>{copied === 'clip' ? 'COPIED' : 'COPY CLIP'}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="cag-copy-btn"
+              onClick={() => handleCopy(cleanD, 'path')}
+              title="Copy clean, optimized SVG path data (d) to clipboard"
+              aria-label="Copy clean SVG path data"
+            >
+              {copied === 'path' ? <Check size={10} color="#81adec" /> : <Copy size={10} />}
+              <span>{copied === 'path' ? 'COPIED' : 'COPY PATH'}</span>
+            </button>
+          )}
           <button
             type="button"
             className="cag-copy-btn"
@@ -226,6 +265,10 @@ function CompoundPreview({
             <span>SVG / {compound.boolean!.operands.length} SOURCES</span>
           </figcaption>
         </figure>
+      ) : viewMode === 'clip' ? (
+        <pre className="cag-code-view" tabIndex={0} aria-label="SVG ClipPath Definition">
+          <code>{clipMarkup}</code>
+        </pre>
       ) : (
         <pre className="cag-code-view" tabIndex={0} aria-label="Clean SVG Path Geometry">
           <code>{cleanMarkup}</code>

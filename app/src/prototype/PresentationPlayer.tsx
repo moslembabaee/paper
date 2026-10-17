@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, Ref } from 'react'
-import { ArrowLeft, Eye, Monitor, Pause, Play, RotateCcw, Smartphone, X } from 'lucide-react'
+import { ArrowLeft, Eye, Monitor, Pause, Play, RotateCcw, Smartphone, Sparkles, X } from 'lucide-react'
 import { Dialog } from '../workspace/Dialog'
 import { SceneRenderer } from '../scene/SceneRenderer'
 import type { SceneStore } from '../scene/store'
 import { useScene } from '../scene/useScene'
-import { easingCSS, EMPTY_PROTOTYPE, isDescendant, isVisible, matchedLayers, presentationExtent, smartKeyframes, transitionDuration, transitionFrames, transitionProgress } from './model'
+import { easingCSS, easingCurve, easeProgress, EMPTY_PROTOTYPE, isDescendant, isVisible, matchedLayers, presentationExtent, smartKeyframes, transitionDuration, transitionFrames, transitionProgress } from './model'
 import type { PrototypeInteraction, PrototypeTransition } from './types'
 import { componentRoot } from '../scene/components'
 import { getEffectiveStateMachine, resolveNextState } from '../scene/stateMachine'
-import { springCSS as componentSpringCSS, springDuration as componentSpringDuration } from './spring'
+import { DEFAULT_SPRING, springCSS as componentSpringCSS, springDuration as componentSpringDuration, springProgress } from './spring'
 import type { ComponentStateTrigger } from '../scene/types'
+import { computeScreenDiff, interpolateSmartPath } from './smartAnimate'
+import { SmartAnimateOverlay } from './SmartAnimateOverlay'
 
 interface Playback { frameId: string; overlayId: string | null }
 interface Motion { fromId: string | null; toId: string; overlay: boolean; transition: PrototypeTransition; scrollTop: number; scrollLeft: number }
@@ -23,6 +25,10 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
   const [playback, setPlayback] = useState<Playback>({ frameId: initial, overlayId: null })
   const [history, setHistory] = useState<Playback[]>([])
   const [motion, setMotion] = useState<Motion | null>(null)
+  const [smartHudOpen, setSmartHudOpen] = useState(false)
+  const [scrubProgress, setScrubProgress] = useState<number | null>(null)
+  const [showGhosts, setShowGhosts] = useState(false)
+  const [lastScreenPair, setLastScreenPair] = useState<{ fromId: string; toId: string; transition: PrototypeTransition } | null>(null)
   const [playing, setPlaying] = useState(true)
   const [hotspots, setHotspots] = useState(false)
   const [flashHotspots, setFlashHotspots] = useState(false)
@@ -92,6 +98,7 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
     const previous = overlay ? overlayRef.current : currentRef.current
     const scrollTop = previous?.querySelector<HTMLElement>('.prototype-screen-scroll')?.scrollTop ?? 0
     const scrollLeft = previous?.querySelector<HTMLElement>('.prototype-screen-scroll')?.scrollLeft ?? 0
+    setLastScreenPair({ fromId: fromId ?? playback.frameId, toId: interaction.targetId, transition })
     setMotion({ fromId, toId: interaction.targetId, overlay, transition, scrollTop, scrollLeft })
     setPlayback(overlay ? { ...playback, overlayId: interaction.targetId } : { frameId: interaction.targetId, overlayId: null })
   }, [cancelMotion, playing, state.elements, playback, scale])
@@ -109,6 +116,7 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
     const animate = (element: HTMLElement | null, keyframes: Keyframe[]) => { if (element) animations.push(element.animate(keyframes, options)) }
     const keyframes = transitionFrames(motion.transition)
     if (motion.transition.kind === 'smart' && motion.fromId && outgoing) {
+      const screenDiff = computeScreenDiff(state.elements, motion.fromId, motion.toId)
       const pairs = matchedLayers(state.elements, motion.fromId, motion.toId), matched = new Set<string>()
       const oldNodes = [...outgoing.querySelectorAll<HTMLElement>('[data-element-id]')], newNodes = [...incoming.querySelectorAll<HTMLElement>('[data-element-id]')]
       const oldIndex = new Map(oldNodes.map(node => [node.dataset.elementId, node]))
@@ -116,6 +124,44 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
       const pairIndex = new Map(pairs.map(pair => [pair.to.id, pair]))
       const fromFrame = state.elements[motion.fromId], toFrame = state.elements[motion.toId]
       const incomingFit = incoming.clientWidth / toFrame.width, outgoingFit = outgoing.clientWidth / fromFrame.width
+
+      const morphTargets: { pair: (typeof screenDiff.matched)[number]; pathDom: SVGPathElement; originalD: string }[] = []
+      for (const pair of screenDiff.matched) {
+        if (pair.geometryDiff.isMorphable && pair.geometryDiff.preparedMorph) {
+          const element = newIndex.get(pair.to.id)
+          const pathDom = element?.querySelector<SVGPathElement>('.scene-vector > path')
+          if (pathDom && pair.geometryDiff.toD) {
+            morphTargets.push({ pair, pathDom, originalD: pair.geometryDiff.toD })
+          }
+        }
+      }
+
+      let morphRafId = 0
+      if (morphTargets.length > 0 && duration > 0) {
+        const morphStart = performance.now()
+        const morphTick = (now: number) => {
+          if (!active) return
+          const elapsed = now - morphStart
+          const rawProgress = Math.min(1, Math.max(0, elapsed / duration))
+          const easedT = motion.transition.easing === 'spring'
+            ? springProgress(rawProgress, motion.transition.spring ?? DEFAULT_SPRING, duration)
+            : easeProgress(rawProgress, easingCurve(motion.transition))
+          const clampedT = Math.max(0, Math.min(1, easedT))
+
+          for (const item of morphTargets) {
+            const morphedD = interpolateSmartPath(item.pair.geometryDiff.preparedMorph, clampedT)
+            if (morphedD) {
+              item.pathDom.setAttribute('d', morphedD)
+            }
+          }
+
+          if (rawProgress < 1) {
+            morphRafId = requestAnimationFrame(morphTick)
+          }
+        }
+        morphRafId = requestAnimationFrame(morphTick)
+      }
+
       for (const pair of pairs) {
         const element = newIndex.get(pair.to.id)
         const oldElement = oldIndex.get(pair.from.id)
@@ -133,6 +179,26 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
       }
       for (const element of newNodes) if (!matched.has(element.dataset.elementId!)) animate(element, [{ opacity: 0 }, { opacity: 1 }])
       animate(outgoing, [{ opacity: 1 }, { opacity: 0 }])
+
+      const finish = () => {
+        if (active) {
+          cancelAnimationFrame(morphRafId)
+          for (const item of morphTargets) {
+            item.pathDom.setAttribute('d', item.originalD)
+          }
+          busy.current = false
+          setMotion(null)
+        }
+      }
+      void Promise.all(animations.map(animation => animation.finished.catch(() => {}))).then(finish)
+      return () => {
+        active = false
+        cancelAnimationFrame(morphRafId)
+        for (const item of morphTargets) {
+          item.pathDom.setAttribute('d', item.originalD)
+        }
+        for (const animation of animations) animation.cancel()
+      }
     } else {
       animate(incoming, keyframes.incoming)
       if (outgoing) { if (motion.transition.kind === 'slide-out') outgoing.style.zIndex = '2'; animate(outgoing, keyframes.outgoing) }
@@ -265,7 +331,20 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
         </div>
       </div> : <div className="prototype-player-empty"><Monitor size={32} /><p>Add a frame to present your design.</p></div>}
     </div>
-    <footer className="prototype-player-footer"><div className="prototype-playback-controls"><button className="quiet-button" aria-label="Go back" disabled={!history.length && !playback.overlayId} onClick={back}><ArrowLeft size={16} /></button><button className="quiet-button" aria-label="Restart prototype" onClick={restart}><RotateCcw size={15} /></button><button className="prototype-play-toggle" aria-label={playing ? 'Pause prototype' : 'Resume prototype'} onClick={() => { cancelMotion(); setPlaying(value => !value) }}>{playing ? <Pause size={14} /> : <Play size={14} />}</button><span>{playing ? 'Playing' : 'Paused'}</span></div><span className="prototype-player-screen" role="status">{playback.overlayId ? `Overlay · ${state.elements[playback.overlayId]?.name}` : `${frames.findIndex(node => node.id === playback.frameId) + 1} / ${frames.length}`}</span><div className="prototype-player-options"><button className={`quiet-button ${hotspots ? 'active' : ''}`} aria-label="Show interaction hotspots" aria-pressed={hotspots} onClick={() => setHotspots(!hotspots)}><Eye size={16} /></button>{prototype.device === 'phone' ? <Smartphone size={13} /> : <Monitor size={13} />}<span>{Math.round(scale * 100)}%</span></div></footer>
+    <footer className="prototype-player-footer"><div className="prototype-playback-controls"><button className="quiet-button" aria-label="Go back" disabled={!history.length && !playback.overlayId} onClick={back}><ArrowLeft size={16} /></button><button className="quiet-button" aria-label="Restart prototype" onClick={restart}><RotateCcw size={15} /></button><button className="prototype-play-toggle" aria-label={playing ? 'Pause prototype' : 'Resume prototype'} onClick={() => { cancelMotion(); setPlaying(value => !value) }}>{playing ? <Pause size={14} /> : <Play size={14} />}</button><span>{playing ? 'Playing' : 'Paused'}</span></div><span className="prototype-player-screen" role="status">{playback.overlayId ? `Overlay · ${state.elements[playback.overlayId]?.name}` : `${frames.findIndex(node => node.id === playback.frameId) + 1} / ${frames.length}`}</span><div className="prototype-player-options">{lastScreenPair && <button className={`quiet-button ${smartHudOpen ? 'active' : ''}`} aria-label="Smart Animate Inspector" title="Smart Animate Morph & Physics Inspector" onClick={() => setSmartHudOpen(!smartHudOpen)}><Sparkles size={15} /></button>}<button className={`quiet-button ${hotspots ? 'active' : ''}`} aria-label="Show interaction hotspots" aria-pressed={hotspots} onClick={() => setHotspots(!hotspots)}><Eye size={16} /></button>{prototype.device === 'phone' ? <Smartphone size={13} /> : <Monitor size={13} />}<span>{Math.round(scale * 100)}%</span></div></footer>
+    {smartHudOpen && lastScreenPair && (
+      <SmartAnimateOverlay
+        store={store}
+        fromFrameId={lastScreenPair.fromId}
+        toFrameId={lastScreenPair.toId}
+        transition={lastScreenPair.transition}
+        scrubProgress={scrubProgress}
+        onScrub={setScrubProgress}
+        showGhosts={showGhosts}
+        onToggleGhosts={setShowGhosts}
+        onClose={() => setSmartHudOpen(false)}
+      />
+    )}
   </Dialog>
 }
 

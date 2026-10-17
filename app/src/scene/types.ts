@@ -63,6 +63,30 @@ export interface ElementStyle {
   readonly effects?: readonly LayerEffect[]
 }
 
+export type HorizontalConstraint = 'left' | 'right' | 'left-right' | 'center' | 'scale'
+export type VerticalConstraint = 'top' | 'bottom' | 'top-bottom' | 'center' | 'scale'
+
+export interface LayoutConstraints {
+  readonly horizontal: HorizontalConstraint
+  readonly vertical: VerticalConstraint
+}
+
+export type LayoutGridType = 'columns' | 'rows' | 'grid'
+export type LayoutGridAlignment = 'stretch' | 'left' | 'right' | 'center' | 'top' | 'bottom'
+
+export interface FrameLayoutGrid {
+  readonly id: string
+  readonly type: LayoutGridType
+  readonly visible: boolean
+  readonly color: string
+  readonly count?: number
+  readonly gutter?: number
+  readonly margin?: number
+  readonly alignment?: LayoutGridAlignment
+  readonly size?: number
+  readonly sectionSize?: number
+}
+
 export interface BaseElement extends ElementGeometry {
   /** A vector or frame can clip its siblings without consuming its geometry. */
   readonly mask?: VectorMask
@@ -70,10 +94,14 @@ export interface BaseElement extends ElementGeometry {
   readonly component?: ComponentLink
   /** Absent in legacy documents: both axes are fixed. */
   readonly sizing?: ElementSizing
+  /** Responsive pinning constraints relative to parent container frame */
+  readonly constraints?: LayoutConstraints
   readonly tokenBindings?: TokenBindings
   readonly sharedStyleBindings?: SharedStyleBindings
   /** Real-time 2D spring dynamics physics properties */
   readonly physics?: ElementPhysicsConfig
+  /** Semantic variable mode override (e.g. 'light', 'dark', 'high-contrast', or custom theme ID). Null/absent inherits from parent or document. */
+  readonly themeMode?: string | null
   readonly id: string
   readonly name: string
   readonly parentId: string | null
@@ -84,10 +112,18 @@ export interface BaseElement extends ElementGeometry {
   readonly style: ElementStyle
 }
 
+export type MaskClipMode = 'vector' | 'alpha' | 'luminance'
+
 export interface VectorMask {
   readonly enabled: boolean
   /** Editor-only outline, omitted from exports. */
   readonly showOutline: boolean
+  /** Clip mode: vector geometry outline, alpha channel transparency, or luminance threshold. Default 'vector'. */
+  readonly mode?: MaskClipMode
+  /** Luminance clipping threshold from 0.0 to 1.0. Default 0.5. */
+  readonly luminanceThreshold?: number
+  /** Invert clipping behavior (e.g. invert alpha channel or luminance threshold). */
+  readonly inverted?: boolean
 }
 
 export interface FrameElement extends BaseElement {
@@ -97,6 +133,8 @@ export interface FrameElement extends BaseElement {
   readonly cornerRadius: number
   /** Null or absent keeps free positioning. */
   readonly layout?: AutoLayout | null
+  /** Multi-column, multi-row, and adaptive engineering layout grids */
+  readonly layoutGrids?: readonly FrameLayoutGrid[]
 }
 
 export type SizingRule = 'fixed' | 'hug' | 'fill'
@@ -304,6 +342,10 @@ export interface TextElement extends BaseElement {
   readonly fontKerning?: FontKerningMode
   /** Optical kerning adjustment factor when mode is 'optical' */
   readonly opticalKerning?: number
+  /** Optical margin alignment (hanging punctuation & visual edge alignment) */
+  readonly opticalMarginAlignment?: boolean
+  /** Render on-canvas glyph-level optical metrics guide lines and bounds */
+  readonly showOpticalMetrics?: boolean
   /** Dynamic text-on-vector path deformation */
   readonly textOnPath?: TextOnPath
   /** Text capitalization transformation */
@@ -333,6 +375,8 @@ export interface ComponentOverrides {
   readonly style?: Partial<Omit<ElementStyle, 'stroke'>> & { readonly stroke?: Partial<Stroke> | null }
   /** Only local bindings are stored. Null releases a binding while retaining its value. */
   readonly tokenBindings?: Readonly<Partial<Record<TokenProperty, string | null>>>
+  /** Variable mode override for this component instance */
+  readonly themeMode?: string | null
 }
 export type ComponentPropertyValue = string | boolean | number
 export type ComponentStateTrigger =
@@ -381,6 +425,36 @@ export interface ComponentVariant {
   readonly layers: Readonly<Record<string, ComponentOverrides>>
 }
 
+export interface VariantDimension {
+  readonly id: string
+  readonly name: string
+  readonly values: readonly string[]
+  readonly defaultValue: string
+}
+
+export interface VariantMatrixCombination {
+  readonly id: string
+  readonly dimensions: Readonly<Record<string, string>>
+  readonly layers: Readonly<Record<string, ComponentOverrides>>
+  readonly description?: string
+}
+
+export type VariantMatrixCell = VariantMatrixCombination
+
+export interface ComponentVariantMatrix {
+  readonly dimensions: readonly VariantDimension[]
+  readonly combinations: readonly VariantMatrixCombination[]
+}
+
+export interface OverrideDiffEntry {
+  readonly layerId: string
+  readonly layerName: string
+  readonly channel: string
+  readonly label: string
+  readonly masterValue: string
+  readonly overrideValue: string
+}
+
 export interface MasterComponentMetadata {
   readonly description?: string
   readonly createdAt?: number
@@ -394,6 +468,7 @@ export type MasterComponentLink = {
   readonly kind: 'master'
   readonly properties?: readonly ComponentProperty[]
   readonly stateMachine?: ComponentStateMachine
+  readonly variantMatrix?: ComponentVariantMatrix
   readonly description?: string
   readonly createdAt?: number
   readonly updatedAt?: number
@@ -434,6 +509,7 @@ export interface MasterComponentSchema {
   readonly masterId: string
   readonly properties: readonly ComponentProperty[]
   readonly stateMachine?: ComponentStateMachine
+  readonly variantMatrix?: ComponentVariantMatrix
   readonly instanceCount: number
   readonly instanceIds: readonly string[]
   readonly createdAt?: number
@@ -446,6 +522,7 @@ export interface ComponentRegistryEntry {
   readonly description?: string
   readonly properties: readonly ComponentProperty[]
   readonly stateMachine?: ComponentStateMachine
+  readonly variantMatrix?: ComponentVariantMatrix
   readonly instanceIds: readonly string[]
   readonly createdAt?: number
   readonly updatedAt?: number

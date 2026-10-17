@@ -1,9 +1,12 @@
-import { ArrowRight, GitBranch, Play, Plus, Trash2 } from 'lucide-react'
+import { ArrowRight, GitBranch, Play, Plus, Sparkles, Trash2 } from 'lucide-react'
 import type { SceneStore } from '../scene/store'
 import { useScene } from '../scene/useScene'
 import { ACTIONS, DEFAULT_TRANSITION, easingCurve, EASINGS, EMPTY_PROTOTYPE, frameFor, isDescendant, TRANSITIONS, TRIGGERS } from './model'
 import type { BezierCurve, DeviceFrame, Easing, InteractionTrigger, NavigationAction, PrototypeTransition, SlideDirection, TransitionKind } from './types'
 import { SpringControls } from './SpringControls'
+import { computeScreenDiff } from './smartAnimate'
+import type { SceneDocument } from '../scene/types'
+import { useMemo } from 'react'
 
 export function PrototypeInspector({ store, selectedId, onSelect, onPresent }: {
   store: SceneStore; selectedId: string | null; onSelect: (id: string | null) => void; onPresent: () => void
@@ -62,13 +65,62 @@ export function PrototypeInspector({ store, selectedId, onSelect, onPresent }: {
             updateTransition({ curve: t.curve.map((n, i) => i === index ? next : n) as unknown as BezierCurve })
           }} /></label>)}</div>}
           {(t.kind === 'slide-in' || t.kind === 'slide-out' || t.kind === 'slide' || t.kind === 'push') && <label className="prototype-field">Direction<select aria-label="Slide direction" value={t.direction} onChange={event => updateTransition({ direction: event.target.value as SlideDirection })}>{['left', 'right', 'up', 'down'].map(direction => <option key={direction} value={direction}>{direction[0].toUpperCase() + direction.slice(1)}</option>)}</select></label>}
-          {t.kind === 'smart' && <p>Layers with matching names and hierarchy animate their position, scale, rotation and paint.</p>}
+          {t.kind === 'smart' && sourceFrameId && interaction.targetId && (
+            <SmartAnimateDiffSummary
+              elements={state.elements}
+              sourceFrameId={sourceFrameId}
+              targetFrameId={interaction.targetId}
+              onPresent={onPresent}
+            />
+          )}
           {t.kind === 'push' && <p>The incoming frame pushes the outgoing frame out with synchronized physics motion.</p>}
         </>}
       </div>
     </>}
     <div className="prototype-footnote"><GitBranch size={12} /><span>{prototype.interactions.length} connections in this document<br />Saved locally with your design.</span></div>
   </aside>
+}
+
+function SmartAnimateDiffSummary({
+  elements,
+  sourceFrameId,
+  targetFrameId,
+  onPresent,
+}: {
+  elements: SceneDocument['elements']
+  sourceFrameId: string
+  targetFrameId: string
+  onPresent: () => void
+}) {
+  const diff = useMemo(() => {
+    return computeScreenDiff(elements, sourceFrameId, targetFrameId)
+  }, [elements, sourceFrameId, targetFrameId])
+
+  return (
+    <div className="prototype-smart-diff-card" data-testid="smart-animate-diff-summary">
+      <div className="prototype-smart-diff-header">
+        <Sparkles size={12} />
+        <span>Smart Animate Morphing Engine</span>
+      </div>
+      <div className="prototype-smart-diff-pills">
+        <span className="smart-badge matched">{diff.summary.totalMatched} matched</span>
+        {diff.summary.morphablePathCount > 0 && (
+          <span className="smart-badge morphs">{diff.summary.morphablePathCount} Bézier morphs</span>
+        )}
+        <span className="smart-badge layouts">{diff.summary.layoutDiffCount} layout diffs</span>
+      </div>
+      <p>Interpolates Bézier paths and transforms using spring physics curves.</p>
+      <button
+        type="button"
+        className="prototype-smart-preview-btn"
+        onClick={onPresent}
+        aria-label="Inspect morph in presentation player"
+      >
+        <Play size={11} fill="currentColor" />
+        <span>Inspect in Presentation Player</span>
+      </button>
+    </div>
+  )
 }
 
 function Milliseconds({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (value: number) => void }) {

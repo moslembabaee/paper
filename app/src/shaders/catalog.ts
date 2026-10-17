@@ -5,6 +5,8 @@ import { createDefaultGradient, freezeGradient, validateGradient } from './gradi
 import { PIPELINE_PRESETS, createDefaultPipeline, presetKeys } from './pipeline/presets.ts'
 import { validatePipeline } from './pipeline/pipelineOps.ts'
 import { freezePostProcessing, validatePostProcessing } from '../canvas/postprocessing/model.ts'
+import { GLASSMORPHISM_PRESETS, LIQUID_CHROME_PRESETS } from './refractive/presets.ts'
+import { glassSurfacePatterns, chromeEnvironmentStyles } from './refractive/types.ts'
 
 const number = (key: string, label: string, min = 0, max = 1, step = .01, integer = false): Extract<ShaderControl, { type: 'number' }> => ({ key, label, type: 'number', min, max, step, integer })
 const color = (key: string, label: string): ShaderControl => ({ key, label, type: 'color' })
@@ -159,6 +161,48 @@ export const shaderCatalog = {
       number('spread', 'Spread', 0.1, 3, 0.01),
       number('dither', 'Dither noise', 0, 1, 0.01),
       number('smoothness', 'Interpolation', 0, 1, 0.01),
+    ],
+  },
+  glassmorphism: {
+    label: 'Glassmorphism FX',
+    description: 'Physical glass optics with chromatic dispersion, microfacet roughness, and real-time backdrop blur.',
+    defaults: { ...GLASSMORPHISM_PRESETS[0].params },
+    controls: [
+      number('refractionIndex', 'Refractive index', 1.0, 2.5, 0.01),
+      number('dispersion', 'Chromatic dispersion', 0, 1, 0.01),
+      number('roughness', 'Roughness', 0, 1, 0.01),
+      number('blurRadius', 'Backdrop blur', 0, 1, 0.01),
+      select('surfacePattern', 'Surface pattern', glassSurfacePatterns),
+      number('patternScale', 'Pattern scale', 0.5, 10.0, 0.1),
+      number('frostIntensity', 'Frost etching', 0, 1, 0.01),
+      color('tintColor', 'Tint color'),
+      number('tintOpacity', 'Tint opacity', 0, 1, 0.01),
+      color('highlightColor', 'Specular highlight'),
+      number('specularStrength', 'Specular glint', 0, 1, 0.01),
+      number('lightAngle', 'Light angle', 0, 360, 1, true),
+      number('bevelWidth', 'Bevel width', 0, 1, 0.01),
+      number('chromaticShift', 'Color aberration', 0, 1, 0.01),
+    ],
+  },
+  'liquid-chrome': {
+    label: 'Liquid Chrome FX',
+    description: 'Fluid warp distortion, molten metallic iridescence, and procedural studio reflections.',
+    defaults: { ...LIQUID_CHROME_PRESETS[0].params },
+    controls: [
+      number('metallicSheen', 'Metallic sheen', 0, 1, 0.01),
+      number('iridescence', 'Rainbow iridescence', 0, 1, 0.01),
+      number('filmThickness', 'Film thickness', 100, 1000, 10),
+      number('roughness', 'Roughness', 0, 1, 0.01),
+      number('fluidViscosity', 'Fluid viscosity', 0, 1, 0.01),
+      number('flowSpeed', 'Flow speed', 0, 3, 0.05),
+      number('rippleFrequency', 'Ripple frequency', 0.5, 10, 0.1),
+      number('dispersion', 'Color aberration', 0, 1, 0.01),
+      color('baseColor', 'Base metal'),
+      color('sheenColor', 'Sheen highlight'),
+      number('lightAngle', 'Light angle', 0, 360, 1, true),
+      select('environmentStyle', 'Environment map', chromeEnvironmentStyles),
+      number('normalPerturbation', 'Normal bump', 0, 1, 0.01),
+      number('grainMixer', 'Micro-grain noise', 0, 1, 0.01),
     ],
   },
 } satisfies { [K in ShaderKind]: ShaderDefinition<K> }

@@ -1,14 +1,16 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { drawGrid } from './grid'
-import { Minimap } from './Minimap'
-import { unionBounds } from './math'
-import { drawHorizontalRuler, drawVerticalRuler } from './rulers'
-import { ViewportController } from './ViewportController'
-import { ZoomControls } from './ZoomControls'
-import type { Bounds, Camera, MinimapItem, Point, ViewportSnapshot } from './types'
+import { drawGrid } from './grid.ts'
+import { Minimap } from './Minimap.tsx'
+import { unionBounds } from './math.ts'
+import { drawHorizontalRuler, drawVerticalRuler } from './rulers.ts'
+import { ViewportController } from './ViewportController.ts'
+import { ZoomControls } from './ZoomControls.tsx'
+import { VelocityTracker } from './springPhysics.ts'
+import { EdgeBounceOverlay } from './EdgeBounceOverlay.tsx'
+import type { Bounds, Camera, MinimapItem, Point, ViewportSnapshot } from './types.ts'
 import './viewport.css'
-import { subscribeTheme } from '../design-system/theme'
+import { subscribeTheme } from '../design-system/theme.ts'
 
 const EMPTY_ITEMS: readonly MinimapItem[] = []
 const isControl = (target: EventTarget | null) => target instanceof Element && !!target.closest('input, textarea, select, button, a, [contenteditable]:not([contenteditable="false"]), [role="dialog"], [role="menu"], .viewport-ui')
@@ -34,7 +36,21 @@ export interface CanvasViewportProps {
   onViewportChange?: (snapshot: ViewportSnapshot) => void
 }
 
-export function CanvasViewport({ children, overlay, background, controller: provided, initialCamera, contentBounds, minimapItems = EMPTY_ITEMS, gridVisible = true, rulersVisible = true, panMode = false, showMinimap = true, className = '', onViewportChange }: CanvasViewportProps) {
+export function CanvasViewport({
+  children,
+  overlay,
+  background,
+  controller: provided,
+  initialCamera,
+  contentBounds,
+  minimapItems = EMPTY_ITEMS,
+  gridVisible = true,
+  rulersVisible = true,
+  panMode = false,
+  showMinimap = true,
+  className = '',
+  onViewportChange,
+}: CanvasViewportProps) {
   const [owned] = useState(() => new ViewportController(initialCamera))
   const controller = provided ?? owned
   const rootRef = useRef<HTMLDivElement>(null)
@@ -55,6 +71,14 @@ export function CanvasViewport({ children, overlay, background, controller: prov
     callbackRef.current = onViewportChange
     panModeRef.current = panMode
     boundsRef.current = bounds
+    if (bounds) {
+      controller.setSoftBounds({
+        x: bounds.x - 3000,
+        y: bounds.y - 3000,
+        width: bounds.width + 6000,
+        height: bounds.height + 6000,
+      })
+    }
     if (gridVisibleRef.current !== gridVisible) {
       gridVisibleRef.current = gridVisible
       controller.resize(controller.getSnapshot().size)
@@ -77,6 +101,8 @@ export function CanvasViewport({ children, overlay, background, controller: prov
     let pointer: { id: number; point: Point } | null = null
     const touches = new Map<number, Point>()
     let pinch: { center: Point; distance: number; camera: Camera; world: Point } | null = null
+    const mouseTracker = new VelocityTracker()
+    const touchTracker = new VelocityTracker()
     let rect = root.getBoundingClientRect()
     const rulerOffset = (): number => rulersVisibleRef.current ? 20 : 0
     const local = (event: { clientX: number; clientY: number }): Point => {
@@ -126,6 +152,7 @@ export function CanvasViewport({ children, overlay, background, controller: prov
     const observer = new ResizeObserver(resize)
     observer.observe(root)
     resize()
+
     const wheel = (event: WheelEvent) => {
       if (isControl(event.target)) return
       event.preventDefault()
@@ -134,17 +161,20 @@ export function CanvasViewport({ children, overlay, background, controller: prov
       const dx = event.deltaX * unit
       const dy = event.deltaY * unit
       if (event.shiftKey || (!event.ctrlKey && !event.metaKey && Math.abs(dx) > Math.abs(dy) * 0.5)) {
-        controller.panBy({ x: event.shiftKey && dx === 0 ? -dy : -dx, y: event.shiftKey ? 0 : -dy })
+        controller.panBy({ x: event.shiftKey && dx === 0 ? -dy : -dx, y: event.shiftKey ? 0 : -dy }, false)
       } else {
-        controller.zoomBy(Math.exp(-Math.max(-240, Math.min(240, dy)) * (event.ctrlKey ? 0.01 : 0.002)), local(event))
+        const logDelta = -Math.max(-240, Math.min(240, dy)) * (event.ctrlKey ? 0.012 : 0.0025)
+        controller.addZoomImpulse(logDelta, local(event))
       }
     }
+
     const beginPinch = () => {
       const [a, b] = [...touches.values()]
       if (!a || !b) { pinch = null; return }
       const center = midpoint(a, b)
       pinch = { center, distance: Math.max(1, distance(a, b)), camera: { ...controller.getSnapshot().camera }, world: controller.screenToWorld(center) }
     }
+
     const down = (event: PointerEvent) => {
       if (isControl(event.target)) return
       rect = root.getBoundingClientRect()
@@ -153,6 +183,8 @@ export function CanvasViewport({ children, overlay, background, controller: prov
       if (event.pointerType === 'touch') {
         event.preventDefault()
         controller.stop()
+        touchTracker.reset()
+        touchTracker.add(local(event))
         root.setPointerCapture(event.pointerId)
         touches.set(event.pointerId, local(event))
         beginPinch()
@@ -164,11 +196,15 @@ export function CanvasViewport({ children, overlay, background, controller: prov
       event.stopPropagation()
       root.focus({ preventScroll: true })
       controller.stop()
-      pointer = { id: event.pointerId, point: local(event) }
+      mouseTracker.reset()
+      const startPoint = local(event)
+      mouseTracker.add(startPoint)
+      pointer = { id: event.pointerId, point: startPoint }
       suppressClick = true
       root.setPointerCapture(event.pointerId)
       setCursor()
     }
+
     const move = (event: PointerEvent) => {
       const point = local(event)
       if (touches.has(event.pointerId)) {
@@ -177,32 +213,62 @@ export function CanvasViewport({ children, overlay, background, controller: prov
         if (touches.size >= 2 && pinch) {
           const [a, b] = [...touches.values()]
           const center = midpoint(a, b)
-          controller.zoomTo(pinch.camera.zoom * distance(a, b) / pinch.distance, pinch.center, false)
+          const currentZoom = pinch.camera.zoom * distance(a, b) / pinch.distance
+          touchTracker.add(center, currentZoom)
+          controller.zoomTo(currentZoom, pinch.center, false)
           const zoom = controller.getSnapshot().camera.zoom
           controller.setCamera({ x: center.x - pinch.world.x * zoom, y: center.y - pinch.world.y * zoom, zoom }, false)
-        } else controller.panBy({ x: point.x - previous.x, y: point.y - previous.y })
+        } else {
+          touchTracker.add(point, controller.getSnapshot().camera.zoom)
+          controller.panBy({ x: point.x - previous.x, y: point.y - previous.y }, false)
+        }
         return
       }
       if (pointer?.id !== event.pointerId) return
-      controller.panBy({ x: point.x - pointer.point.x, y: point.y - pointer.point.y })
+      mouseTracker.add(point)
+      controller.panBy({ x: point.x - pointer.point.x, y: point.y - pointer.point.y }, false)
       pointer.point = point
     }
+
     const up = (event: PointerEvent) => {
-      touches.delete(event.pointerId)
-      beginPinch()
-      if (pointer?.id === event.pointerId) pointer = null
+      if (touches.has(event.pointerId)) {
+        const wasPinching = touches.size >= 2
+        touches.delete(event.pointerId)
+        beginPinch()
+        if (touches.size === 0) {
+          const { vx, vy, vz } = touchTracker.getVelocity()
+          const speed = Math.hypot(vx, vy)
+          if (speed >= controller.getPhysicsConfig().minFlingVelocity || Math.abs(vz) > 0.05) {
+            controller.fling({ x: vx, y: vy }, wasPinching ? vz : 0)
+          }
+          touchTracker.reset()
+        }
+      }
+      if (pointer?.id === event.pointerId) {
+        const { vx, vy } = mouseTracker.getVelocity()
+        const speed = Math.hypot(vx, vy)
+        if (speed >= controller.getPhysicsConfig().minFlingVelocity) {
+          controller.fling({ x: vx, y: vy }, 0)
+        }
+        mouseTracker.reset()
+        pointer = null
+      }
       if (root.hasPointerCapture(event.pointerId)) root.releasePointerCapture(event.pointerId)
       setCursor()
     }
+
     const reset = () => {
       if (pointer && root.hasPointerCapture(pointer.id)) root.releasePointerCapture(pointer.id)
       for (const id of touches.keys()) if (root.hasPointerCapture(id)) root.releasePointerCapture(id)
       pointer = null
       pinch = null
       touches.clear()
+      mouseTracker.reset()
+      touchTracker.reset()
       space = false
       setCursor()
     }
+
     const keydown = (event: KeyboardEvent) => {
       const isTextInput = event.target instanceof Element && !!event.target.closest('input:not([type="button"]):not([type="submit"]):not([type="checkbox"]):not([type="radio"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')
       if (isTextInput || (!hovered && !root.contains(document.activeElement))) return
@@ -222,6 +288,7 @@ export function CanvasViewport({ children, overlay, background, controller: prov
       if (event.key === '1') { event.preventDefault(); controller.fit(boundsRef.current) }
       if (event.key === 'Escape') reset()
     }
+
     const keyup = (event: KeyboardEvent) => { if (event.code === 'Space') { space = false; setCursor() } }
     const enter = () => { hovered = true }
     const leave = () => { hovered = false }
@@ -230,6 +297,7 @@ export function CanvasViewport({ children, overlay, background, controller: prov
       suppressClick = false
     }
     const auxiliaryClick = (event: MouseEvent) => { if (event.button === 1 && !isControl(event.target)) event.preventDefault() }
+
     root.addEventListener('wheel', wheel, { passive: false })
     root.addEventListener('pointerdown', down, true)
     root.addEventListener('pointermove', move)
@@ -243,6 +311,7 @@ export function CanvasViewport({ children, overlay, background, controller: prov
     document.addEventListener('keydown', keydown)
     document.addEventListener('keyup', keyup)
     window.addEventListener('blur', reset)
+
     return () => {
       observer.disconnect()
       unsubscribe()
@@ -267,18 +336,37 @@ export function CanvasViewport({ children, overlay, background, controller: prov
   }, [controller])
 
   return (
-    <div ref={rootRef} className={`canvas-viewport ${className}`} data-testid="canvas-viewport" tabIndex={0} role="region" aria-label="Infinite design canvas" aria-describedby="canvas-instructions" data-pan-mode={panMode} data-rulers={rulersVisible}>
+    <div
+      ref={rootRef}
+      className={`canvas-viewport ${className}`}
+      data-testid="canvas-viewport"
+      tabIndex={0}
+      role="region"
+      aria-label="Infinite design canvas"
+      aria-describedby="canvas-instructions"
+      data-pan-mode={panMode}
+      data-rulers={rulersVisible}
+    >
       {background && <div className="viewport-background" data-testid="viewport-background">{background}</div>}
       <canvas ref={gridRef} className="viewport-grid" data-testid="viewport-grid" aria-hidden="true" hidden={!gridVisible} />
-      {rulersVisible && <>
-        <canvas ref={hRulerRef} className="viewport-ruler-h" data-testid="viewport-ruler-h" aria-hidden="true" />
-        <canvas ref={vRulerRef} className="viewport-ruler-v" data-testid="viewport-ruler-v" aria-hidden="true" />
-        <div className="viewport-ruler-corner" data-testid="viewport-ruler-corner" aria-hidden="true" />
-      </>}
-      <div ref={worldRef} className="viewport-world" data-testid="viewport-world">{children}</div>
+      {rulersVisible && (
+        <>
+          <canvas ref={hRulerRef} className="viewport-ruler-h" data-testid="viewport-ruler-h" aria-hidden="true" />
+          <canvas ref={vRulerRef} className="viewport-ruler-v" data-testid="viewport-ruler-v" aria-hidden="true" />
+          <div className="viewport-ruler-corner" data-testid="viewport-ruler-corner" aria-hidden="true" />
+        </>
+      )}
+      <div ref={worldRef} className="viewport-world" data-testid="viewport-world">
+        {children}
+      </div>
+      <EdgeBounceOverlay controller={controller} />
       {overlay}
-      <div className="viewport-origin" data-testid="viewport-origin" aria-hidden="true">WORLD <span ref={coordinatesRef}>0, 0</span></div>
-      <div className="viewport-hint" data-testid="canvas-instructions" id="canvas-instructions">Scroll to zoom <span>·</span> Space + drag to pan <span>·</span> Shift + scroll to pan</div>
+      <div className="viewport-origin" data-testid="viewport-origin" aria-hidden="true">
+        WORLD <span ref={coordinatesRef}>0, 0</span>
+      </div>
+      <div className="viewport-hint" data-testid="canvas-instructions" id="canvas-instructions">
+        Scroll to zoom <span>·</span> Space + drag to pan <span>·</span> Shift + scroll to pan
+      </div>
       {showMinimap && <Minimap controller={controller} items={minimapItems} />}
       <ZoomControls controller={controller} contentBounds={bounds} />
     </div>

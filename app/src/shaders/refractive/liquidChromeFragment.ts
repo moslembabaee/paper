@@ -263,6 +263,9 @@ export function liquidChromeUniforms(paint: LiquidChromePaint) {
   const cSheen = parseHexColor(p.sheenColor)
 
   return {
+    u_scale: paint.scale,
+    u_rotation: (paint.rotation * Math.PI) / 180,
+    u_offset: [paint.offsetX, paint.offsetY],
     u_metallicSheen: p.metallicSheen,
     u_iridescence: p.iridescence,
     u_filmThickness: p.filmThickness,

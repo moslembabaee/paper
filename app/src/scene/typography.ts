@@ -266,6 +266,10 @@ export function compileTypographyStyles(node: TextElement): CSSProperties {
     styles.fontStretch = `${node.variableAxes.wdth}%`
   }
 
+  if (node.opticalMarginAlignment) {
+    ;(styles as Record<string, unknown>).hangingPunctuation = 'first last'
+  }
+
   return styles
 }
 
@@ -410,3 +414,12 @@ export function embeddedFontCSS(node: TextElement): string {
   const family = node.fontFamily.replace(/[^a-zA-Z0-9_-]/g, '')
   return `@font-face{font-family:"${family}";src:url("${node.fontSource}");font-weight:1 1000;font-stretch:25% 200%;font-display:swap;}`
 }
+
+export {
+  calculatePairwiseKerning,
+  computeTextOpticalMetrics,
+  type GlyphOpticalMetric,
+  type LineOpticalMetrics,
+  type TextOpticalMetrics,
+} from './opticalMetrics.ts'
+

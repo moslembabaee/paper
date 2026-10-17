@@ -278,6 +278,9 @@ export function glassmorphismUniforms(paint: GlassmorphismPaint) {
   const cHigh = parseHexColor(p.highlightColor)
 
   return {
+    u_scale: paint.scale,
+    u_rotation: (paint.rotation * Math.PI) / 180,
+    u_offset: [paint.offsetX, paint.offsetY],
     u_refractionIndex: p.refractionIndex,
     u_dispersion: p.dispersion,
     u_roughness: p.roughness,

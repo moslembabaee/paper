@@ -1,6 +1,6 @@
 import { ComponentPropertiesPanel } from './ComponentPropertiesPanel'
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { ArrowUpRight, Copy, Diamond, Component as Diamonds, Plus, RotateCcw, Search, Sparkles, Unlink, Upload } from 'lucide-react'
+import { ArrowUpRight, Copy, Diamond, Component as Diamonds, Plus, RotateCcw, Search, Sparkles, Unlink, Upload, Layers } from 'lucide-react'
 import type { ViewportController } from '../canvas/ViewportController'
 import type { ComponentOverrides, SceneElement } from './types'
 import type { SceneStore } from './store'
@@ -134,6 +134,8 @@ export function ComponentInspector({ store, controller, node }: { store: SceneSt
         return { id: propId, name: prop?.name ?? propId, value: String(val) }
       })
     : []
+  const hasVariantMatrix = Boolean(master?.component?.kind === 'master' && master.component.variantMatrix)
+
   return <div className="inspector-section component-section" data-testid="component-inspector">
     <div className="component-section-heading"><span className="section-caption">{instance ? 'COMPONENT INSTANCE' : 'MASTER COMPONENT'}</span>{instance ? <Diamond size={13} /> : <Diamonds size={13} />}</div>
     <div className="component-identity"><span className={`component-mark ${instance ? '' : 'is-master'}`}><Diamond size={18} /></span><div><strong>{master?.name}</strong><span>{instance ? count ? `${count} local override${count === 1 ? '' : 's'}` : 'Synced with master' : `${instances} instance${instances === 1 ? '' : 's'} in this document`}</span></div></div>
@@ -179,68 +181,115 @@ export function ComponentInspector({ store, controller, node }: { store: SceneSt
               </div>
             </div>
           )}
-          {layers.filter(layer => overrideDetails(layer).length > 0).map(layer => (
-            <div key={layer.id} className="component-override-group">
-              <div className="component-override-group-header">
-                <span className="component-override-group-title">{layer.name}</span>
-                <div className="component-override-group-actions">
-                  <button
-                    className="quiet-button override-header-action"
-                    disabled={active || store.isLocked(masterId)}
-                    title={`Push ${layer.name} overrides to master`}
-                    aria-label={`Push ${layer.name} to master`}
-                    onClick={() => perform(() => store.pushLayerOverridesToMaster(layer.id))}
-                  >
-                    <Upload size={11} />
-                  </button>
-                  <button
-                    className="quiet-button override-header-action"
-                    disabled={active}
-                    title={`Reset ${layer.name} overrides`}
-                    aria-label={`Reset ${layer.name}`}
-                    onClick={() => perform(() => store.resetComponentOverrides(layer.id))}
-                  >
-                    <RotateCcw size={11} />
-                  </button>
-                </div>
-              </div>
-              <div className="component-override-chips">
-                {overrideDetails(layer).map(item => (
-                  <div key={item.key} className="component-override-chip-wrapper">
-                    <span className="component-override-chip" title={`${item.label}${item.value ? `: ${item.value}` : ''}`}>
-                      <span className="property-override-dot" />
-                      <span className="override-chip-label">{item.label}</span>
-                      {item.value && <span className="override-chip-val">{item.value}</span>}
-                    </span>
+          {layers.filter(layer => overrideDetails(layer).length > 0).map(layer => {
+            const diffs = store.getOverrideDiff(layer.id)
+            return (
+              <div key={layer.id} className="component-override-group">
+                <div className="component-override-group-header">
+                  <span className="component-override-group-title">{layer.name}</span>
+                  <div className="component-override-group-actions">
+                    {hasVariantMatrix && (
+                      <button
+                        className="quiet-button override-header-action"
+                        disabled={active || store.isLocked(masterId)}
+                        title={`Push ${layer.name} overrides to variant matrix`}
+                        aria-label={`Push ${layer.name} to variant`}
+                        onClick={() => perform(() => store.pushLayerOverridesToVariant(layer.id))}
+                      >
+                        <Layers size={11} />
+                      </button>
+                    )}
                     <button
-                      className="chip-action-btn"
+                      className="quiet-button override-header-action"
                       disabled={active || store.isLocked(masterId)}
-                      title={`Push ${item.label} to master`}
-                      aria-label={`Push ${item.label} to master`}
-                      onClick={() => perform(() => store.pushPropertyOverrideToMaster(layer.id, item.key))}
+                      title={`Push ${layer.name} overrides to master`}
+                      aria-label={`Push ${layer.name} to master`}
+                      onClick={() => perform(() => store.pushLayerOverridesToMaster(layer.id))}
                     >
-                      <Upload size={10} />
+                      <Upload size={11} />
                     </button>
                     <button
-                      className="chip-action-btn"
+                      className="quiet-button override-header-action"
                       disabled={active}
-                      title={`Reset ${item.label}`}
-                      aria-label={`Reset ${item.label}`}
-                      onClick={() => perform(() => store.resetPropertyOverride(layer.id, item.key))}
+                      title={`Reset ${layer.name} overrides`}
+                      aria-label={`Reset ${layer.name}`}
+                      onClick={() => perform(() => store.resetComponentOverrides(layer.id))}
                     >
-                      <RotateCcw size={10} />
+                      <RotateCcw size={11} />
                     </button>
                   </div>
-                ))}
+                </div>
+                <div className="component-override-chips">
+                  {overrideDetails(layer).map(item => {
+                    const matchingDiff = diffs.find(d => d.channel === item.key)
+                    const hasDiffVal = matchingDiff && matchingDiff.masterValue !== 'default' && matchingDiff.masterValue !== 'none'
+                    return (
+                      <div key={item.key} className="component-override-chip-wrapper">
+                        <span className="component-override-chip" title={`${item.label}${item.value ? `: ${item.value}` : ''}`}>
+                          <span className="property-override-dot" />
+                          <span className="override-chip-label">{item.label}</span>
+                          {hasDiffVal ? (
+                            <span className="override-diff-info">
+                              <span className="override-master-val" title={`Master: ${matchingDiff.masterValue}`}>{matchingDiff.masterValue}</span>
+                              <span className="override-diff-arrow">→</span>
+                              <span className="override-local-val" title={`Override: ${matchingDiff.overrideValue}`}>{matchingDiff.overrideValue}</span>
+                            </span>
+                          ) : (
+                            item.value && <span className="override-chip-val">{item.value}</span>
+                          )}
+                        </span>
+                        {hasVariantMatrix && (
+                          <button
+                            className="chip-action-btn"
+                            disabled={active || store.isLocked(masterId)}
+                            title={`Push ${item.label} to variant combination`}
+                            aria-label={`Push ${item.label} to variant`}
+                            onClick={() => perform(() => store.pushPropertyOverrideToVariant(layer.id, item.key))}
+                          >
+                            <Layers size={10} />
+                          </button>
+                        )}
+                        <button
+                          className="chip-action-btn"
+                          disabled={active || store.isLocked(masterId)}
+                          title={`Push ${item.label} to master`}
+                          aria-label={`Push ${item.label} to master`}
+                          onClick={() => perform(() => store.pushPropertyOverrideToMaster(layer.id, item.key))}
+                        >
+                          <Upload size={10} />
+                        </button>
+                        <button
+                          className="chip-action-btn"
+                          disabled={active}
+                          title={`Reset ${item.label}`}
+                          aria-label={`Reset ${item.label}`}
+                          onClick={() => perform(() => store.resetPropertyOverride(layer.id, item.key))}
+                        >
+                          <RotateCcw size={10} />
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
       <div className="component-actions">
-        {count > 0 && (
+        {count > 0 && hasVariantMatrix && (
           <button
             className="component-action primary"
+            disabled={active || store.isLocked(masterId)}
+            title="Push local overrides to active variant combination in matrix"
+            onClick={() => perform(() => store.pushInstanceOverridesToVariant(node.id))}
+          >
+            <Layers size={12} />Push overrides to variant matrix
+          </button>
+        )}
+        {count > 0 && (
+          <button
+            className={`component-action ${!hasVariantMatrix ? 'primary' : ''}`}
             disabled={active || store.isLocked(masterId)}
             title="Push local overrides back to master symbol for all instances"
             onClick={() => perform(() => store.pushOverridesToMaster(node.id))}
@@ -248,7 +297,7 @@ export function ComponentInspector({ store, controller, node }: { store: SceneSt
             <Upload size={12} />Push overrides to master
           </button>
         )}
-        <button className="component-action" disabled={!count || active} onClick={() => perform(() => store.resetComponentOverrides(node.id))}><RotateCcw size={12} />Reset overrides</button>
+        <button className="component-action" disabled={!count || active} onClick={() => perform(() => store.resetAllComponentOverrides(node.id))}><RotateCcw size={12} />Reset overrides</button>
         <button className="component-action" disabled={active} onClick={() => perform(() => store.detachComponentInstance(node.id))}><Unlink size={12} />Detach instance</button>
       </div>
       <p>{node.id === root.id ? 'Edit any layer to override it. Reset restores the master’s current values.' : 'Overrides belong to this layer. Detach releases the whole instance.'}</p>

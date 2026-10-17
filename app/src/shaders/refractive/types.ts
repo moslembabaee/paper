@@ -91,12 +91,20 @@ export interface GlassmorphismPaint extends ShaderMotion {
   readonly kind: 'glassmorphism'
   readonly params: GlassmorphismParams
   readonly composite?: ShaderComposite
+  readonly mesh?: unknown
+  readonly pipeline?: unknown
+  readonly postProcessing?: unknown
+  readonly gradient?: unknown
 }
 
 export interface LiquidChromePaint extends ShaderMotion {
   readonly kind: 'liquid-chrome'
   readonly params: LiquidChromeParams
   readonly composite?: ShaderComposite
+  readonly mesh?: unknown
+  readonly pipeline?: unknown
+  readonly postProcessing?: unknown
+  readonly gradient?: unknown
 }
 
 export type RefractivePaint = GlassmorphismPaint | LiquidChromePaint

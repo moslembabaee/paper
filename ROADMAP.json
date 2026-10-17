@@ -1773,8 +1773,8 @@
       "title": "Non-Destructive Boolean Vector Operations and Compound Shape Masking",
       "description": "Add non-destructive vector path operations (Union, Subtract, Intersect, Exclude) to the infinite canvas scene graph. Support live compound shape hierarchy evaluation, editable sub-path anchors, and SVG/Canvas2D export rendering.",
       "assigned_agent": "claude",
-      "status": "in_progress",
-      "retry_count": 0,
+      "status": "failed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 60
     },
@@ -1881,7 +1881,8 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 66,
-      "completed_at": "2026-10-17T09:41:31.764012+00:00"
+      "completed_at": "2026-10-17T09:41:31.764012+00:00",
+      "closed_at": "2026-10-17T09:41:35Z"
     },
     {
       "id": "T-EVOLVE-1792225933-3",
@@ -1889,10 +1890,110 @@
       "title": "Component Variant Matrix and Instance Property Override System",
       "description": "Build master component definitions with multi-dimensional variant properties (size, state, theme), automated change propagation to instances, and localized scene graph property override preservation.",
       "assigned_agent": "claude",
-      "status": "approved",
+      "status": "blocked",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 67
+    },
+    {
+      "id": "T-EVOLVE-1792232499-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Non-Destructive Boolean Vector Operations Engine",
+      "description": "Implement non-destructive compound shape geometry operations (Union, Subtract, Intersect, and Exclude) for vector nodes on the canvas. Store compound shape operation hierarchies within the scene graph, support live parameter adjustment and child path reordering, and provide precise SVG path clipping and path-string generation for rendering and export.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 68
+    },
+    {
+      "id": "T-EVOLVE-1792232499-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive WebGL Shader FX Material System",
+      "description": "Create a procedural shader material pipeline integrated with @paper-design/shaders-react, offering configurable effects such as chromatic glass dispersion, liquid warp distortion, procedural grain/noise, and real-time backdrop blur. Include interactive inspector controls for frequency, roughness, refractive index, and color aberration with live canvas viewport GPU acceleration.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 69
+    },
+    {
+      "id": "T-EVOLVE-1792232499-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Design Token Studio with Bi-Directional Code Generation",
+      "description": "Implement a centralized design tokens manager for colors, spacing, typography scales, elevation shadows, and border radii with token aliasing and theme switching (Light, Dark, High-Contrast). Enable live token binding to layer properties and one-click code generation/export for Tailwind CSS v4 configuration, CSS Custom Properties, and TypeScript token types.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 70
+    },
+    {
+      "id": "T-EVOLVE-1792234436-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Semantic Variable Modes and Multi-Theme Token Resolver",
+      "description": "Implement token aliasing and variable modes (Light, Dark, High-Contrast) allowing canvas frames and component instances to bind properties to design tokens with dynamic mode inheritance, override controls in the inspector, and real-time CSS custom property injection.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 71
+    },
+    {
+      "id": "T-EVOLVE-1792234436-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Smart Animate Morphing and Physics Micro-Interaction Engine",
+      "description": "Extend the prototyping system with Smart Animate transition capability: compute layout and geometry diffs across connected prototype screens, interpolate B\u00e9zier paths and transforms using spring physics curves, and render interactive live previews in an overlay presentation player.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 72
+    },
+    {
+      "id": "T-EVOLVE-1792234436-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Responsive Layout Constraints and Adaptive Canvas Grid System",
+      "description": "Add responsive pinning constraints (Left, Right, Top, Bottom, Center, Scale) and multi-column/row layout grids to container frames, with interactive on-canvas resize snapping and real-time nested child repositioning.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 73
+    },
+    {
+      "id": "T-EVOLVE-1792236751-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Variable Font & OpenType Typography Controls with Live Canvas Rendering",
+      "description": "Implement interactive variable font axes sliders (wght, wdth, slnt, opsz), OpenType feature flag toggles (liga, calt, frac, tnum), and glyph-level optical metrics into text element properties and canvas renderer.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 74
+    },
+    {
+      "id": "T-EVOLVE-1792236751-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Vector Masking Engine with Alpha and Luminance Clip Modes",
+      "description": "Implement non-destructive shape and path masking for scene elements, supporting alpha channel masks, luminance threshold clipping, mask hierarchy inspection in layer tree, and SVG mask export.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 75
+    },
+    {
+      "id": "T-EVOLVE-1792236751-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Physics-Driven Spring Canvas Gesture & Momentum Navigation Engine",
+      "description": "Implement spring-physics panning, inertia-based kinetic zoom, fluid edge bouncing, and interactive velocity-aware gesture handling for the infinite canvas viewport.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 76,
+      "completed_at": "2026-10-17T12:09:57.316955+00:00"
     }
   ],
   "active_attempt": {}

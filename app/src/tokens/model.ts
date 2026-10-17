@@ -39,6 +39,7 @@ const NAMED_COLORS = new Set('transparent aliceblue antiquewhite aqua aquamarine
 export function validateToken(token: DesignToken): void {
   if (!token || typeof token.id !== 'string' || !token.id || token.id.length > 200 || typeof token.name !== 'string' || token.name.length > 100 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(token.name) || !Object.hasOwn(TOKEN_META, token.type)) throw new Error('Use a token name like brand-blue or body-size.')
   if (token.themeValues !== undefined && (!token.themeValues || typeof token.themeValues !== 'object' || Array.isArray(token.themeValues))) throw new Error('Invalid theme values.')
+  if (token.themeAliases !== undefined && (!token.themeAliases || typeof token.themeAliases !== 'object' || Array.isArray(token.themeAliases))) throw new Error('Invalid theme aliases.')
   if (token.palette !== undefined && (typeof token.palette !== 'string' || token.palette.length > 100)) throw new Error('Invalid palette name.')
   if (token.aliasId !== undefined && (typeof token.aliasId !== 'string' || !token.aliasId)) throw new Error('Invalid token alias.')
   if (token.type === 'color') {
@@ -62,7 +63,7 @@ export function validateTokens(tokens: readonly DesignToken[]): readonly DesignT
     ids.add(token.id); names.add(variable)
   }
   resolveTokens(tokens)
-  return Object.freeze(tokens.map(token => Object.freeze({ ...Object.fromEntries(Object.entries(token).filter(([, value]) => value !== undefined)), ...(token.themeValues ? { themeValues: Object.freeze({ ...token.themeValues }) } : {}) }) as DesignToken))
+  return Object.freeze(tokens.map(token => Object.freeze({ ...Object.fromEntries(Object.entries(token).filter(([, value]) => value !== undefined)), ...(token.themeValues ? { themeValues: Object.freeze({ ...token.themeValues }) } : {}), ...(token.themeAliases ? { themeAliases: Object.freeze({ ...token.themeAliases }) } : {}) }) as DesignToken))
 }
 
 export function elevationShadow(distance: number): Shadow | null {

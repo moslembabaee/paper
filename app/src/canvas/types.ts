@@ -31,3 +31,68 @@ export interface MinimapItem extends Bounds {
   id: string
   color?: string
 }
+
+export interface Velocity2D {
+  x: number
+  y: number
+}
+
+export interface ViewportVelocity extends Velocity2D {
+  zoom: number
+}
+
+export type SpringPresetName = 'paper' | 'snappy' | 'fluid' | 'gentle' | 'direct'
+
+export interface CanvasPhysicsConfig {
+  /** Physics preset profile name */
+  preset: SpringPresetName
+  /** Spring stiffness / tension (higher = faster snap to target) */
+  stiffness: number
+  /** Spring damping coefficient (higher = less oscillation) */
+  damping: number
+  /** Virtual camera mass */
+  mass: number
+  /** Friction coefficient for momentum coasting (0.80 - 0.98) */
+  friction: number
+  /** Minimum fling velocity (px/sec) required to activate momentum */
+  minFlingVelocity: number
+  /** Maximum fling velocity (px/sec) cap */
+  maxFlingVelocity: number
+  /** Enable momentum/inertia panning upon drag release */
+  momentumPanning: boolean
+  /** Enable kinetic zoom inertia and wheel smoothing */
+  kineticZoom: boolean
+  /** Enable rubber-band edge bouncing on zoom limits and canvas bounds */
+  edgeBouncing: boolean
+  /** Rubber-band resistance factor (0.1 - 0.9) */
+  rubberBandResistance: number
+  /** Edge bounce restoring spring stiffness */
+  edgeBounceStiffness: number
+  /** Edge bounce restoring spring damping */
+  edgeBounceDamping: number
+  /** Optional soft boundaries for spatial bounce in world space */
+  softBounds: Bounds | null
+  /** Padding in pixels around soft bounds */
+  boundaryOverscrollPadding: number
+}
+
+export interface EdgeBounceState {
+  active: boolean
+  top: number
+  right: number
+  bottom: number
+  left: number
+  zoomMin: number
+  zoomMax: number
+}
+
+export interface CanvasPhysicsTelemetry {
+  velocity: Velocity2D
+  zoomVelocity: number
+  speed: number
+  isCoasting: boolean
+  isSpringing: boolean
+  isBouncing: boolean
+  bounceState: EdgeBounceState
+}
+

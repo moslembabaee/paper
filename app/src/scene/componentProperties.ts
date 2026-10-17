@@ -1,4 +1,4 @@
-import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, SceneElement } from './types.ts'
+import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, ComponentVariantMatrix, SceneElement, VariantDimension, VariantMatrixCombination } from './types.ts'
 import type { DesignToken, StyleLibrary } from '../tokens/types.ts'
 import { applyComponentOverrides, subtree, validateComponent } from './components.ts'
 import { validateElement } from './elements.ts'
@@ -6,6 +6,106 @@ import { validateStateMachine } from './stateMachine.ts'
 
 const safeId = (id: unknown): id is string => typeof id === 'string' && !!id && id.length <= 200 && !['__proto__', 'constructor', 'prototype'].includes(id)
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+
+export function validateVariantMatrix(matrix: ComponentVariantMatrix): void {
+  if (!matrix || typeof matrix !== 'object' || Array.isArray(matrix)) throw new Error('Invalid variant matrix')
+  if (!Array.isArray(matrix.dimensions) || !Array.isArray(matrix.combinations)) throw new Error('Invalid variant matrix structure')
+  const dimIds = new Set<string>()
+  const dimNames = new Set<string>()
+  for (const dim of matrix.dimensions) {
+    if (!dim || !safeId(dim.id) || typeof dim.name !== 'string' || !dim.name.trim() || dimIds.has(dim.id) || dimNames.has(dim.name.trim().toLowerCase())) {
+      throw new Error('Dimension IDs and names must be unique')
+    }
+    dimIds.add(dim.id)
+    dimNames.add(dim.name.trim().toLowerCase())
+    if (!Array.isArray(dim.values) || !dim.values.length) throw new Error('Dimension must have at least one value')
+    const valSet = new Set<string>()
+    for (const val of dim.values) {
+      if (typeof val !== 'string' || !val.trim() || valSet.has(val.trim())) throw new Error('Dimension values must be unique and non-empty')
+      valSet.add(val.trim())
+    }
+    if (!valSet.has(dim.defaultValue)) throw new Error('Default value must be one of the dimension values')
+  }
+  for (const comb of matrix.combinations) {
+    if (!comb || !safeId(comb.id) || !isRecord(comb.dimensions) || !isRecord(comb.layers)) {
+      throw new Error('Invalid variant matrix combination')
+    }
+    for (const [layerId, overrides] of Object.entries(comb.layers)) {
+      if (!safeId(layerId)) throw new Error('Invalid layer ID in variant matrix combination')
+      validateComponent({ kind: 'instance', masterId: layerId, sourceId: layerId, instanceId: layerId, overrides: overrides as ComponentOverrides })
+    }
+  }
+}
+
+export function pruneVariantMatrix(matrix: ComponentVariantMatrix, sources: ReadonlySet<string>): ComponentVariantMatrix {
+  return {
+    ...matrix,
+    combinations: matrix.combinations.map(comb => ({
+      ...comb,
+      layers: Object.fromEntries(Object.entries(comb.layers).filter(([id]) => sources.has(id))),
+    })),
+  }
+}
+
+export function createVariantPresetDimensions(preset: 'size' | 'state' | 'theme' | 'full-matrix'): { dimensions: VariantDimension[]; combinations?: VariantMatrixCombination[] } {
+  if (preset === 'size') {
+    return {
+      dimensions: [
+        { id: crypto.randomUUID(), name: 'Size', values: ['sm', 'md', 'lg'], defaultValue: 'md' },
+      ],
+    }
+  }
+  if (preset === 'state') {
+    return {
+      dimensions: [
+        { id: crypto.randomUUID(), name: 'State', values: ['default', 'hover', 'pressed', 'active', 'disabled'], defaultValue: 'default' },
+      ],
+    }
+  }
+  if (preset === 'theme') {
+    return {
+      dimensions: [
+        { id: crypto.randomUUID(), name: 'Theme', values: ['paper', 'dark', 'accent', 'contrast'], defaultValue: 'paper' },
+      ],
+    }
+  }
+  return {
+    dimensions: [
+      { id: crypto.randomUUID(), name: 'Size', values: ['sm', 'md', 'lg'], defaultValue: 'md' },
+      { id: crypto.randomUUID(), name: 'State', values: ['default', 'hover', 'active'], defaultValue: 'default' },
+      { id: crypto.randomUUID(), name: 'Theme', values: ['paper', 'dark', 'accent'], defaultValue: 'paper' },
+    ],
+  }
+}
+
+export function getEffectiveVariantDimensions(master: SceneElement): readonly VariantDimension[] {
+  if (master.component?.kind !== 'master') return []
+  const dimensions: VariantDimension[] = []
+  const seenNames = new Set<string>()
+
+  if (master.component.variantMatrix?.dimensions) {
+    for (const dim of master.component.variantMatrix.dimensions) {
+      dimensions.push(dim)
+      seenNames.add(dim.name.toLowerCase())
+    }
+  }
+
+  if (master.component.properties) {
+    for (const prop of master.component.properties) {
+      if (prop.kind === 'variant' && !seenNames.has(prop.name.toLowerCase())) {
+        dimensions.push({
+          id: prop.id,
+          name: prop.name,
+          values: prop.options.map(o => o.value),
+          defaultValue: prop.defaultValue,
+        })
+        seenNames.add(prop.name.toLowerCase())
+      }
+    }
+  }
+
+  return Object.freeze(dimensions)
+}
 
 export function validateComponentProperties(properties: readonly ComponentProperty[]): void {
   if (!Array.isArray(properties) || properties.length > 100) throw new Error('Invalid component properties')
@@ -242,7 +342,15 @@ export function applyPropertyValueToElement(
 }
 
 /** Variants compose first; slots then win over variants, and local layer edits win last. */
-export function resolveComponentProperties(source: SceneElement, properties: readonly ComponentProperty[], values: Readonly<Record<string, ComponentPropertyValue>>, tokens: readonly DesignToken[], library: StyleLibrary, activeState?: string): SceneElement {
+export function resolveComponentProperties(
+  source: SceneElement,
+  properties: readonly ComponentProperty[],
+  values: Readonly<Record<string, ComponentPropertyValue>>,
+  tokens: readonly DesignToken[],
+  library: StyleLibrary,
+  activeState?: string,
+  variantMatrix?: ComponentVariantMatrix
+): SceneElement {
   let next = source
   const apply = (overrides: ComponentOverrides) => {
     next = applyComponentOverrides(next, { kind: 'instance', masterId: source.id, sourceId: source.id, instanceId: source.id, overrides }, tokens, library)
@@ -256,6 +364,58 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
     const overrides = property.options.find(option => option.value === value)?.layers[source.id]
     if (overrides) apply(overrides)
   }
+
+  // Compound multi-dimensional variant matrix combination resolution
+  if (variantMatrix && variantMatrix.combinations.length > 0) {
+    const activeDimensionValues: Record<string, string> = {}
+    for (const dim of variantMatrix.dimensions) {
+      const matchingProp = properties.find(p => p.id === dim.id || p.name.trim().toLowerCase() === dim.name.trim().toLowerCase())
+      let val: string | undefined = undefined
+      if (matchingProp && Object.hasOwn(values, matchingProp.id)) {
+        val = String(values[matchingProp.id])
+      } else if (Object.hasOwn(values, dim.id)) {
+        val = String(values[dim.id])
+      } else if (Object.hasOwn(values, dim.name)) {
+        val = String(values[dim.name])
+      }
+      if (!val && dim.name.toLowerCase() === 'state' && activeState) {
+        val = activeState
+      }
+      const resolvedVal = val ?? dim.defaultValue
+      activeDimensionValues[dim.name] = resolvedVal
+      activeDimensionValues[dim.id] = resolvedVal
+      activeDimensionValues[dim.name.toLowerCase()] = resolvedVal
+    }
+
+    const matchingCombinations: { comb: VariantMatrixCombination; score: number }[] = []
+
+    for (const comb of variantMatrix.combinations) {
+      const combDims = Object.entries(comb.dimensions)
+      if (combDims.length === 0) continue
+      let matches = 0
+      let failed = false
+      for (const [dimKey, dimVal] of combDims) {
+        const currentVal = activeDimensionValues[dimKey] ?? activeDimensionValues[dimKey.toLowerCase()]
+        if (currentVal === dimVal) {
+          matches++
+        } else {
+          failed = true
+          break
+        }
+      }
+      if (!failed && matches > 0) {
+        matchingCombinations.push({ comb, score: matches })
+      }
+    }
+
+    matchingCombinations.sort((a, b) => a.score - b.score)
+    for (const { comb } of matchingCombinations) {
+      if (comb.layers[source.id]) {
+        apply(comb.layers[source.id])
+      }
+    }
+  }
+
   for (const property of properties) {
     if (property.kind === 'variant' || property.sourceId !== source.id) continue
     const value = values[property.id] ?? property.defaultValue
@@ -280,7 +440,7 @@ export function validatePropertyTargets(master: SceneElement, elements: Readonly
       const source = sources.get(id)
       if (!source) throw new Error('Variant layer is outside this master')
       for (const key of Object.keys(overrides.properties ?? {})) {
-        if (!(key in source) && key !== 'sizing' && !(source.type === 'frame' && key === 'layout') && !(source.type === 'path' && key === 'nodes') && !(source.type === 'text' && ['kinetic', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'].includes(key))) {
+        if (!(key in source) && key !== 'sizing' && !(source.type === 'frame' && key === 'layout') && !(source.type === 'path' && key === 'nodes') && !(source.type === 'text' && ['kinetic', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'opticalMarginAlignment', 'showOpticalMetrics', 'textOnPath', 'textTransform'].includes(key))) {
           throw new Error('Unsupported variant override')
         }
       }

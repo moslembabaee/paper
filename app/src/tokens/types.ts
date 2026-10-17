@@ -2,7 +2,7 @@ import type { FontKerningMode, OpenTypeFeatures, TextOnPath, TextTransform, Vari
 
 export type TokenType = 'color' | 'elevation' | 'radius' | 'spacing' | 'container' | 'breakpoint' | 'fontFamily' | 'fontSize' | 'fontWeight' | 'lineHeight' | 'letterSpacing'
 export type DesignToken = {
-  [T in TokenType]: Readonly<{ id: string; name: string; type: T; value: T extends 'color' | 'fontFamily' ? string : number; aliasId?: string; themeValues?: Readonly<Record<string, T extends 'color' | 'fontFamily' ? string : number>>; palette?: string }>
+  [T in TokenType]: Readonly<{ id: string; name: string; type: T; value: T extends 'color' | 'fontFamily' ? string : number; aliasId?: string; themeValues?: Readonly<Record<string, T extends 'color' | 'fontFamily' ? string : number>>; themeAliases?: Readonly<Record<string, string>>; palette?: string }>
 }[TokenType]
 export type TokenInput = DesignToken extends infer T ? T extends DesignToken ? Omit<T, 'id'> & { readonly id?: string } : never : never
 export type TokenProperty = 'fill' | 'stroke' | 'shadow' | 'cornerRadius' | 'fontSize' | 'fontFamily' | 'fontWeight' | 'lineHeight' | 'letterSpacing' | 'x' | 'y' | 'width' | 'height'

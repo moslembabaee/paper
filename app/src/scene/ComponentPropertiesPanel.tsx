@@ -4,6 +4,7 @@ import type { SceneStore } from './store'
 import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, SceneElement } from './types'
 import { subtree } from './components'
 import { ComponentStateMachineEditor } from './ComponentStateMachineEditor'
+import { ComponentVariantMatrixEditor } from './ComponentVariantMatrixEditor'
 import { getEffectiveStateMachine, DEFAULT_INTERACTIVE_STATES } from './stateMachine'
 import { shaderBlendModes } from '../shaders/types'
 
@@ -528,6 +529,68 @@ export function ComponentPropertiesPanel({
         </p>
       )}
 
+      {instance && master.component.variantMatrix?.dimensions.map(dim => {
+        const dimVal = instance.propertyValues?.[dim.id] ?? instance.propertyValues?.[dim.name] ?? dim.defaultValue
+        const isLocal = Boolean(instance.propertyValues && (Object.hasOwn(instance.propertyValues, dim.id) || Object.hasOwn(instance.propertyValues, dim.name)))
+        const change = (val: string) =>
+          perform(() => store.setComponentProperty(root.id, dim.name, val))
+        const reset = () =>
+          perform(() => store.setComponentProperty(root.id, dim.name, null))
+
+        return (
+          <div key={dim.id} className={`component-property ${isLocal ? 'is-local' : ''}`}>
+            <div className="component-property-heading">
+              <span>
+                {dim.name}
+                <small>
+                  Variant Dimension
+                  {isLocal && <span className="property-master-hint"> · Default: {dim.defaultValue}</span>}
+                </small>
+              </span>
+              {isLocal && (
+                <div className="component-property-actions">
+                  <span className="property-override-badge" title={`Locally overridden (Default: ${dim.defaultValue})`}>
+                    <span className="property-override-dot" />
+                    Override
+                  </span>
+                  <button
+                    className="quiet-button"
+                    disabled={disabled || store.isLocked(master.id)}
+                    aria-label={`Push ${dim.name} to master`}
+                    title={`Push "${dim.name}" override back to master default`}
+                    onClick={() => perform(() => store.updateVariantDimension(master.id, dim.id, { defaultValue: String(dimVal) }))}
+                  >
+                    <Upload size={11} />
+                  </button>
+                  <button
+                    className="quiet-button"
+                    disabled={disabled}
+                    aria-label={`Reset ${dim.name}`}
+                    title={`Reset "${dim.name}" to default (${dim.defaultValue})`}
+                    onClick={reset}
+                  >
+                    <RotateCcw size={11} />
+                  </button>
+                </div>
+              )}
+            </div>
+            <select
+              className="property-input"
+              aria-label={dim.name}
+              disabled={disabled}
+              value={String(dimVal)}
+              onChange={e => change(e.currentTarget.value)}
+            >
+              {dim.values.map(val => (
+                <option key={val} value={val}>
+                  {val} {val === dim.defaultValue ? '(Default)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )
+      })}
+
       {instance && (machine || (variantProp && variantProp.options.length > 1)) && (
         <div className={`component-property ${instance.activeState ? 'is-local' : ''}`}>
           <div className="component-property-heading">
@@ -719,6 +782,7 @@ export function ComponentPropertiesPanel({
         <p>Edit the master, then capture an option. Captured tokens stay linked; uncaptured options inherit the master.</p>
       )}
 
+      {!instance && <ComponentVariantMatrixEditor store={store} master={master} disabled={disabled} />}
       {!instance && <ComponentStateMachineEditor store={store} master={master} disabled={disabled} />}
 
       {adding && !instance && (

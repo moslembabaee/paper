@@ -1,7 +1,7 @@
 import { EMPTY_MOTION, pruneMotion, validateMotion } from '../motion/model.ts'
 import type { MotionDocument } from '../motion/types.ts'
-import type { ComponentInstance, ComponentOverrides, ComponentProperty, ComponentPropertyValue, ComponentRegistry, ComponentStateMachine, ComponentVariant, MasterComponent, MasterComponentSchema } from './types.ts'
-import { applyPropertyValueToElement, releaseComponentResources, validPropertyValue, validateComponentProperties, validatePropertyTargets } from './componentProperties.ts'
+import type { ComponentInstance, ComponentOverrides, ComponentProperty, ComponentPropertyValue, ComponentRegistry, ComponentStateMachine, ComponentVariant, ComponentVariantMatrix, MasterComponent, MasterComponentSchema, OverrideDiffEntry, VariantDimension, VariantMatrixCell, VariantMatrixCombination } from './types.ts'
+import { applyPropertyValueToElement, createVariantPresetDimensions, getEffectiveVariantDimensions, releaseComponentResources, validPropertyValue, validateComponentProperties, validatePropertyTargets, validateVariantMatrix } from './componentProperties.ts'
 import { createDefaultStateMachine, getEffectiveStateMachine, validateStateMachine } from './stateMachine.ts'
 import { EMPTY_COMMENTS, validateComments } from '../comments/model.ts'
 import type { CommentDocument } from '../comments/types.ts'
@@ -21,7 +21,10 @@ import { canMask, validateMaskGraph } from './maskGeometry.ts'
 import { getWorldBounds } from './geometry.ts'
 import { unionBounds } from '../canvas/math.ts'
 import { FIXED_SIZING, invalidateLayoutTextMetrics, reflowAutoLayout } from './autoLayout.ts'
-import { buildComponentRegistry, componentRoot, isComponentInstance, isInstanceRoot, isMasterComponent, recordComponentEdit, recordComponentTokenEdit, subtree, synchronizeComponents, validateComponentGraph, validateComponentRegistry } from './components.ts'
+import { applyConstraintsToChildren } from './layoutConstraints.ts'
+import { createDefaultLayoutGrid } from './layoutGridGeometry.ts'
+import type { FrameLayoutGrid, LayoutConstraints, LayoutGridType } from './types.ts'
+import { buildComponentRegistry, componentRoot, getComponentOverrideDiff, isComponentInstance, isInstanceRoot, isMasterComponent, recordComponentEdit, recordComponentTokenEdit, subtree, synchronizeComponents, validateComponentGraph, validateComponentRegistry } from './components.ts'
 import { EMPTY_PROTOTYPE, DEFAULT_TRANSITION, prunePrototype, validatePrototype } from '../prototype/model.ts'
 import type { PrototypeDocument, PrototypeInteraction } from '../prototype/types.ts'
 import { validatePhysicsDocument } from '../physics/constants.ts'
@@ -339,7 +342,67 @@ export class SceneStore {
     }
     if (equalValue(node, updated)) return
     const label = patch.style ? 'Style' : ['x', 'y', 'width', 'height', 'rotation'].some(key => Object.hasOwn(patch, key)) ? 'Transform' : 'Edit'
-    this.commit({ ...this.state.elements, [id]: freezeElement(recordComponentEdit(node, updated, patch)) }, this.state.rootIds, this.state.selection, `${label} ${node.name}`)
+    let elements = { ...this.state.elements, [id]: freezeElement(recordComponentEdit(node, updated, patch)) }
+
+    // Real-time nested child repositioning and resizing according to responsive pinning constraints
+    if (
+      node.type === 'frame' &&
+      !node.layout &&
+      node.children &&
+      node.children.length > 0 &&
+      (Object.hasOwn(patch, 'width') || Object.hasOwn(patch, 'height'))
+    ) {
+      const nextWidth = patch.width ?? node.width
+      const nextHeight = patch.height ?? node.height
+      if (nextWidth !== node.width || nextHeight !== node.height) {
+        const initialElements = this.transaction?.before.elements
+        const fromFrame = initialElements?.[node.id] ?? node
+        elements = applyConstraintsToChildren(
+          elements,
+          node.id,
+          fromFrame,
+          { width: nextWidth, height: nextHeight },
+          initialElements,
+        )
+      }
+    }
+
+    this.commit(elements, this.state.rootIds, this.state.selection, `${label} ${node.name}`)
+  }
+
+  setLayoutConstraints(id: string, constraints: LayoutConstraints): void {
+    const node = this.require(id)
+    this.update(node.id, node.type, { constraints })
+  }
+
+  addFrameLayoutGrid(frameId: string, type: LayoutGridType): FrameLayoutGrid {
+    const frame = this.require(frameId)
+    if (frame.type !== 'frame') throw new Error('Only frames support layout grids')
+    const grid = createDefaultLayoutGrid(type)
+    const layoutGrids = [...(frame.layoutGrids ?? []), grid]
+    this.update(frameId, 'frame', { layoutGrids })
+    return grid
+  }
+
+  updateFrameLayoutGrid(frameId: string, gridId: string, patch: Partial<FrameLayoutGrid>): void {
+    const frame = this.require(frameId)
+    if (frame.type !== 'frame') throw new Error('Only frames support layout grids')
+    const layoutGrids = (frame.layoutGrids ?? []).map(g => (g.id === gridId ? { ...g, ...patch } : g))
+    this.update(frameId, 'frame', { layoutGrids })
+  }
+
+  removeFrameLayoutGrid(frameId: string, gridId: string): void {
+    const frame = this.require(frameId)
+    if (frame.type !== 'frame') throw new Error('Only frames support layout grids')
+    const layoutGrids = (frame.layoutGrids ?? []).filter(g => g.id !== gridId)
+    this.update(frameId, 'frame', { layoutGrids })
+  }
+
+  toggleFrameLayoutGridVisibility(frameId: string, gridId: string): void {
+    const frame = this.require(frameId)
+    if (frame.type !== 'frame') throw new Error('Only frames support layout grids')
+    const layoutGrids = (frame.layoutGrids ?? []).map(g => (g.id === gridId ? { ...g, visible: !g.visible } : g))
+    this.update(frameId, 'frame', { layoutGrids })
   }
 
   /** Flags are editable even for a locked layer, so it can always be unlocked. */
@@ -597,6 +660,7 @@ export class SceneStore {
       masterId: master.id,
       properties: master.component.properties ?? Object.freeze([]),
       stateMachine: master.component.stateMachine,
+      variantMatrix: master.component.variantMatrix,
       instanceCount: entry?.instanceIds.length ?? 0,
       instanceIds: entry?.instanceIds ?? Object.freeze([]),
       createdAt: master.component.createdAt,
@@ -701,14 +765,18 @@ export class SceneStore {
     if (root?.component?.kind !== 'instance') throw new Error('Choose a component instance')
     if (this.isLocked(root.id) || this.history.getSnapshot().active) throw new Error('Unlock the instance and finish the active edit first')
     const master = this.require(root.component.masterId)
-    const property = master.component?.kind === 'master' ? master.component.properties?.find(property => property.id === propertyId) : undefined
-    if (!property || (value !== null && !validPropertyValue(property, value))) throw new Error('Choose a valid component property value')
+    const property = master.component?.kind === 'master' ? master.component.properties?.find(property => property.id === propertyId || property.name.toLowerCase() === propertyId.toLowerCase()) : undefined
+    const variantDim = master.component?.kind === 'master' ? master.component.variantMatrix?.dimensions.find(d => d.id === propertyId || d.name.toLowerCase() === propertyId.toLowerCase()) : undefined
+    if (!property && !variantDim) throw new Error('Choose a valid component property value')
+    if (property && value !== null && !validPropertyValue(property, value)) throw new Error('Choose a valid component property value')
+    if (variantDim && value !== null && (typeof value !== 'string' || !variantDim.values.includes(value))) throw new Error('Choose a valid variant dimension value')
+    const propKey = property ? property.id : variantDim!.name
     const propertyValues = { ...root.component.propertyValues }
-    if (value === null) delete propertyValues[propertyId]
-    else propertyValues[propertyId] = value
+    if (value === null) delete propertyValues[propKey]
+    else propertyValues[propKey] = value
     if (equalValue(propertyValues, root.component.propertyValues ?? {})) return
     const next = freezeElement({ ...root, component: { ...root.component, propertyValues } })
-    this.commit({ ...this.state.elements, [root.id]: next }, this.state.rootIds, this.state.selection, `Change ${property.name}`)
+    this.commit({ ...this.state.elements, [root.id]: next }, this.state.rootIds, this.state.selection, `Change ${property?.name ?? variantDim?.name}`)
   }
 
   setComponentStateMachine(masterId: string, stateMachine: ComponentStateMachine | null): void {
@@ -943,6 +1011,682 @@ export class SceneStore {
     let synchronized = synchronizeComponents(nextElements, resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), this.state.elements, this.state.styleLibrary)
     this.state = Object.freeze({ ...this.state, elements: Object.freeze(synchronized) })
     this.emit()
+  }
+
+  /** Set or replace the multi-dimensional variant matrix for a master component */
+  setVariantMatrix(masterId: string, matrix: ComponentVariantMatrix | null): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    if (matrix !== null) validateVariantMatrix(matrix)
+    const nextComponent = { ...master.component, variantMatrix: matrix === null ? undefined : matrix, updatedAt: Date.now() }
+    if (!matrix) delete (nextComponent as { variantMatrix?: ComponentVariantMatrix }).variantMatrix
+    const next = freezeElement({ ...master, component: nextComponent })
+    this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, 'Update variant matrix')
+  }
+
+  /** Add a variant dimension (e.g. Size, State, Theme) to a master component */
+  addVariantDimension(masterId: string, dimension: { name: string; values: string[]; defaultValue?: string }): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const trimmedName = dimension.name.trim()
+    if (!trimmedName) throw new Error('Enter a valid dimension name')
+    const values = dimension.values.map(v => v.trim()).filter(Boolean)
+    if (!values.length) throw new Error('Enter at least one dimension value')
+    const currentMatrix = master.component.variantMatrix ?? { dimensions: [], combinations: [] }
+    if (currentMatrix.dimensions.some(d => d.name.toLowerCase() === trimmedName.toLowerCase())) {
+      throw new Error(`Dimension '${trimmedName}' already exists`)
+    }
+    const def = dimension.defaultValue && values.includes(dimension.defaultValue) ? dimension.defaultValue : values[0]
+    const newDim: VariantDimension = {
+      id: crypto.randomUUID(),
+      name: trimmedName,
+      values,
+      defaultValue: def,
+    }
+    const nextDimensions = [...currentMatrix.dimensions, newDim]
+    const nextMatrix: ComponentVariantMatrix = {
+      dimensions: nextDimensions,
+      combinations: currentMatrix.combinations,
+    }
+    this.setVariantMatrix(masterId, nextMatrix)
+  }
+
+  /** Remove a variant dimension from a master component */
+  removeVariantDimension(masterId: string, dimensionId: string): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const currentMatrix = master.component.variantMatrix
+    if (!currentMatrix) return
+    const nextDimensions = currentMatrix.dimensions.filter(d => d.id !== dimensionId && d.name !== dimensionId)
+    const nextMatrix: ComponentVariantMatrix = {
+      dimensions: nextDimensions,
+      combinations: currentMatrix.combinations.map(comb => {
+        const nextDims = Object.fromEntries(Object.entries(comb.dimensions).filter(([k]) => k !== dimensionId))
+        return { ...comb, dimensions: nextDims }
+      }),
+    }
+    this.setVariantMatrix(masterId, nextDimensions.length > 0 ? nextMatrix : null)
+  }
+
+  /** Update an existing variant dimension */
+  updateVariantDimension(masterId: string, dimensionId: string, patch: Partial<VariantDimension>): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const currentMatrix = master.component.variantMatrix
+    if (!currentMatrix) throw new Error('No variant matrix found on master component')
+    const index = currentMatrix.dimensions.findIndex(d => d.id === dimensionId || d.name === dimensionId)
+    if (index === -1) throw new Error(`Dimension '${dimensionId}' not found`)
+    const updated = { ...currentMatrix.dimensions[index], ...patch }
+    const nextDimensions = [...currentMatrix.dimensions]
+    nextDimensions[index] = updated
+    this.setVariantMatrix(masterId, {
+      dimensions: nextDimensions,
+      combinations: currentMatrix.combinations,
+    })
+  }
+
+  /** Capture current master visual appearance into a specific variant combination */
+  captureVariantCombination(masterId: string, dimensions: Record<string, string>, description?: string): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const layers = subtree(this.state.elements, master.id)
+    const capturedLayers: Record<string, ComponentOverrides> = {}
+    for (const layer of layers) {
+      capturedLayers[layer.id] = {
+        style: { ...layer.style },
+        properties: {
+          width: layer.width,
+          height: layer.height,
+          ...('cornerRadius' in layer ? { cornerRadius: layer.cornerRadius } : {}),
+          ...(layer.type === 'text' ? { text: layer.text, fontFamily: layer.fontFamily, fontSize: layer.fontSize, fontWeight: layer.fontWeight, lineHeight: layer.lineHeight, letterSpacing: layer.letterSpacing, textAlign: layer.textAlign, ...(layer.kinetic ? { kinetic: layer.kinetic } : {}) } : {}),
+        },
+        ...(layer.tokenBindings ? { tokenBindings: layer.tokenBindings } : {}),
+        ...(layer.sharedStyleBindings ? { sharedStyleBindings: layer.sharedStyleBindings } : {}),
+      }
+    }
+
+    const currentMatrix = master.component.variantMatrix ?? {
+      dimensions: Object.entries(dimensions).map(([name, val]) => ({
+        id: crypto.randomUUID(),
+        name,
+        values: [val],
+        defaultValue: val,
+      })),
+      combinations: [],
+    }
+
+    const existingIndex = currentMatrix.combinations.findIndex(c =>
+      Object.keys(dimensions).every(k => c.dimensions[k] === dimensions[k]) &&
+      Object.keys(c.dimensions).length === Object.keys(dimensions).length
+    )
+
+    const cell: VariantMatrixCell = {
+      id: existingIndex >= 0 ? currentMatrix.combinations[existingIndex].id : crypto.randomUUID(),
+      dimensions,
+      layers: capturedLayers,
+      ...(description ? { description } : {}),
+    }
+
+    const nextCombinations = [...currentMatrix.combinations]
+    if (existingIndex >= 0) {
+      nextCombinations[existingIndex] = cell
+    } else {
+      nextCombinations.push(cell)
+    }
+
+    this.setVariantMatrix(masterId, {
+      dimensions: currentMatrix.dimensions,
+      combinations: nextCombinations,
+    })
+  }
+
+  /** Clear overrides for a variant combination */
+  clearVariantCombination(masterId: string, combinationId: string): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    const currentMatrix = master.component.variantMatrix
+    if (!currentMatrix) return
+    const nextCombinations = currentMatrix.combinations.filter(c => c.id !== combinationId)
+    this.setVariantMatrix(masterId, {
+      dimensions: currentMatrix.dimensions,
+      combinations: nextCombinations,
+    })
+  }
+
+  /** Apply pre-configured design system matrix presets (Size, State, Theme, Full Matrix) */
+  applyVariantMatrixPreset(masterId: string, preset: 'size' | 'state' | 'theme' | 'full-matrix'): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+
+    const layers = subtree(this.state.elements, master.id)
+    const baseCapture: Record<string, ComponentOverrides> = {}
+    for (const layer of layers) {
+      baseCapture[layer.id] = {
+        style: { ...layer.style },
+        properties: {
+          width: layer.width,
+          height: layer.height,
+          ...('cornerRadius' in layer ? { cornerRadius: layer.cornerRadius } : {}),
+          ...(layer.type === 'text' ? { text: layer.text, fontFamily: layer.fontFamily, fontSize: layer.fontSize, fontWeight: layer.fontWeight, lineHeight: layer.lineHeight, letterSpacing: layer.letterSpacing, textAlign: layer.textAlign } : {}),
+        },
+        ...(layer.tokenBindings ? { tokenBindings: layer.tokenBindings } : {}),
+        ...(layer.sharedStyleBindings ? { sharedStyleBindings: layer.sharedStyleBindings } : {}),
+      }
+    }
+
+    const { dimensions } = createVariantPresetDimensions(preset)
+    const combinations: VariantMatrixCombination[] = []
+
+    if (preset === 'size') {
+      for (const sizeVal of ['sm', 'md', 'lg']) {
+        const factor = sizeVal === 'sm' ? 0.8 : sizeVal === 'lg' ? 1.2 : 1
+        const sizeLayers: Record<string, ComponentOverrides> = {}
+        for (const layer of layers) {
+          const w = Math.round(layer.width * factor)
+          const h = Math.round(layer.height * factor)
+          const rad = 'cornerRadius' in layer ? Math.max(2, Math.round((layer.cornerRadius ?? 0) * factor)) : undefined
+          const fs = layer.type === 'text' ? Math.max(10, Math.round(layer.fontSize * factor)) : undefined
+          sizeLayers[layer.id] = {
+            ...baseCapture[layer.id],
+            properties: {
+              ...baseCapture[layer.id].properties,
+              width: w,
+              height: h,
+              ...(rad !== undefined ? { cornerRadius: rad } : {}),
+              ...(fs !== undefined ? { fontSize: fs } : {}),
+            },
+          }
+        }
+        combinations.push({
+          id: crypto.randomUUID(),
+          dimensions: { Size: sizeVal },
+          layers: sizeLayers,
+          description: `${sizeVal.toUpperCase()} size tier`,
+        })
+      }
+    } else if (preset === 'state') {
+      for (const stateVal of ['default', 'hover', 'pressed', 'active', 'disabled']) {
+        const stateLayers: Record<string, ComponentOverrides> = {}
+        for (const layer of layers) {
+          let op = layer.style.opacity ?? 1
+          let stroke = layer.style.stroke
+          if (stateVal === 'hover') op = Math.max(0.7, op * 0.9)
+          else if (stateVal === 'pressed') op = Math.max(0.5, op * 0.75)
+          else if (stateVal === 'active') stroke = { color: '#81adec', width: 2, dash: [] }
+          else if (stateVal === 'disabled') op = 0.4
+          stateLayers[layer.id] = {
+            ...baseCapture[layer.id],
+            style: {
+              ...baseCapture[layer.id].style,
+              opacity: op,
+              ...(stroke ? { stroke } : {}),
+            },
+          }
+        }
+        combinations.push({
+          id: crypto.randomUUID(),
+          dimensions: { State: stateVal },
+          layers: stateLayers,
+          description: `${stateVal} interactive state`,
+        })
+      }
+    } else if (preset === 'theme') {
+      const themes: Record<string, { fill: string; textFill: string; stroke: string }> = {
+        paper: { fill: '#edebe1', textFill: '#080808', stroke: '#222222' },
+        dark: { fill: '#080808', textFill: '#edebe1', stroke: '#333333' },
+        accent: { fill: '#81adec', textFill: '#080808', stroke: '#81adec' },
+        contrast: { fill: '#222222', textFill: '#edebe1', stroke: '#555555' },
+      }
+      for (const [themeVal, colors] of Object.entries(themes)) {
+        const themeLayers: Record<string, ComponentOverrides> = {}
+        for (const layer of layers) {
+          themeLayers[layer.id] = {
+            ...baseCapture[layer.id],
+            style: {
+              ...baseCapture[layer.id].style,
+              fill: layer.type === 'text' ? colors.textFill : colors.fill,
+              ...(layer.style.stroke ? { stroke: { ...layer.style.stroke, color: colors.stroke } } : {}),
+            },
+          }
+        }
+        combinations.push({
+          id: crypto.randomUUID(),
+          dimensions: { Theme: themeVal },
+          layers: themeLayers,
+          description: `${themeVal} theme appearance`,
+        })
+      }
+    } else {
+      // Full matrix combines Size × State × Theme
+      for (const sizeVal of ['sm', 'md', 'lg']) {
+        for (const stateVal of ['default', 'hover', 'active']) {
+          for (const themeVal of ['paper', 'dark', 'accent']) {
+            const factor = sizeVal === 'sm' ? 0.85 : sizeVal === 'lg' ? 1.15 : 1
+            const colors = themeVal === 'dark'
+              ? { fill: '#080808', textFill: '#edebe1' }
+              : themeVal === 'accent'
+              ? { fill: '#81adec', textFill: '#080808' }
+              : { fill: '#edebe1', textFill: '#080808' }
+            const cellLayers: Record<string, ComponentOverrides> = {}
+            for (const layer of layers) {
+              let op = layer.style.opacity ?? 1
+              if (stateVal === 'hover') op = 0.9
+              else if (stateVal === 'active') op = 0.95
+              cellLayers[layer.id] = {
+                properties: {
+                  width: Math.round(layer.width * factor),
+                  height: Math.round(layer.height * factor),
+                  ...('cornerRadius' in layer ? { cornerRadius: Math.max(2, Math.round((layer.cornerRadius ?? 0) * factor)) } : {}),
+                  ...(layer.type === 'text' ? { fontSize: Math.max(10, Math.round(layer.fontSize * factor)) } : {}),
+                },
+                style: {
+                  fill: layer.type === 'text' ? colors.textFill : colors.fill,
+                  opacity: op,
+                  ...(stateVal === 'active' ? { stroke: { color: '#81adec', width: 2, dash: [] } } : {}),
+                },
+              }
+            }
+            combinations.push({
+              id: crypto.randomUUID(),
+              dimensions: { Size: sizeVal, State: stateVal, Theme: themeVal },
+              layers: cellLayers,
+            })
+          }
+        }
+      }
+    }
+
+    const nextMatrix: ComponentVariantMatrix = {
+      dimensions,
+      combinations,
+    }
+    this.setVariantMatrix(masterId, nextMatrix)
+  }
+
+  /** Push localized instance overrides into the master's variant combination */
+  pushInstanceOverridesToVariant(instanceId: string, dimensions?: Record<string, string>): void {
+    const root = componentRoot(this.state.elements, instanceId)
+    if (!root || root.component?.kind !== 'instance') throw new Error('Choose a component instance')
+    const master = this.require(root.component.masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(master.id)) throw new Error('Unlock the master component first')
+
+    const activeDims = dimensions ?? (root.component.propertyValues ? Object.fromEntries(
+      Object.entries(root.component.propertyValues).map(([k, v]) => [k, String(v)])
+    ) : {})
+
+    const layers = subtree(this.state.elements, root.id)
+    const capturedLayers: Record<string, ComponentOverrides> = {}
+    for (const layer of layers) {
+      if (layer.component?.kind === 'instance' && Object.keys(layer.component.overrides).length > 0) {
+        capturedLayers[layer.component.sourceId] = layer.component.overrides
+      }
+    }
+
+    const currentMatrix = master.component.variantMatrix ?? {
+      dimensions: Object.entries(activeDims).map(([k, v]) => ({
+        id: crypto.randomUUID(),
+        name: k,
+        values: [v],
+        defaultValue: v,
+      })),
+      combinations: [],
+    }
+
+    const existingIndex = currentMatrix.combinations.findIndex(c =>
+      Object.keys(activeDims).every(k => c.dimensions[k] === activeDims[k])
+    )
+
+    const nextComb: VariantMatrixCombination = {
+      id: existingIndex >= 0 ? currentMatrix.combinations[existingIndex].id : crypto.randomUUID(),
+      dimensions: activeDims,
+      layers: capturedLayers,
+    }
+
+    const nextCombinations = [...currentMatrix.combinations]
+    if (existingIndex >= 0) {
+      nextCombinations[existingIndex] = nextComb
+    } else {
+      nextCombinations.push(nextComb)
+    }
+
+    this.setVariantMatrix(master.id, {
+      dimensions: currentMatrix.dimensions,
+      combinations: nextCombinations,
+    })
+  }
+
+  /** Compute localized scene graph property override diffs between instance and resolved master/variant */
+  getOverrideDiff(instanceId: string): readonly OverrideDiffEntry[] {
+    const root = componentRoot(this.state.elements, instanceId)
+    if (!root || root.component?.kind !== 'instance') return []
+    const master = this.state.elements[root.component.masterId]
+    if (!master || master.component?.kind !== 'master') return []
+    const node = this.state.elements[instanceId]
+    if (!node) return []
+    return getComponentOverrideDiff(node, master, resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), this.state.styleLibrary, this.state.elements)
+  }
+
+  /** Compute all localized scene graph property override diffs across all layers of an instance */
+  getInstanceAllOverrideDiffs(instanceId: string): readonly OverrideDiffEntry[] {
+    const root = componentRoot(this.state.elements, instanceId)
+    if (!root || root.component?.kind !== 'instance') return []
+    const master = this.state.elements[root.component.masterId]
+    if (!master || master.component?.kind !== 'master') return []
+    const layers = subtree(this.state.elements, root.id)
+    const allDiffs: OverrideDiffEntry[] = []
+    const tokens = resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId)
+    for (const layer of layers) {
+      if (layer.component?.kind === 'instance') {
+        const diffs = getComponentOverrideDiff(layer, master, tokens, this.state.styleLibrary, this.state.elements)
+        allDiffs.push(...diffs)
+      }
+    }
+    return Object.freeze(allDiffs)
+  }
+
+  /** Push a single property override from an instance layer to the matching variant combination in master */
+  pushPropertyOverrideToVariant(layerId: string, channel: string, dimensions?: Record<string, string>): void {
+    const root = componentRoot(this.state.elements, layerId)
+    if (!root || root.component?.kind !== 'instance') throw new Error('Choose an instance layer')
+    const master = this.require(root.component.masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(master.id)) throw new Error('Unlock the master component first')
+    const node = this.require(layerId)
+    if (node.component?.kind !== 'instance') throw new Error('Choose an instance layer')
+
+    const activeDims = dimensions ?? (root.component.propertyValues ? Object.fromEntries(
+      Object.entries(root.component.propertyValues).map(([k, v]) => [k, String(v)])
+    ) : {})
+
+    const currentMatrix = master.component.variantMatrix ?? {
+      dimensions: Object.entries(activeDims).map(([k, v]) => ({
+        id: crypto.randomUUID(),
+        name: k,
+        values: [v],
+        defaultValue: v,
+      })),
+      combinations: [],
+    }
+
+    const combIndex = currentMatrix.combinations.findIndex(c =>
+      Object.keys(activeDims).every(k => c.dimensions[k] === activeDims[k]) &&
+      Object.keys(c.dimensions).length === Object.keys(activeDims).length
+    )
+
+    const existingComb: VariantMatrixCombination = combIndex >= 0 ? currentMatrix.combinations[combIndex] : {
+      id: crypto.randomUUID(),
+      dimensions: activeDims,
+      layers: {},
+    }
+
+    const sourceId = node.component.sourceId
+    const existingLayerOverrides = existingComb.layers[sourceId] ?? {}
+    const nodeOverrides = node.component.overrides
+
+    const [section, propName] = channel.split('.')
+    let nextLayerOverrides = { ...existingLayerOverrides }
+
+    if (section === 'style' && nodeOverrides.style && Object.hasOwn(nodeOverrides.style, propName)) {
+      nextLayerOverrides = {
+        ...nextLayerOverrides,
+        style: {
+          ...nextLayerOverrides.style,
+          [propName]: (nodeOverrides.style as any)[propName],
+        },
+      }
+    } else if (section === 'properties' && nodeOverrides.properties && Object.hasOwn(nodeOverrides.properties, propName)) {
+      nextLayerOverrides = {
+        ...nextLayerOverrides,
+        properties: {
+          ...nextLayerOverrides.properties,
+          [propName]: (nodeOverrides.properties as any)[propName],
+        },
+      }
+    } else if (section === 'tokenBindings' && nodeOverrides.tokenBindings && Object.hasOwn(nodeOverrides.tokenBindings, propName)) {
+      nextLayerOverrides = {
+        ...nextLayerOverrides,
+        tokenBindings: {
+          ...nextLayerOverrides.tokenBindings,
+          [propName]: (nodeOverrides.tokenBindings as any)[propName],
+        },
+      }
+    } else if (section === 'sharedStyleBindings' && nodeOverrides.sharedStyleBindings && Object.hasOwn(nodeOverrides.sharedStyleBindings, propName)) {
+      nextLayerOverrides = {
+        ...nextLayerOverrides,
+        sharedStyleBindings: {
+          ...nextLayerOverrides.sharedStyleBindings,
+          [propName]: (nodeOverrides.sharedStyleBindings as any)[propName],
+        },
+      }
+    }
+
+    const nextComb: VariantMatrixCombination = {
+      ...existingComb,
+      layers: {
+        ...existingComb.layers,
+        [sourceId]: nextLayerOverrides,
+      },
+    }
+
+    const nextCombinations = [...currentMatrix.combinations]
+    if (combIndex >= 0) {
+      nextCombinations[combIndex] = nextComb
+    } else {
+      nextCombinations.push(nextComb)
+    }
+
+    this.batch(() => {
+      this.setVariantMatrix(master.id, {
+        dimensions: currentMatrix.dimensions,
+        combinations: nextCombinations,
+      })
+      this.resetPropertyOverride(layerId, channel)
+    }, `Push ${channel} to variant combination`)
+  }
+
+  /** Push all overrides on an instance layer to the matching variant combination in master */
+  pushLayerOverridesToVariant(layerId: string, dimensions?: Record<string, string>): void {
+    const root = componentRoot(this.state.elements, layerId)
+    if (!root || root.component?.kind !== 'instance') throw new Error('Choose an instance layer')
+    const master = this.require(root.component.masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(master.id)) throw new Error('Unlock the master component first')
+    const node = this.require(layerId)
+    if (node.component?.kind !== 'instance') throw new Error('Choose an instance layer')
+
+    const activeDims = dimensions ?? (root.component.propertyValues ? Object.fromEntries(
+      Object.entries(root.component.propertyValues).map(([k, v]) => [k, String(v)])
+    ) : {})
+
+    const currentMatrix = master.component.variantMatrix ?? {
+      dimensions: Object.entries(activeDims).map(([k, v]) => ({
+        id: crypto.randomUUID(),
+        name: k,
+        values: [v],
+        defaultValue: v,
+      })),
+      combinations: [],
+    }
+
+    const combIndex = currentMatrix.combinations.findIndex(c =>
+      Object.keys(activeDims).every(k => c.dimensions[k] === activeDims[k]) &&
+      Object.keys(c.dimensions).length === Object.keys(activeDims).length
+    )
+
+    const existingComb: VariantMatrixCombination = combIndex >= 0 ? currentMatrix.combinations[combIndex] : {
+      id: crypto.randomUUID(),
+      dimensions: activeDims,
+      layers: {},
+    }
+
+    const sourceId = node.component.sourceId
+    const nextComb: VariantMatrixCombination = {
+      ...existingComb,
+      layers: {
+        ...existingComb.layers,
+        [sourceId]: {
+          ...(existingComb.layers[sourceId] ?? {}),
+          ...node.component.overrides,
+        },
+      },
+    }
+
+    const nextCombinations = [...currentMatrix.combinations]
+    if (combIndex >= 0) {
+      nextCombinations[combIndex] = nextComb
+    } else {
+      nextCombinations.push(nextComb)
+    }
+
+    this.batch(() => {
+      this.setVariantMatrix(master.id, {
+        dimensions: currentMatrix.dimensions,
+        combinations: nextCombinations,
+      })
+      this.resetComponentOverrides(layerId)
+    }, `Push ${node.name} overrides to variant combination`)
+  }
+
+  /** Reset all overrides on an entire instance tree */
+  resetAllComponentOverrides(instanceId: string): void {
+    this.resetComponentOverrides(instanceId)
+  }
+
+  /** Reset overrides on a specific layer in an instance subtree */
+  resetLayerOverrides(layerId: string): void {
+    const node = this.require(layerId)
+    if (node.component?.kind !== 'instance') throw new Error('Choose an instance layer')
+    if (this.isLocked(layerId) || this.history.getSnapshot().active) throw new Error('Unlock the layer first')
+    const nextNode = freezeElement({
+      ...node,
+      component: {
+        ...node.component,
+        overrides: {},
+      },
+    })
+    this.commit({ ...this.state.elements, [layerId]: nextNode }, this.state.rootIds, this.state.selection, `Reset ${node.name} overrides`)
+  }
+
+  /** Generate a complete 2D/3D matrix grid of instances on the canvas aligned to 120px grid */
+  generateVariantMatrixOnCanvas(
+    masterId: string,
+    options: { colDim?: string; rowDim?: string; spacing?: number } = {}
+  ): SceneElement {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.history.getSnapshot().active) throw new Error('Finish the active edit first')
+
+    const effectiveDims = getEffectiveVariantDimensions(master)
+    if (!effectiveDims.length) {
+      this.applyVariantMatrixPreset(masterId, 'size')
+    }
+
+    const dims = getEffectiveVariantDimensions(this.require(masterId))
+    const colDimension = dims.find(d => d.name === options.colDim) ?? dims[0]
+    const rowDimension = dims.find(d => d.name === options.rowDim && d.id !== colDimension.id) ?? (dims[1] ?? { id: 'single', name: 'Variant', values: ['default'], defaultValue: 'default' })
+
+    const colValues = colDimension.values
+    const rowValues = rowDimension.values
+    const gridStep = 120
+    const cellWidth = Math.ceil((master.width + 40) / gridStep) * gridStep
+    const cellHeight = Math.ceil((master.height + 60) / gridStep) * gridStep
+
+    const startX = master.x + Math.ceil((master.width + 120) / gridStep) * gridStep
+    const startY = master.y
+
+    const totalWidth = Math.max(colValues.length * cellWidth + 120, 480)
+    const totalHeight = Math.max(rowValues.length * cellHeight + 160, 360)
+
+    let containerFrame: SceneElement | null = null
+
+    this.batch(() => {
+      containerFrame = this.add('frame', {
+        name: `Matrix: ${master.name}`,
+        x: startX,
+        y: startY,
+        width: totalWidth,
+        height: totalHeight,
+        clipContent: false,
+        style: {
+          fill: '#08080805',
+          stroke: { color: '#81adec44', width: 1, dash: [4, 4] },
+        },
+      })
+
+      for (let c = 0; c < colValues.length; c++) {
+        const cVal = colValues[c]
+        const colX = 100 + c * cellWidth
+        this.add('text', {
+          parentId: containerFrame.id,
+          name: `Col: ${cVal}`,
+          text: `${colDimension.name}: ${cVal}`,
+          x: colX,
+          y: 20,
+          fontFamily: 'JetBrains Mono',
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: 0.5,
+          style: { fill: '#81adec' },
+        })
+      }
+
+      for (let r = 0; r < rowValues.length; r++) {
+        const rVal = rowValues[r]
+        const rowY = 60 + r * cellHeight
+        if (rowDimension.id !== 'single') {
+          this.add('text', {
+            parentId: containerFrame.id,
+            name: `Row: ${rVal}`,
+            text: `${rowDimension.name}: ${rVal}`,
+            x: 16,
+            y: rowY + Math.round(master.height / 2) - 6,
+            fontFamily: 'JetBrains Mono',
+            fontSize: 10,
+            fontWeight: 600,
+            letterSpacing: 0.5,
+            style: { fill: '#81adec' },
+          })
+        }
+
+        for (let c = 0; c < colValues.length; c++) {
+          const cVal = colValues[c]
+          const instX = 100 + c * cellWidth
+          const instY = rowY
+
+          const instance = this.createComponentInstance(masterId, {
+            parentId: containerFrame.id,
+            x: instX,
+            y: instY,
+          })
+
+          const propValues: Record<string, ComponentPropertyValue> = {
+            [colDimension.id]: cVal,
+            [colDimension.name]: cVal,
+          }
+          if (rowDimension.id !== 'single') {
+            propValues[rowDimension.id] = rVal
+            propValues[rowDimension.name] = rVal
+          }
+          for (const [k, v] of Object.entries(propValues)) {
+            try {
+              this.setComponentProperty(instance.id, k, v)
+            } catch {
+              // Ignore if slot not found
+            }
+          }
+        }
+      }
+    }, `Generate ${master.name} Variant Matrix`)
+
+    this.select([containerFrame!.id])
+    return containerFrame!
   }
 
   createComponentInstance(masterId: string, placement: { x?: number; y?: number; parentId?: string | null } = {}): SceneElement {
@@ -2274,42 +3018,86 @@ export class SceneStore {
 
   setNestedBooleanOperation(id: string, nestedOperandId: string, operation: BooleanOperation): void {
     const node = this.requireCompound(id)
-    const nested = node.boolean.operands.find(source => source.id === nestedOperandId)
-    if (!nested || nested.type !== 'path' || !nested.boolean) {
-      throw new Error('Nested compound source not found')
+    const updateNested = (operands: readonly VectorElement[]): { found: boolean; operands: readonly VectorElement[] } => {
+      let found = false
+      const next = operands.map(op => {
+        if (op.id === nestedOperandId && op.type === 'path' && op.boolean) {
+          found = true
+          if (op.boolean.operation === operation) return op
+          const subResult = computeBoolean(op.boolean.operands, operation)
+          return evaluateVectorElement({
+            ...op,
+            d: subResult.d,
+            viewBox: subResult.viewBox,
+            fillRule: subResult.fillRule,
+            boolean: {
+              ...op.boolean,
+              operation,
+            },
+          })
+        }
+        if (op.type === 'path' && op.boolean) {
+          const res = updateNested(op.boolean.operands)
+          if (res.found) {
+            found = true
+            return evaluateVectorElement({
+              ...op,
+              boolean: { ...op.boolean, operands: res.operands },
+            })
+          }
+        }
+        return op
+      })
+      return { found, operands: next }
     }
-    if (nested.boolean.operation === operation) return
 
-    const subResult = computeBoolean(nested.boolean.operands, operation)
-    const updatedNested: VectorElement = {
-      ...nested,
-      d: subResult.d,
-      viewBox: subResult.viewBox,
-      fillRule: subResult.fillRule,
-      boolean: {
-        ...nested.boolean,
-        operation,
-      },
-    }
-    validateElement(updatedNested)
-
-    const nextOperands = node.boolean.operands.map(source => source.id === nestedOperandId ? updatedNested : source)
-    this.refreshCompound(node, { ...node.boolean, operands: nextOperands }, `Change nested boolean to ${operation}`)
+    const res = updateNested(node.boolean.operands)
+    if (!res.found) throw new Error('Nested compound source not found')
+    this.refreshCompound(node, { ...node.boolean, operands: res.operands }, `Change nested boolean to ${operation}`)
   }
 
   unwrapNestedBoolean(id: string, nestedOperandId: string): void {
     const node = this.requireCompound(id)
-    const nestedIndex = node.boolean.operands.findIndex(source => source.id === nestedOperandId)
-    if (nestedIndex === -1) throw new Error('Nested compound source not found')
-    const nested = node.boolean.operands[nestedIndex]
-    if (nested.type !== 'path' || !nested.boolean) throw new Error('Target is not a compound shape')
+    const unwrapIn = (operands: readonly VectorElement[]): { found: boolean; operands: readonly VectorElement[] } => {
+      const idx = operands.findIndex(op => op.id === nestedOperandId)
+      if (idx !== -1) {
+        const nested = operands[idx]
+        if (nested.type !== 'path' || !nested.boolean) throw new Error('Target is not a compound shape')
+        return {
+          found: true,
+          operands: [
+            ...operands.slice(0, idx),
+            ...nested.boolean.operands,
+            ...operands.slice(idx + 1),
+          ],
+        }
+      }
+      for (let i = 0; i < operands.length; i++) {
+        const op = operands[i]
+        if (op.type === 'path' && op.boolean) {
+          const res = unwrapIn(op.boolean.operands)
+          if (res.found) {
+            const evaluated = evaluateVectorElement({
+              ...op,
+              boolean: { ...op.boolean, operands: res.operands },
+            })
+            return {
+              found: true,
+              operands: [
+                ...operands.slice(0, i),
+                evaluated,
+                ...operands.slice(i + 1),
+              ],
+            }
+          }
+        }
+      }
+      return { found: false, operands }
+    }
 
-    const nextOperands = [
-      ...node.boolean.operands.slice(0, nestedIndex),
-      ...nested.boolean.operands,
-      ...node.boolean.operands.slice(nestedIndex + 1),
-    ]
-    this.refreshCompound(node, { ...node.boolean, operands: nextOperands }, `Unwrap nested ${nested.name}`)
+    const res = unwrapIn(node.boolean.operands)
+    if (!res.found) throw new Error('Nested compound source not found')
+    this.refreshCompound(node, { ...node.boolean, operands: res.operands }, `Unwrap nested boolean`)
   }
 
   /** Source order defines the base of subtraction and the stack when released. */
@@ -2442,14 +3230,146 @@ export class SceneStore {
     this.refreshCompound(node, { ...node.boolean, operands: nextOperands }, `Add ${operand.name} to compound`)
   }
 
+  toggleBooleanOperandMute(id: string, operandId: string): void {
+    const node = this.requireCompound(id)
+    const toggleIn = (compound: BooleanCompound): { found: boolean; compound: BooleanCompound } => {
+      const hasDirect = compound.operands.some(op => op.id === operandId)
+      if (hasDirect) {
+        const muted = new Set(compound.mutedOperandIds ?? [])
+        if (muted.has(operandId)) {
+          muted.delete(operandId)
+        } else {
+          if (muted.size + 1 >= compound.operands.length) {
+            throw new Error('At least one operand must remain active in the compound shape')
+          }
+          muted.add(operandId)
+        }
+        const nextMuted = Array.from(muted)
+        return {
+          found: true,
+          compound: {
+            ...compound,
+            mutedOperandIds: nextMuted.length > 0 ? nextMuted : undefined,
+          },
+        }
+      }
+      for (let i = 0; i < compound.operands.length; i++) {
+        const op = compound.operands[i]
+        if (op.type === 'path' && op.boolean) {
+          const res = toggleIn(op.boolean)
+          if (res.found) {
+            const updatedChild = evaluateVectorElement({
+              ...op,
+              boolean: res.compound,
+            })
+            const nextOperands = [
+              ...compound.operands.slice(0, i),
+              updatedChild,
+              ...compound.operands.slice(i + 1),
+            ]
+            return {
+              found: true,
+              compound: { ...compound, operands: nextOperands },
+            }
+          }
+        }
+      }
+      return { found: false, compound }
+    }
+    const res = toggleIn(node.boolean)
+    if (!res.found) throw new Error('Boolean source not found')
+    this.refreshCompound(node, res.compound, 'Toggle boolean source visibility')
+  }
+
+  duplicateBooleanOperand(id: string, operandId: string): void {
+    const node = this.requireCompound(id)
+    const duplicateIn = (operands: readonly VectorElement[]): { found: boolean; operands: readonly VectorElement[] } => {
+      const idx = operands.findIndex(op => op.id === operandId)
+      if (idx !== -1) {
+        const target = operands[idx]
+        const cloneId = crypto.randomUUID()
+        const clone: VectorElement = {
+          ...target,
+          id: cloneId,
+          name: `${target.name} Copy`,
+          x: target.x + 10,
+          y: target.y + 10,
+        }
+        validateElement(clone)
+        return {
+          found: true,
+          operands: [
+            ...operands.slice(0, idx + 1),
+            clone,
+            ...operands.slice(idx + 1),
+          ],
+        }
+      }
+      for (let i = 0; i < operands.length; i++) {
+        const op = operands[i]
+        if (op.type === 'path' && op.boolean) {
+          const res = duplicateIn(op.boolean.operands)
+          if (res.found) {
+            const evaluated = evaluateVectorElement({
+              ...op,
+              boolean: { ...op.boolean, operands: res.operands },
+            })
+            return {
+              found: true,
+              operands: [
+                ...operands.slice(0, i),
+                evaluated,
+                ...operands.slice(i + 1),
+              ],
+            }
+          }
+        }
+      }
+      return { found: false, operands }
+    }
+    const res = duplicateIn(node.boolean.operands)
+    if (!res.found) throw new Error('Boolean source not found')
+    this.refreshCompound(node, { ...node.boolean, operands: res.operands }, 'Duplicate boolean source')
+  }
+
   removeBooleanOperand(id: string, operandId: string): void {
     const node = this.requireCompound(id)
-    const current = node.boolean.operands
-    if (current.length <= 2) {
-      throw new Error('A boolean compound must retain at least two vector shapes. Release the compound instead.')
+    const removeIn = (operands: readonly VectorElement[]): { found: boolean; operands: readonly VectorElement[] } => {
+      const idx = operands.findIndex(op => op.id === operandId)
+      if (idx !== -1) {
+        if (operands.length <= 2) {
+          throw new Error('A boolean compound must retain at least two vector shapes. Release the compound instead.')
+        }
+        return {
+          found: true,
+          operands: operands.filter(op => op.id !== operandId),
+        }
+      }
+      for (let i = 0; i < operands.length; i++) {
+        const op = operands[i]
+        if (op.type === 'path' && op.boolean) {
+          const res = removeIn(op.boolean.operands)
+          if (res.found) {
+            const evaluated = evaluateVectorElement({
+              ...op,
+              boolean: { ...op.boolean, operands: res.operands },
+            })
+            return {
+              found: true,
+              operands: [
+                ...operands.slice(0, i),
+                evaluated,
+                ...operands.slice(i + 1),
+              ],
+            }
+          }
+        }
+      }
+      return { found: false, operands }
     }
-    const nextOperands = current.filter(op => op.id !== operandId)
-    this.refreshCompound(node, { ...node.boolean, operands: nextOperands }, 'Remove boolean operand')
+    const res = removeIn(node.boolean.operands)
+    if (!res.found) throw new Error('Unknown boolean source')
+    this.refreshCompound(node, { ...node.boolean, operands: res.operands }, 'Remove boolean operand')
   }
 
   compoundMaskSelectionReason(ids = this.state.selection): string | null {
@@ -2846,12 +3766,12 @@ export class SceneStore {
     if (id !== null) {
       if (kind === 'color') { delete overrides.style.fill; delete overrides.tokenBindings.fill }
       if (kind === 'effects') { delete overrides.style.effects; delete overrides.style.shadow; delete overrides.tokenBindings.shadow }
-      if (kind === 'typography') for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'] as const) {
+      if (kind === 'typography') for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'opticalMarginAlignment', 'showOpticalMetrics', 'textOnPath', 'textTransform'] as const) {
         delete (overrides.properties as Record<string, unknown>)[key]
         delete (overrides.tokenBindings as Record<string, unknown>)[key]
       }
     }
-    const detached = id === null ? kind === 'color' ? { style: { ...overrides.style, fill: node.style.fill } } : kind === 'effects' ? { style: { ...overrides.style, effects: node.style.effects } } : { properties: { ...overrides.properties, ...(node.type === 'text' ? { fontFamily: node.fontFamily, fontSize: node.fontSize, fontWeight: node.fontWeight, lineHeight: node.lineHeight, letterSpacing: node.letterSpacing, textAlign: node.textAlign, variableAxes: node.variableAxes, openTypeFeatures: node.openTypeFeatures, fontKerning: node.fontKerning, opticalKerning: node.opticalKerning, textOnPath: node.textOnPath, textTransform: node.textTransform } : {}) } } : {}
+    const detached = id === null ? kind === 'color' ? { style: { ...overrides.style, fill: node.style.fill } } : kind === 'effects' ? { style: { ...overrides.style, effects: node.style.effects } } : { properties: { ...overrides.properties, ...(node.type === 'text' ? { fontFamily: node.fontFamily, fontSize: node.fontSize, fontWeight: node.fontWeight, lineHeight: node.lineHeight, letterSpacing: node.letterSpacing, textAlign: node.textAlign, variableAxes: node.variableAxes, openTypeFeatures: node.openTypeFeatures, fontKerning: node.fontKerning, opticalKerning: node.opticalKerning, opticalMarginAlignment: node.opticalMarginAlignment, showOpticalMetrics: node.showOpticalMetrics, textOnPath: node.textOnPath, textTransform: node.textTransform } : {}) } } : {}
     return { ...next, component: { ...node.component, overrides: { ...overrides, ...detached, sharedStyleBindings: { ...overrides.sharedStyleBindings, [kind]: id } } } }
   }
 

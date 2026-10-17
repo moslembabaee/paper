@@ -24,8 +24,11 @@ class ShaderBoundary extends Component<{ children: ReactNode; onError: () => voi
 
 function fallbackPaint(paint: ShaderPaint): string {
   if ('colors' in paint.params) return `linear-gradient(135deg, ${paint.params.colors.join(', ')})`
-  if ('colorMid' in paint.params) return `linear-gradient(135deg, ${paint.params.colorBack}, ${paint.params.colorMid}, ${paint.params.colorFront})`
-  return paint.params.colorBack
+  if ('colorMid' in paint.params) return `linear-gradient(135deg, ${(paint.params as any).colorBack}, ${(paint.params as any).colorMid}, ${(paint.params as any).colorFront})`
+  if ('colorBack' in paint.params) return (paint.params as any).colorBack
+  if ('tintColor' in paint.params) return (paint.params as any).tintColor
+  if ('baseColor' in paint.params) return (paint.params as any).baseColor
+  return '#edebe1'
 }
 
 /** Culling releases WebGL contexts. Hidden tabs and reduced motion use a static frame. */

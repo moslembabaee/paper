@@ -136,17 +136,15 @@ export const SnapGuides = memo(function SnapGuides({
               </>
             )}
 
-            {/* Dimension label if present */}
-            {isDimension && guide.label && (
-              <text
-                x={midX + (horizontal ? 0 : 8)}
-                y={midY - (horizontal ? 8 : 0)}
-                textAnchor={horizontal ? 'middle' : 'start'}
-                className="snap-dimension-text"
-              >
-                {guide.label}
-              </text>
-            )}
+            {/* Dimension or grid label if present */}
+            {((isDimension || guide.kind === 'grid') && guide.label) ? (
+              <g className="snap-guide-pill" transform={`translate(${horizontal ? midX - 25 : midX + 8}, ${horizontal ? midY - 18 : midY - 8})`}>
+                <rect width={Math.max(36, guide.label.length * 6.5 + 12)} height={16} rx="3" className="snap-pill-bg" />
+                <text x={Math.max(36, guide.label.length * 6.5 + 12) / 2} y={11.5} textAnchor="middle" className="snap-pill-text">
+                  {guide.label}
+                </text>
+              </g>
+            ) : null}
           </g>
         )
       })}

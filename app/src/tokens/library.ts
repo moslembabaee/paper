@@ -21,11 +21,19 @@ export function resolveTokens(tokens: readonly DesignToken[], themeId: string | 
     if (cached) return cached
     if (visiting.has(token.id)) throw new Error('Token aliases cannot form a cycle.')
     visiting.add(token.id)
-    let value = themeId && Object.hasOwn(token.themeValues ?? {}, themeId) ? token.themeValues![themeId] : token.value
-    if (token.aliasId !== undefined) {
-      const target = source.get(token.aliasId)
+    let value: string | number
+    const hasThemeOverride = Boolean(themeId && token.themeValues && Object.hasOwn(token.themeValues, themeId))
+    const themeAlias = themeId && token.themeAliases ? token.themeAliases[themeId] : undefined
+    const activeAliasId = themeAlias ?? token.aliasId
+
+    if (hasThemeOverride) {
+      value = token.themeValues![themeId!]
+    } else if (activeAliasId !== undefined) {
+      const target = source.get(activeAliasId)
       if (!target || target.type !== token.type) throw new Error('An alias needs an existing token of the same type.')
       value = visit(target).value
+    } else {
+      value = token.value
     }
     const next = value === token.value ? token : Object.freeze({ ...token, value }) as DesignToken
     visiting.delete(token.id); resolved.set(token.id, next)
@@ -102,6 +110,13 @@ export function validateLibrary(input: StyleLibrary | undefined, tokens: readonl
         validateToken({ ...token, value } as DesignToken)
       }
     }
+    if (token.themeAliases !== undefined) {
+      if (!token.themeAliases || typeof token.themeAliases !== 'object' || Array.isArray(token.themeAliases)) throw new Error('Invalid theme aliases.')
+      for (const [id, aliasTargetId] of Object.entries(token.themeAliases)) {
+        if (!themeIds.has(id)) throw new Error('Token references an unknown theme.')
+        if (typeof aliasTargetId !== 'string' || !tokens.some(t => t.id === aliasTargetId && t.type === token.type)) throw new Error('Invalid theme alias target.')
+      }
+    }
   }
   resolveTokens(tokens)
   for (const id of themeIds) resolveTokens(tokens, id)
@@ -156,7 +171,7 @@ export function detachEditedSharedStyles(bindings: SharedStyleBindings | undefin
   if (!bindings) return undefined
   const next = { ...bindings }, style = patch.style as Record<string, unknown> | undefined
   if (style && Object.hasOwn(style, 'fill')) delete next.color
-  if (typographyKeys.some(key => Object.hasOwn(patch, key)) || ['textAlign', 'fontSource', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform'].some(key => Object.hasOwn(patch, key))) delete next.typography
+  if (typographyKeys.some(key => Object.hasOwn(patch, key)) || ['textAlign', 'fontSource', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'opticalMarginAlignment', 'showOpticalMetrics', 'textOnPath', 'textTransform'].some(key => Object.hasOwn(patch, key))) delete next.typography
   if (style && (Object.hasOwn(style, 'effects') || Object.hasOwn(style, 'shadow'))) delete next.effects
   return next
 }

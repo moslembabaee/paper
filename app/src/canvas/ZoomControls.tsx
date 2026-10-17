@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Maximize, Minus, Plus } from 'lucide-react'
-import { MAX_ZOOM, MIN_ZOOM } from './math'
-import type { Bounds } from './types'
-import type { ViewportController } from './ViewportController'
-import { getPixelSnap, subscribePixelSnap, togglePixelSnap } from '../scene/pixelSnap'
+import { MAX_ZOOM, MIN_ZOOM } from './math.ts'
+import type { Bounds } from './types.ts'
+import type { ViewportController } from './ViewportController.ts'
+import { getPixelSnap, subscribePixelSnap, togglePixelSnap } from '../scene/pixelSnap.ts'
+import { PhysicsHud } from './PhysicsHud.tsx'
 
 interface ZoomControlsProps {
   controller: ViewportController
@@ -61,6 +62,8 @@ export function ZoomControls({ controller, contentBounds }: ZoomControlsProps) {
       <button className="viewport-icon-button" data-testid="zoom-in" ref={plusRef} aria-label="Zoom in" title="Zoom in (+)" onClick={() => controller.zoomBy(1.25)}><Plus size={15} /></button>
       <span className="zoom-divider" />
       <button className="viewport-icon-button" data-testid="zoom-fit" aria-label="Fit canvas" title="Fit canvas (1)" onClick={() => controller.fit(contentBounds)}><Maximize size={14} /></button>
+      <span className="zoom-divider" />
+      <PhysicsHud controller={controller} />
     </div>
   )
 }

@@ -410,12 +410,13 @@ export function refreshBooleanElement(node: PathElement, compound: BooleanCompou
   const operandsToEvaluate = activeOperands.length >= 2 ? activeOperands : compound.operands
   const evaluatedOperands = operandsToEvaluate.map(op => evaluateVectorElement(op))
   const result = computeBoolean(evaluatedOperands, compound.operation)
+  const allEvaluatedOperands = compound.operands.map(op => evaluateVectorElement(op))
   const [vx, vy, vw, vh] = node.viewBox, sx = node.width / vw, sy = node.height / vh
   const width = result.bounds.width * sx, height = result.bounds.height * sy
   const dx = (result.bounds.x + result.bounds.width / 2 - vx) * sx - node.width / 2
   const dy = (result.bounds.y + result.bounds.height / 2 - vy) * sy - node.height / 2
   const radians = node.rotation * Math.PI / 180, cos = Math.cos(radians), sin = Math.sin(radians)
-  return { ...node, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule, boolean: { ...compound, operands: evaluatedOperands },
+  return { ...node, d: result.d, viewBox: result.viewBox, fillRule: result.fillRule, boolean: { ...compound, operands: allEvaluatedOperands },
     x: node.x + node.width / 2 + cos * dx - sin * dy - width / 2,
     y: node.y + node.height / 2 + sin * dx + cos * dy - height / 2, width, height,
   }

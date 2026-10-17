@@ -2,10 +2,20 @@ import type { DitheringParams, DotOrbitParams, FlutedGlassParams, GrainGradientP
 import type { MultiPassParams, ShaderPipeline } from './pipeline/types.ts'
 import type { CanvasPostProcessingPipeline } from '../canvas/postprocessing/types.ts'
 import type { GradientPaint } from '../scene/types.ts'
+import type { GlassmorphismParams, LiquidChromeParams } from './refractive/types.ts'
 
 export type { MultiPassParams, ShaderPipeline } from './pipeline/types.ts'
 export type { PipelinePass, PipelinePassType, UniformModulator } from './pipeline/types.ts'
 export type { GradientPaint, GradientType, GradientColorStop } from '../scene/types.ts'
+export type {
+  GlassmorphismParams,
+  LiquidChromeParams,
+  GlassSurfacePattern,
+  ChromeEnvironmentStyle,
+  GlassmorphismPaint,
+  LiquidChromePaint,
+  RefractivePaint,
+} from './refractive/types.ts'
 
 export interface MultiStopGradientParams {
   readonly gradientType: 'linear' | 'radial' | 'angular'
@@ -36,6 +46,8 @@ export interface ShaderParams {
   'multi-pass': MultiPassParams
   'procedural-noise': ProceduralNoiseParams
   'multi-stop-gradient': MultiStopGradientParams
+  glassmorphism: GlassmorphismParams
+  'liquid-chrome': LiquidChromeParams
 }
 export type ShaderKind = keyof ShaderParams
 export interface ShaderMotion {

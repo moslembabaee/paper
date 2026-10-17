@@ -9,6 +9,9 @@ import { gradientUniforms } from './gradient'
 import { gradientFragmentShader } from './gradientFragment'
 import { proceduralNoiseFragmentShader, proceduralNoiseUniforms } from './noise/noiseFragment'
 import { createMultiPassUniformUpdater, multiPassFragmentShader, multiPassUniforms } from './pipeline/multiPassFragment'
+import { glassmorphismFragmentShader, glassmorphismUniforms } from './refractive/glassmorphismFragment'
+import { liquidChromeFragmentShader, liquidChromeUniforms } from './refractive/liquidChromeFragment'
+import type { GlassmorphismPaint, LiquidChromePaint } from './refractive/types'
 import { audioAnalysis } from './audio/engine'
 import { PostProcessingSurface } from '../canvas/postprocessing/PostProcessingSurface'
 import '../canvas/postprocessing/postprocessing.css'
@@ -140,5 +143,7 @@ function ShaderSource({ paint, paused, onError, captureScale, capturePixelCount 
     case 'multi-pass': return <MultiPassShaderMount paint={paint} common={common} paused={paused} />
     case 'procedural-noise': return <ShaderMount {...common} {...placement} fragmentShader={proceduralNoiseFragmentShader} uniforms={proceduralNoiseUniforms(paint)} />
     case 'multi-stop-gradient': return <ShaderMount {...common} {...placement} fragmentShader={gradientFragmentShader} uniforms={gradientUniforms(paint)} />
+    case 'glassmorphism': return <ShaderMount {...common} {...placement} fragmentShader={glassmorphismFragmentShader} uniforms={glassmorphismUniforms(paint as GlassmorphismPaint)} />
+    case 'liquid-chrome': return <ShaderMount {...common} {...placement} fragmentShader={liquidChromeFragmentShader} uniforms={liquidChromeUniforms(paint as LiquidChromePaint)} />
   }
 }

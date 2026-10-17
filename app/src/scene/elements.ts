@@ -36,8 +36,10 @@ export function freezeElement(element: SceneElement): SceneElement {
   if (element.mask) element = { ...element, mask: Object.freeze({ ...element.mask }) }
   if (element.type === 'text' && element.kinetic) element = { ...element, kinetic: Object.freeze({ ...element.kinetic }) }
   if (element.sizing) element = { ...element, sizing: Object.freeze({ ...element.sizing }) }
+  if (element.constraints) element = { ...element, constraints: Object.freeze({ ...element.constraints }) }
   if (element.physics) element = { ...element, physics: Object.freeze({ ...element.physics }) }
   if (element.type === 'frame' && element.layout) element = { ...element, layout: Object.freeze({ ...element.layout, padding: Object.freeze({ ...element.layout.padding }) }) }
+  if (element.type === 'frame' && element.layoutGrids) element = { ...element, layoutGrids: Object.freeze(element.layoutGrids.map(grid => Object.freeze({ ...grid }))) }
   const style = Object.freeze({
     ...element.style,
     ...(element.style.effects ? { effects: freezeEffects(element.style.effects) } : {}),
@@ -68,9 +70,22 @@ export function withElementGeometry(element: SceneElement, geometry: Pick<Elemen
 }
 
 export function validateElement(element: SceneElement, depth = 0): void {
-  if (element.mask !== undefined && (!element.mask || !['frame', 'rectangle', 'ellipse', 'path'].includes(element.type) || typeof element.mask.enabled !== 'boolean' || typeof element.mask.showOutline !== 'boolean')) throw new Error('Invalid vector mask')
+  if (element.mask !== undefined) {
+    if (
+      !element.mask ||
+      !['frame', 'rectangle', 'ellipse', 'path'].includes(element.type) ||
+      typeof element.mask.enabled !== 'boolean' ||
+      typeof element.mask.showOutline !== 'boolean' ||
+      (element.mask.mode !== undefined && !['vector', 'alpha', 'luminance'].includes(element.mask.mode)) ||
+      (element.mask.luminanceThreshold !== undefined && (!Number.isFinite(element.mask.luminanceThreshold) || element.mask.luminanceThreshold < 0 || element.mask.luminanceThreshold > 1)) ||
+      (element.mask.inverted !== undefined && typeof element.mask.inverted !== 'boolean')
+    ) {
+      throw new Error('Invalid vector mask')
+    }
+  }
   if (element.component !== undefined) validateComponent(element.component)
   if (element.physics !== undefined) validateElementPhysics(element.physics)
+  if (element.themeMode !== undefined && element.themeMode !== null && (typeof element.themeMode !== 'string' || !element.themeMode.trim() || element.themeMode.length > 200)) throw new Error('Invalid theme mode')
   if (depth > 16) throw new Error('Boolean compounds may be nested up to 16 levels')
   if (typeof element.id !== 'string' || !element.id || typeof element.name !== 'string' || !element.name || (element.parentId !== null && typeof element.parentId !== 'string') || !['frame', 'rectangle', 'ellipse', 'path', 'text', 'image'].includes(element.type)) throw new Error('Invalid element identity')
   for (const key of ['x', 'y', 'width', 'height', 'rotation', 'zIndex'] as const) {
@@ -83,6 +98,38 @@ export function validateElement(element: SceneElement, depth = 0): void {
     if (flexGrow !== undefined && (!Number.isFinite(flexGrow) || flexGrow <= 0)) throw new Error('Invalid flex grow')
     for (const [min, max] of [[minWidth, maxWidth], [minHeight, maxHeight]]) {
       if ((min !== undefined && (!Number.isFinite(min) || min < 0)) || (max !== undefined && (!Number.isFinite(max) || max < .01)) || (min !== undefined && max !== undefined && min > max)) throw new Error('Invalid sizing constraints')
+    }
+  }
+  if (element.constraints !== undefined) {
+    const c = element.constraints
+    if (
+      !c ||
+      !['left', 'right', 'left-right', 'center', 'scale'].includes(c.horizontal) ||
+      !['top', 'bottom', 'top-bottom', 'center', 'scale'].includes(c.vertical)
+    ) {
+      throw new Error('Invalid layout constraints')
+    }
+  }
+  if ('layoutGrids' in element && element.layoutGrids !== undefined) {
+    if (element.type !== 'frame') throw new Error('Only frames support layout grids')
+    if (!Array.isArray(element.layoutGrids)) throw new Error('Invalid layout grids')
+    for (const grid of element.layoutGrids) {
+      if (
+        !grid ||
+        typeof grid.id !== 'string' ||
+        !grid.id ||
+        !['columns', 'rows', 'grid'].includes(grid.type) ||
+        typeof grid.visible !== 'boolean' ||
+        typeof grid.color !== 'string'
+      ) {
+        throw new Error('Invalid layout grid item')
+      }
+      if (grid.count !== undefined && (!Number.isFinite(grid.count) || grid.count < 1)) throw new Error('Invalid layout grid count')
+      if (grid.gutter !== undefined && (!Number.isFinite(grid.gutter) || grid.gutter < 0)) throw new Error('Invalid layout grid gutter')
+      if (grid.margin !== undefined && (!Number.isFinite(grid.margin) || grid.margin < 0)) throw new Error('Invalid layout grid margin')
+      if (grid.size !== undefined && (!Number.isFinite(grid.size) || grid.size < 0.01)) throw new Error('Invalid layout grid size')
+      if (grid.sectionSize !== undefined && (!Number.isFinite(grid.sectionSize) || grid.sectionSize < 0.01)) throw new Error('Invalid layout grid sectionSize')
+      if (grid.alignment !== undefined && !['stretch', 'left', 'right', 'center', 'top', 'bottom'].includes(grid.alignment)) throw new Error('Invalid layout grid alignment')
     }
   }
   if ('layout' in element && element.layout !== undefined && element.layout !== null) {
@@ -152,6 +199,8 @@ export function validateElement(element: SceneElement, depth = 0): void {
     }
     if (element.fontKerning !== undefined && !['auto', 'normal', 'none', 'optical'].includes(element.fontKerning)) throw new Error('Invalid font kerning')
     if (element.opticalKerning !== undefined && !Number.isFinite(element.opticalKerning)) throw new Error('Invalid optical kerning')
+    if (element.opticalMarginAlignment !== undefined && typeof element.opticalMarginAlignment !== 'boolean') throw new Error('Invalid optical margin alignment')
+    if (element.showOpticalMetrics !== undefined && typeof element.showOpticalMetrics !== 'boolean') throw new Error('Invalid show optical metrics')
     if (element.textTransform !== undefined && !['none', 'uppercase', 'lowercase', 'capitalize'].includes(element.textTransform)) throw new Error('Invalid text transform')
     if (element.textOnPath !== undefined) {
       if (!element.textOnPath || typeof element.textOnPath !== 'object' || typeof element.textOnPath.enabled !== 'boolean') throw new Error('Invalid text on path')

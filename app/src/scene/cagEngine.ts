@@ -1,6 +1,7 @@
 import type { Bounds, Point } from '../canvas/types.ts'
 import {
   computeBoolean,
+  vectorPathData,
   type BooleanResult,
 } from './booleanGeometry.ts'
 import { parsePath, pathBounds } from './pathGeometry.ts'
@@ -9,6 +10,7 @@ import { adaptiveSubdividePath, type AdaptiveSubdivisionOptions } from './adapti
 import type {
   BooleanOperation,
   PathElement,
+  SceneElement,
   VectorElement,
 } from './types.ts'
 
@@ -542,6 +544,113 @@ export function exportCleanSVGGeometry(
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vx} ${vy} ${vw} ${vh}" width="${vw}" height="${vh}">`,
     `  ${pathMarkup}`,
+    `</svg>`,
+  ].join('\n')
+}
+
+/**
+ * Generates an SVG <clipPath> definition containing the compound shape's precise path geometry.
+ */
+export function generateCompoundClipPath(
+  element: PathElement,
+  options: { clipPathId?: string; precision?: number } = {}
+): string {
+  const clipId = options.clipPathId || `clip-${element.id}`
+  const d = cleanSvgPathGeometry(element.d, { precision: options.precision ?? 4 })
+  const fillRule = element.fillRule ?? 'nonzero'
+  return `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse">\n  <path d="${d}" fill-rule="${fillRule}" clip-rule="${fillRule}"/>\n</clipPath>`
+}
+
+/**
+ * Generates an SVG <mask> definition containing the compound shape's filled geometry.
+ */
+export function generateCompoundSVGMask(
+  element: PathElement,
+  options: { maskId?: string; precision?: number } = {}
+): string {
+  const maskId = options.maskId || `mask-${element.id}`
+  const d = cleanSvgPathGeometry(element.d, { precision: options.precision ?? 4 })
+  const fillRule = element.fillRule ?? 'nonzero'
+  return `<mask id="${maskId}" maskUnits="userSpaceOnUse">\n  <path d="${d}" fill="#ffffff" fill-rule="${fillRule}"/>\n</mask>`
+}
+
+/**
+ * Generates a non-destructive SVG group hierarchy representing the compound shape
+ * and all nested sub-operands, tagged with metadata for inspection and re-import.
+ */
+export function generateCompoundHierarchyMarkup(
+  element: PathElement,
+  options: { precision?: number; indent?: string } = {}
+): string {
+  const indent = options.indent ?? ''
+  const subIndent = indent + '  '
+  const precision = options.precision ?? 4
+
+  if (!element.boolean) {
+    const d = cleanSvgPathGeometry(element.d, { precision })
+    return `${indent}<path id="${element.id}" d="${d}" fill="${element.style.fill ?? '#81adec'}" fill-rule="${element.fillRule}"/>`
+  }
+
+  const { operation, operands, mutedOperandIds = [] } = element.boolean
+  const mutedSet = new Set(mutedOperandIds)
+  const lines: string[] = []
+
+  lines.push(`${indent}<g id="${element.id}" data-type="compound" data-boolean-op="${operation}">`)
+  lines.push(`${subIndent}<!-- Compound Result Outline -->`)
+  const resultD = cleanSvgPathGeometry(element.d, { precision })
+  lines.push(`${subIndent}<path d="${resultD}" fill="${element.style.fill ?? '#81adec'}" fill-rule="${element.fillRule}"/>`)
+  lines.push(`${subIndent}<!-- Non-Destructive Source Hierarchy (${operands.length} operands) -->`)
+  lines.push(`${subIndent}<g data-role="sources" style="display:none">`)
+
+  for (const op of operands) {
+    const isMuted = mutedSet.has(op.id)
+    if (op.type === 'path' && op.boolean) {
+      lines.push(generateCompoundHierarchyMarkup(op, { precision, indent: subIndent + '  ' }))
+    } else {
+      const opD = cleanSvgPathGeometry(vectorPathData(op), { precision })
+      lines.push(`${subIndent}  <path id="${op.id}" data-name="${op.name}" data-muted="${isMuted}" d="${opD}"/>`)
+    }
+  }
+
+  lines.push(`${subIndent}</g>`)
+  lines.push(`${indent}</g>`)
+
+  return lines.join('\n')
+}
+
+/**
+ * Generates a complete standalone SVG document where the compound shape
+ * acts as an SVG clipping path bounding a target or background element.
+ */
+export function generateClippedSVGExport(
+  compound: PathElement,
+  targetElement?: SceneElement,
+  options: CleanSVGExportOptions = {}
+): string {
+  const clipId = `clip-${compound.id}`
+  const clipPathXml = generateCompoundClipPath(compound, { clipPathId: clipId, precision: options.precision ?? 4 })
+  const [vx, vy, vw, vh] = compound.viewBox
+
+  let targetContent = ''
+  if (targetElement) {
+    if (targetElement.type === 'rectangle' || targetElement.type === 'ellipse' || targetElement.type === 'path') {
+      const targetD = cleanSvgPathGeometry(vectorPathData(targetElement), { precision: options.precision ?? 4 })
+      targetContent = `<path d="${targetD}" fill="${targetElement.style.fill ?? '#81adec'}"/>`
+    } else {
+      targetContent = `<rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" fill="#81adec"/>`
+    }
+  } else {
+    targetContent = `<rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" fill="${options.fill ?? compound.style.fill ?? '#81adec'}"/>`
+  }
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${vx} ${vy} ${vw} ${vh}" width="${vw}" height="${vh}">`,
+    `  <defs>`,
+    `    ${clipPathXml}`,
+    `  </defs>`,
+    `  <g clip-path="url(#${clipId})">`,
+    `    ${targetContent}`,
+    `  </g>`,
     `</svg>`,
   ].join('\n')
 }
