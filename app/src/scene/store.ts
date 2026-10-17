@@ -1,7 +1,7 @@
 import { EMPTY_MOTION, pruneMotion, validateMotion } from '../motion/model.ts'
 import type { MotionDocument } from '../motion/types.ts'
-import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, ComponentStateMachine, ComponentVariant } from './types.ts'
-import { applyPropertyValueToElement, releaseComponentResources, validPropertyValue, validatePropertyTargets } from './componentProperties.ts'
+import type { ComponentInstance, ComponentOverrides, ComponentProperty, ComponentPropertyValue, ComponentRegistry, ComponentStateMachine, ComponentVariant, MasterComponent, MasterComponentSchema } from './types.ts'
+import { applyPropertyValueToElement, releaseComponentResources, validPropertyValue, validateComponentProperties, validatePropertyTargets } from './componentProperties.ts'
 import { createDefaultStateMachine, getEffectiveStateMachine, validateStateMachine } from './stateMachine.ts'
 import { EMPTY_COMMENTS, validateComments } from '../comments/model.ts'
 import type { CommentDocument } from '../comments/types.ts'
@@ -21,7 +21,7 @@ import { canMask, validateMaskGraph } from './maskGeometry.ts'
 import { getWorldBounds } from './geometry.ts'
 import { unionBounds } from '../canvas/math.ts'
 import { FIXED_SIZING, invalidateLayoutTextMetrics, reflowAutoLayout } from './autoLayout.ts'
-import { componentRoot, recordComponentEdit, recordComponentTokenEdit, subtree, synchronizeComponents, validateComponentGraph } from './components.ts'
+import { buildComponentRegistry, componentRoot, isComponentInstance, isInstanceRoot, isMasterComponent, recordComponentEdit, recordComponentTokenEdit, subtree, synchronizeComponents, validateComponentGraph, validateComponentRegistry } from './components.ts'
 import { EMPTY_PROTOTYPE, DEFAULT_TRANSITION, prunePrototype, validatePrototype } from '../prototype/model.ts'
 import type { PrototypeDocument, PrototypeInteraction } from '../prototype/types.ts'
 import { validatePhysicsDocument } from '../physics/constants.ts'
@@ -204,6 +204,10 @@ export class SceneStore {
         return true
       })
       if (selection.length !== next.selection.length) next = Object.freeze({ ...next, selection: Object.freeze(selection) })
+      const registry = buildComponentRegistry(elements)
+      if (Object.keys(registry).length > 0 || next.componentRegistry) {
+        next = Object.freeze({ ...next, componentRegistry: registry })
+      }
     }
     this.state = next
     if (!this.batchDepth && !this.transaction && documentChanged) this.history.record(before, next, label)
@@ -451,7 +455,8 @@ export class SceneStore {
   createComponent(id: string): SceneElement {
     const reason = this.componentCreationReason(id)
     if (reason) throw new Error(reason)
-    const node = freezeElement({ ...this.require(id), component: { kind: 'master' } })
+    const now = Date.now()
+    const node = freezeElement({ ...this.require(id), component: { kind: 'master', createdAt: now, updatedAt: now } })
     this.commit({ ...this.state.elements, [id]: node }, this.state.rootIds, [id], `Create ${node.name} component`)
     return node
   }
@@ -517,8 +522,156 @@ export class SceneStore {
     if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
     validatePropertyTargets(master, this.state.elements, properties, resolveTokens(this.state.tokens, this.state.styleLibrary.activeThemeId), this.state.styleLibrary)
     if (equalValue(properties, master.component.properties ?? [])) return
-    const next = freezeElement({ ...master, component: { ...master.component, properties } })
+    const next = freezeElement({ ...master, component: { ...master.component, properties, updatedAt: Date.now() } })
     this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, 'Edit component properties')
+  }
+
+  /** Get a MasterComponent node by ID if it exists and is marked as a master symbol. */
+  getMasterComponent(id: string): MasterComponent | undefined {
+    const node = this.state.elements[id]
+    return isMasterComponent(node) ? node : undefined
+  }
+
+  /** Get all MasterComponent nodes in the document. */
+  getMasterComponents(): readonly MasterComponent[] {
+    return Object.values(this.state.elements).filter(isMasterComponent)
+  }
+
+  /** Get a ComponentInstance node by ID if it exists and is marked as an instance. */
+  getComponentInstance(id: string): ComponentInstance | undefined {
+    const node = this.state.elements[id]
+    return isComponentInstance(node) ? node : undefined
+  }
+
+  /** Get all root ComponentInstance nodes in the document, optionally filtered by masterId. */
+  getComponentInstances(masterId?: string): readonly ComponentInstance[] {
+    const instances = Object.values(this.state.elements).filter(isInstanceRoot)
+    return masterId ? instances.filter(node => node.component.masterId === masterId) : instances
+  }
+
+  /** Get the registered instance IDs for a given master component. */
+  getRegisteredInstanceIds(masterId: string): readonly string[] {
+    return this.getComponentRegistry()[masterId]?.instanceIds ?? Object.freeze([])
+  }
+
+  /** Get the number of registered instances for a given master component. */
+  getInstanceCount(masterId: string): number {
+    return this.getRegisteredInstanceIds(masterId).length
+  }
+
+  /** Get the live component registry mapping master IDs to component schemas and registered instances. */
+  getComponentRegistry(): ComponentRegistry {
+    return this.state.componentRegistry ?? buildComponentRegistry(this.state.elements)
+  }
+
+  /** Get the full component schema for a master component. */
+  getComponentSchema(masterId: string): MasterComponentSchema | undefined {
+    const master = this.getMasterComponent(masterId)
+    if (!master) return undefined
+    const entry = this.getComponentRegistry()[masterId]
+    return Object.freeze({
+      id: master.id,
+      name: master.name,
+      description: master.component.description,
+      masterId: master.id,
+      properties: master.component.properties ?? Object.freeze([]),
+      stateMachine: master.component.stateMachine,
+      instanceCount: entry?.instanceIds.length ?? 0,
+      instanceIds: entry?.instanceIds ?? Object.freeze([]),
+      createdAt: master.component.createdAt,
+      updatedAt: master.component.updatedAt,
+    })
+  }
+
+  /** Get all component schemas in the document. */
+  getComponentSchemas(): readonly MasterComponentSchema[] {
+    return this.getMasterComponents().map(master => this.getComponentSchema(master.id)!)
+  }
+
+  /** Set optional documentation / description for a master component. */
+  setComponentDescription(masterId: string, description: string): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    if (this.isLocked(masterId) || this.history.getSnapshot().active) throw new Error('Unlock the master and finish the active edit first')
+    const trimmed = description.trim()
+    const nextComponent = { ...master.component, description: trimmed, updatedAt: Date.now() }
+    const next = freezeElement({ ...master, component: nextComponent })
+    this.commit({ ...this.state.elements, [masterId]: next }, this.state.rootIds, this.state.selection, `Edit ${master.name} description`)
+  }
+
+  /** Add or register an exposed property schema on a master component. */
+  addExposedProperty(masterId: string, property: ComponentProperty): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    const existing = master.component.properties ?? []
+    if (existing.some(p => p.id === property.id || p.name.trim().toLowerCase() === property.name.trim().toLowerCase())) {
+      throw new Error(`Property with id '${property.id}' or name '${property.name}' already exists`)
+    }
+    const nextProperties = [...existing, property]
+    this.setComponentProperties(masterId, nextProperties)
+  }
+
+  /** Update an existing exposed property schema on a master component. */
+  updateExposedProperty(masterId: string, propertyId: string, patch: Partial<ComponentProperty>): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    const existing = master.component.properties ?? []
+    const index = existing.findIndex(p => p.id === propertyId)
+    if (index === -1) throw new Error(`Property '${propertyId}' not found on master component`)
+    const updated = { ...existing[index], ...patch } as ComponentProperty
+    const nextProperties = [...existing]
+    nextProperties[index] = updated
+    this.setComponentProperties(masterId, nextProperties)
+  }
+
+  /** Remove an exposed property schema from a master component. */
+  removeExposedProperty(masterId: string, propertyId: string): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    const existing = master.component.properties ?? []
+    const nextProperties = existing.filter(p => p.id !== propertyId)
+    if (nextProperties.length === existing.length) return
+    this.setComponentProperties(masterId, nextProperties)
+  }
+
+  /** Explicitly register a component instance with a master component. */
+  registerComponentInstance(masterId: string, instanceId: string): void {
+    const master = this.require(masterId)
+    if (!isMasterComponent(master)) throw new Error('Choose a master component')
+    const instance = this.require(instanceId)
+    if (!isComponentInstance(instance) || instance.component.masterId !== masterId) {
+      throw new Error('Element is not an instance of the specified master')
+    }
+    const registry = buildComponentRegistry(this.state.elements)
+    if (!equalValue(registry, this.state.componentRegistry)) {
+      this.publish(Object.freeze({ ...this.state, componentRegistry: registry }), 'Register component instance', false)
+    }
+  }
+
+  /** Unregister an instance by detaching it. */
+  unregisterComponentInstance(instanceId: string): void {
+    this.detachComponentInstance(instanceId)
+  }
+
+  /** Serialize a master component's exposed property schema and definition to a standalone JSON string. */
+  serializeComponentSchema(masterId: string): string {
+    const schema = this.getComponentSchema(masterId)
+    if (!schema) throw new Error('Master component not found')
+    return JSON.stringify(schema, null, 2)
+  }
+
+  /** Validate and parse a serialized component schema. */
+  importComponentSchema(schemaJson: string): MasterComponentSchema {
+    let parsed: unknown
+    try { parsed = JSON.parse(schemaJson) } catch { throw new Error('Invalid JSON schema string') }
+    if (!parsed || typeof parsed !== 'object') throw new Error('Invalid component schema')
+    const record = parsed as Record<string, unknown>
+    if (typeof record.id !== 'string' || typeof record.name !== 'string' || !Array.isArray(record.properties)) {
+      throw new Error('Invalid component schema structure')
+    }
+    validateComponentProperties(record.properties as ComponentProperty[])
+    if (record.stateMachine) validateStateMachine(record.stateMachine as ComponentStateMachine)
+    return parsed as MasterComponentSchema
   }
 
   /** Null releases a property value so it follows future master defaults. */
@@ -2491,6 +2644,7 @@ export class SceneStore {
   }
 
   toJSON(): SceneDocument {
+    const registry = this.state.componentRegistry ?? buildComponentRegistry(this.state.elements)
     const doc: SceneDocument = {
       version: 1,
       ...(this.state.motion ? { motion: this.state.motion } : {}),
@@ -2502,6 +2656,7 @@ export class SceneStore {
       ...(this.state.prototype ? { prototype: this.state.prototype } : {}),
       ...(this.state.physics ? { physics: this.state.physics } : {}),
       ...(this.state.backgroundShader !== undefined ? { backgroundShader: this.state.backgroundShader } : {}),
+      ...(Object.keys(registry).length > 0 ? { componentRegistry: registry } : {}),
     }
     return doc
   }
@@ -2568,10 +2723,14 @@ export class SceneStore {
     if (visited.size !== Object.keys(elements).length) throw new Error('Unreachable scene elements')
     validateMaskGraph(elements)
     validateComponentGraph(elements, resolvedTokens, styleLibrary)
+    if (document.componentRegistry) {
+      validateComponentRegistry(document.componentRegistry, elements)
+    }
+    const componentRegistry = document.componentRegistry ?? buildComponentRegistry(elements)
     const motion = document.motion === undefined ? undefined : validateMotion(document.motion, elements)
     const comments = document.comments === undefined ? undefined : validateComments(document.comments)
     const prototype = document.prototype === undefined ? undefined : validatePrototype(document.prototype, elements)
     const physics = document.physics === undefined ? undefined : validatePhysicsDocument(document.physics)
-    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(motion ? { motion } : {}), ...(comments ? { comments } : {}), ...(prototype ? { prototype } : {}), ...(physics ? { physics } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
+    this.publish(Object.freeze({ version: 1, tokens, styleLibrary, ...(motion ? { motion } : {}), ...(comments ? { comments } : {}), ...(prototype ? { prototype } : {}), ...(physics ? { physics } : {}), ...(Object.keys(componentRegistry).length > 0 ? { componentRegistry } : {}), elements: Object.freeze(elements), rootIds: Object.freeze([...document.rootIds]), selection: EMPTY, backgroundShader: document.backgroundShader ? freezeShader(document.backgroundShader) : null }), 'Load artwork')
   }
 }

@@ -214,9 +214,34 @@ export const componentPropertySchema: JsonSchema = { anyOf: [
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['variant'] }, defaultValue: str(), options: { ...list(object({ value: { ...str(), maxLength: 100 }, layers: { type: 'object', additionalProperties: componentOverridesSchema } }, ['value', 'layers'])), minItems: 1, maxItems: 100 }, stateMachine: componentStateMachineSchema }, ['id', 'name', 'kind', 'defaultValue', 'options']),
 ] }
 export const componentSchema: JsonSchema = { anyOf: [
-  object({ kind: { type: 'string', enum: ['master'] }, properties: { ...list(componentPropertySchema), maxItems: 100 }, stateMachine: componentStateMachineSchema }, ['kind']),
+  object({
+    kind: { type: 'string', enum: ['master'] },
+    properties: { ...list(componentPropertySchema), maxItems: 100 },
+    stateMachine: componentStateMachineSchema,
+    description: str(),
+    createdAt: num,
+    updatedAt: num,
+    metadata: { type: 'object', additionalProperties: true },
+  }, ['kind']),
   object({ kind: { type: 'string', enum: ['instance'] }, masterId: str(), sourceId: str(), instanceId: str(), overrides: componentOverridesSchema, propertyValues: { type: 'object', additionalProperties: { anyOf: [{ type: 'string' }, num, flag] } }, activeState: str() }, ['kind', 'masterId', 'sourceId', 'instanceId', 'overrides']),
 ] }
+
+export const componentRegistryEntrySchema: JsonSchema = object({
+  masterId: str(),
+  name: str(),
+  description: str(),
+  properties: { ...list(componentPropertySchema), maxItems: 100 },
+  stateMachine: componentStateMachineSchema,
+  instanceIds: list(str()),
+  createdAt: num,
+  updatedAt: num,
+}, ['masterId', 'name', 'instanceIds'])
+
+export const componentRegistrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: componentRegistryEntrySchema,
+}
+
 export const elementSchema: JsonSchema = {
   anyOf: Object.entries(specific).map(([type, fields]) => {
     const properties = { ...identity, ...geometry, type: { type: 'string', enum: [type] } as JsonSchema, style: object(styleProperties, ['fill', 'stroke', 'opacity', 'shadow']), ...fields }
@@ -230,7 +255,7 @@ export const projectSchema = {
     format: { type: 'string', enum: ['paper'] }, version: { type: 'integer', enum: [1] },
     name: { ...str(), maxLength: 200 }, grid: flag,
     viewport: object({ x: num, y: num, zoom: { type: 'number', minimum: .1, maximum: 32 } }, ['x', 'y', 'zoom']),
-    scene: object({ tokens: list(tokenSchema), styleLibrary: styleLibrarySchema, version: { type: 'integer', enum: [1] }, backgroundShader: nullable(shaderSchema), rootIds: list(str()), elements: { type: 'object', additionalProperties: elementSchema } }, ['version', 'rootIds', 'elements']),
+    scene: object({ tokens: list(tokenSchema), styleLibrary: styleLibrarySchema, version: { type: 'integer', enum: [1] }, backgroundShader: nullable(shaderSchema), rootIds: list(str()), elements: { type: 'object', additionalProperties: elementSchema }, componentRegistry: componentRegistrySchema }, ['version', 'rootIds', 'elements']),
   }, ['format', 'version', 'name', 'grid', 'viewport', 'scene']),
 }
 

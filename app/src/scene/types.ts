@@ -334,6 +334,8 @@ export interface ComponentStateMachine {
   readonly transitions: readonly ComponentStateTransition[]
 }
 
+export type ComponentPropertyKind = 'text' | 'boolean' | 'color' | 'number' | 'kinetic' | 'shader' | 'variant'
+
 export type ComponentProperty = Readonly<{ id: string; name: string }> & (
   | { readonly kind: 'text'; readonly sourceId: string; readonly defaultValue: string; readonly targetProperty?: 'text' | 'fontFamily' | 'src' | 'alt' | 'textTransform' }
   | { readonly kind: 'boolean'; readonly sourceId: string; readonly defaultValue: boolean; readonly targetProperty?: 'visible' | 'kinetic.enabled' | 'clipContent' | 'shader.animated' | 'locked' }
@@ -343,16 +345,36 @@ export type ComponentProperty = Readonly<{ id: string; name: string }> & (
   | { readonly kind: 'shader'; readonly sourceId: string; readonly defaultValue: string | number | boolean; readonly targetProperty: 'speed' | 'scale' | 'rotation' | 'frequency' | 'octaves' | 'turbulence' | 'displacement' | 'viewMode' | 'blendMode' | 'lacunarity' | 'persistence' | 'normalPerturbation' | 'grainOverlay' | 'chromaticAberration' | 'warpModulation' | 'fluidAdvection' | 'fluidViscosity' | 'noiseType' }
   | { readonly kind: 'variant'; readonly defaultValue: string; readonly options: readonly ComponentVariant[]; readonly stateMachine?: ComponentStateMachine }
 )
+
+export type ComponentPropertySchema = ComponentProperty
+export type ExposedPropertySchema = ComponentProperty
+
 export interface ComponentVariant {
   readonly value: string
   /** Patches use master layer IDs; instance IDs never leak into definitions. */
   readonly layers: Readonly<Record<string, ComponentOverrides>>
 }
-export type ComponentLink = {
+
+export interface MasterComponentMetadata {
+  readonly description?: string
+  readonly createdAt?: number
+  readonly updatedAt?: number
+  readonly author?: string
+  readonly tags?: readonly string[]
+  readonly category?: string
+}
+
+export type MasterComponentLink = {
   readonly kind: 'master'
   readonly properties?: readonly ComponentProperty[]
   readonly stateMachine?: ComponentStateMachine
-} | {
+  readonly description?: string
+  readonly createdAt?: number
+  readonly updatedAt?: number
+  readonly metadata?: MasterComponentMetadata
+}
+
+export type ComponentInstanceLink = {
   readonly kind: 'instance'
   readonly masterId: string
   readonly sourceId: string
@@ -363,6 +385,47 @@ export type ComponentLink = {
   /** Active interactive state for live preview or runtime display */
   readonly activeState?: string
 }
+
+export type ComponentLink = MasterComponentLink | ComponentInstanceLink
+
+/** MasterComponent node: A scene element defined as a master symbol with exposed properties and state */
+export type MasterComponent<T extends SceneElement = SceneElement> = T & {
+  readonly component: MasterComponentLink
+}
+
+/** ComponentInstance node: A scene element instantiated from a master symbol with local overrides */
+export type ComponentInstance<T extends SceneElement = SceneElement> = T & {
+  readonly component: ComponentInstanceLink
+}
+
+export type MasterComponentNode<T extends SceneElement = SceneElement> = MasterComponent<T>
+export type ComponentInstanceNode<T extends SceneElement = SceneElement> = ComponentInstance<T>
+
+export interface MasterComponentSchema {
+  readonly id: string
+  readonly name: string
+  readonly description?: string
+  readonly masterId: string
+  readonly properties: readonly ComponentProperty[]
+  readonly stateMachine?: ComponentStateMachine
+  readonly instanceCount: number
+  readonly instanceIds: readonly string[]
+  readonly createdAt?: number
+  readonly updatedAt?: number
+}
+
+export interface ComponentRegistryEntry {
+  readonly masterId: string
+  readonly name: string
+  readonly description?: string
+  readonly properties: readonly ComponentProperty[]
+  readonly stateMachine?: ComponentStateMachine
+  readonly instanceIds: readonly string[]
+  readonly createdAt?: number
+  readonly updatedAt?: number
+}
+
+export type ComponentRegistry = Readonly<Record<string, ComponentRegistryEntry>>
 
 export interface SceneDocument {
   readonly version: 1
@@ -375,6 +438,7 @@ export interface SceneDocument {
   readonly backgroundShader?: ShaderPaint | null
   /** Active physics simulation document. Absent means the simulation layer is disabled. */
   readonly physics?: PhysicsDocument
+  readonly componentRegistry?: ComponentRegistry
   readonly elements: Readonly<Record<string, SceneElement>>
   readonly rootIds: readonly string[]
 }
@@ -383,4 +447,5 @@ export interface SceneSnapshot extends SceneDocument {
   readonly tokens: readonly DesignToken[]
   readonly styleLibrary: StyleLibrary
   readonly selection: readonly string[]
+  readonly componentRegistry?: ComponentRegistry
 }

@@ -561,3 +561,129 @@ test('recursive property override resolution for canvas element trees, kinetic t
 
   roundtrip(store)
 })
+
+test('MasterComponent and ComponentInstance schema registry, instance tracking, and metadata management', async () => {
+  const { projectSchema, validateSchema } = await import('../src/mcp/schema.ts')
+  const { createProject } = await import('../src/io/project.ts')
+
+  const store = new SceneStore()
+  store.add('frame', {
+    id: 'hero-banner',
+    name: 'Hero Banner',
+    width: 600,
+    height: 300,
+    style: { fill: '#080808', stroke: { color: '#222222', width: 1, dash: [] }, opacity: 1, shadow: null },
+  })
+  store.add('text', {
+    id: 'hero-title',
+    parentId: 'hero-banner',
+    text: 'Paper Design',
+    fontSize: 32,
+    style: { fill: '#edebe1', stroke: null, opacity: 1, shadow: null },
+  })
+
+  // Create master component
+  const master = store.createComponent('hero-banner')
+  assert.equal(master.component.kind, 'master')
+  assert.ok(master.component.createdAt)
+
+  // Verify getMasterComponent and getMasterComponents
+  const retrievedMaster = store.getMasterComponent('hero-banner')
+  assert.ok(retrievedMaster)
+  assert.equal(retrievedMaster.id, 'hero-banner')
+  assert.equal(store.getMasterComponents().length, 1)
+  assert.equal(store.getMasterComponents()[0].id, 'hero-banner')
+
+  // Set description
+  store.setComponentDescription('hero-banner', 'Hero banner with typography and background shader')
+  assert.equal(store.getMasterComponent('hero-banner')?.component.description, 'Hero banner with typography and background shader')
+
+  // Add exposed property
+  store.addExposedProperty('hero-banner', {
+    id: 'title-prop',
+    name: 'Headline',
+    kind: 'text',
+    sourceId: 'hero-title',
+    defaultValue: 'Paper Design',
+  })
+  assert.equal(store.getMasterComponent('hero-banner')?.component.properties?.length, 1)
+
+  // Duplicate property addition throws
+  assert.throws(() => {
+    store.addExposedProperty('hero-banner', {
+      id: 'title-prop',
+      name: 'Headline',
+      kind: 'text',
+      sourceId: 'hero-title',
+      defaultValue: 'Another',
+    })
+  })
+
+  // Update exposed property
+  store.updateExposedProperty('hero-banner', 'title-prop', {
+    name: 'Banner Headline',
+    defaultValue: 'Paper Craft',
+  })
+  const updatedProp = store.getMasterComponent('hero-banner')?.component.properties?.[0]
+  assert.equal(updatedProp?.name, 'Banner Headline')
+  assert.equal(updatedProp?.defaultValue, 'Paper Craft')
+
+  // Create instances and test instance tracking
+  const inst1 = store.createComponentInstance('hero-banner')
+  const inst2 = store.createComponentInstance('hero-banner')
+
+  assert.equal(store.getInstanceCount('hero-banner'), 2)
+  const registeredIds = store.getRegisteredInstanceIds('hero-banner')
+  assert.equal(registeredIds.length, 2)
+  assert.ok(registeredIds.includes(inst1.id))
+  assert.ok(registeredIds.includes(inst2.id))
+
+  // getComponentInstance and getComponentInstances
+  const instNode1 = store.getComponentInstance(inst1.id)
+  assert.ok(instNode1)
+  assert.equal(instNode1.component.kind, 'instance')
+  assert.equal(instNode1.component.masterId, 'hero-banner')
+  assert.equal(store.getComponentInstances('hero-banner').length, 2)
+
+  // Component registry and schema retrieval
+  const registry = store.getComponentRegistry()
+  assert.ok(registry['hero-banner'])
+  assert.equal(registry['hero-banner'].name, 'Hero Banner')
+  assert.equal(registry['hero-banner'].instanceIds.length, 2)
+
+  const schema = store.getComponentSchema('hero-banner')
+  assert.ok(schema)
+  assert.equal(schema.id, 'hero-banner')
+  assert.equal(schema.name, 'Hero Banner')
+  assert.equal(schema.instanceCount, 2)
+  assert.equal(schema.properties.length, 1)
+
+  const allSchemas = store.getComponentSchemas()
+  assert.equal(allSchemas.length, 1)
+  assert.equal(allSchemas[0].id, 'hero-banner')
+  assert.equal(allSchemas[0].name, 'Hero Banner')
+
+  // Schema serialization and import
+  const serialized = store.serializeComponentSchema('hero-banner')
+  assert.ok(typeof serialized === 'string')
+  const imported = store.importComponentSchema(serialized)
+  assert.equal(imported.id, 'hero-banner')
+  assert.equal(imported.name, 'Hero Banner')
+  assert.equal(imported.properties.length, 1)
+
+  // Remove exposed property
+  store.removeExposedProperty('hero-banner', 'title-prop')
+  assert.equal(store.getMasterComponent('hero-banner')?.component.properties?.length, 0)
+
+  // Detach instance and check registry updates
+  store.detachComponentInstance(inst1.id)
+  assert.equal(store.getInstanceCount('hero-banner'), 1)
+  assert.deepEqual(store.getRegisteredInstanceIds('hero-banner'), [inst2.id])
+
+  // Project schema validation
+  const proj = createProject(store, 'Master-Instance Test', { x: 0, y: 0, zoom: 1 }, true)
+  assert.doesNotThrow(() => validateSchema(proj, projectSchema))
+
+  roundtrip(store)
+})
+

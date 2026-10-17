@@ -1,12 +1,13 @@
 import { pruneComponentProperties, resolveComponentProperties, validPropertyValue, validateComponentProperties, validatePropertyTargets } from './componentProperties.ts'
 import { validateStateMachine } from './stateMachine.ts'
 import { EMPTY_LIBRARY, detachEditedSharedStyles, resolveSharedStyles } from '../tokens/library.ts'
-import type { ComponentLink, ComponentOverrides, ElementPatch, ElementType, SceneElement } from './types.ts'
+import type { ComponentInstance, ComponentLink, ComponentOverrides, ComponentRegistry, ComponentRegistryEntry, ElementPatch, ElementType, MasterComponent, SceneElement } from './types.ts'
 import { freezeElement, validateElement } from './elements.ts'
 import { equalValue } from './history.ts'
 import { detachEditedBindings, resolveTokenBindings } from '../tokens/model.ts'
 import type { DesignToken, SharedStyleKind, StyleLibrary, TokenProperty } from '../tokens/types.ts'
 
+const safeId = (id: unknown): id is string => typeof id === 'string' && !!id && id.length <= 200 && !['__proto__', 'constructor', 'prototype'].includes(id)
 const PROPERTY_KEYS = new Set(['name', 'x', 'y', 'width', 'height', 'rotation', 'visible', 'locked', 'sizing', 'cornerRadius', 'clipContent', 'layout', 'd', 'viewBox', 'fillRule', 'nodes', 'text', 'fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'textAlign', 'src', 'alt', 'fit', 'fontSource', 'variableAxes', 'openTypeFeatures', 'fontKerning', 'opticalKerning', 'textOnPath', 'textTransform', 'kinetic'])
 const STYLE_KEYS = new Set(['fill', 'stroke', 'opacity', 'shadow', 'shader', 'effects'])
 const STROKE_KEYS = new Set(['color', 'width', 'dash'])
@@ -31,7 +32,11 @@ function checkKeys(value: unknown, keys: ReadonlySet<string>): void {
 export function validateComponent(link: ComponentLink): void {
   if (!record(link) || !['master', 'instance'].includes(link.kind)) throw new Error('Invalid component link')
   if (link.kind === 'master') {
-    if (Object.keys(link).some(key => !['kind', 'properties', 'stateMachine'].includes(key))) throw new Error('Invalid master component')
+    if (Object.keys(link).some(key => !['kind', 'properties', 'stateMachine', 'description', 'createdAt', 'updatedAt', 'metadata'].includes(key))) throw new Error('Invalid master component')
+    if (link.description !== undefined && (typeof link.description !== 'string' || link.description.length > 1000)) throw new Error('Invalid master component description')
+    if (link.createdAt !== undefined && (typeof link.createdAt !== 'number' || !Number.isFinite(link.createdAt))) throw new Error('Invalid master component timestamp')
+    if (link.updatedAt !== undefined && (typeof link.updatedAt !== 'number' || !Number.isFinite(link.updatedAt))) throw new Error('Invalid master component timestamp')
+    if (link.metadata !== undefined && !record(link.metadata)) throw new Error('Invalid master component metadata')
     if (link.properties !== undefined) validateComponentProperties(link.properties)
     if (link.stateMachine !== undefined) validateStateMachine(link.stateMachine)
     return
@@ -47,6 +52,71 @@ export function validateComponent(link: ComponentLink): void {
   }
   if (link.overrides.sharedStyleBindings !== undefined && (!record(link.overrides.sharedStyleBindings) || Object.entries(link.overrides.sharedStyleBindings).some(([key, value]) => !['color', 'typography', 'effects'].includes(key) || (value !== null && (typeof value !== 'string' || !value))))) throw new Error('Invalid shared style override')
   if (link.overrides.tokenBindings !== undefined && (!record(link.overrides.tokenBindings) || Object.entries(link.overrides.tokenBindings).some(([key, value]) => !TOKEN_KEYS.has(key) || (value !== null && (typeof value !== 'string' || !value))))) throw new Error('Invalid component token bindings')
+}
+
+export function isMasterComponent(node: SceneElement | null | undefined): node is MasterComponent {
+  return node?.component?.kind === 'master'
+}
+
+export function isComponentInstance(node: SceneElement | null | undefined): node is ComponentInstance {
+  return node?.component?.kind === 'instance'
+}
+
+export function isInstanceRoot(node: SceneElement | null | undefined): node is ComponentInstance {
+  return node?.component?.kind === 'instance' && node.component.instanceId === node.id
+}
+
+export function buildComponentRegistry(elements: Readonly<Record<string, SceneElement>>): ComponentRegistry {
+  const registry: Record<string, ComponentRegistryEntry> = {}
+  const instancesByMaster = new Map<string, string[]>()
+
+  for (const node of Object.values(elements)) {
+    if (node.component?.kind === 'instance' && node.component.instanceId === node.id) {
+      const list = instancesByMaster.get(node.component.masterId) ?? []
+      list.push(node.id)
+      instancesByMaster.set(node.component.masterId, list)
+    }
+  }
+
+  for (const node of Object.values(elements)) {
+    if (node.component?.kind === 'master') {
+      const link = node.component
+      const instanceIds = Object.freeze(instancesByMaster.get(node.id) ?? [])
+      registry[node.id] = Object.freeze({
+        masterId: node.id,
+        name: node.name,
+        ...(link.description ? { description: link.description } : {}),
+        properties: link.properties ?? Object.freeze([]),
+        ...(link.stateMachine ? { stateMachine: link.stateMachine } : {}),
+        instanceIds,
+        ...(link.createdAt !== undefined ? { createdAt: link.createdAt } : {}),
+        ...(link.updatedAt !== undefined ? { updatedAt: link.updatedAt } : {}),
+      })
+    }
+  }
+
+  return Object.freeze(registry)
+}
+
+export function validateComponentRegistry(registry: ComponentRegistry, elements?: Readonly<Record<string, SceneElement>>): void {
+  if (!record(registry)) throw new Error('Invalid component registry')
+  for (const [masterId, entry] of Object.entries(registry)) {
+    if (!safeId(masterId) || !record(entry) || entry.masterId !== masterId) throw new Error('Invalid component registry entry')
+    if (typeof entry.name !== 'string' || !entry.name.trim()) throw new Error('Invalid component registry entry name')
+    if (!Array.isArray(entry.instanceIds) || entry.instanceIds.some(id => !safeId(id))) throw new Error('Invalid registered instance IDs')
+    if (entry.properties !== undefined) validateComponentProperties(entry.properties)
+    if (entry.stateMachine !== undefined) validateStateMachine(entry.stateMachine)
+    if (elements) {
+      const master = elements[masterId]
+      if (!master || master.component?.kind !== 'master') throw new Error(`Registered master component '${masterId}' does not exist`)
+      for (const instanceId of entry.instanceIds) {
+        const inst = elements[instanceId]
+        if (!inst || inst.component?.kind !== 'instance' || inst.component.instanceId !== instanceId || inst.component.masterId !== masterId) {
+          throw new Error(`Invalid registered instance '${instanceId}' for master '${masterId}'`)
+        }
+      }
+    }
+  }
 }
 
 /** Return a master or instance root for any layer in a component subtree. */
