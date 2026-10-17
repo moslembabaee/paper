@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ViewportController } from '../canvas/ViewportController'
 import type { Point } from '../canvas/types'
 import { getWorldMatrix } from './geometry'
-import { bendSegment, convertSegmentCurveMode, copyContours, evaluateSegmentCurvature, insertPathAnchor, isSmoothNode, moveAnchor, moveHandle, moveQuadApex, nearestPathSegment, parsePath, pathBounds, roundPathContours, segmentPoint, serializePath, setHandleType, snapPathPoint, snapToGrid, toggleNodeCornerSmooth } from './pathGeometry'
+import { bendSegment, canJoinSelection, canSplitAnchor, convertSegmentCurveMode, copyContours, evaluateSegmentCurvature, insertPathAnchor, isSmoothNode, joinPathAnchors, moveAnchor, moveHandle, moveQuadApex, nearestPathSegment, parsePath, pathBounds, reversePathContour, roundPathContours, segmentPoint, serializePath, setHandleType, snapPathPoint, snapToGrid, splitContoursAtSelection, toggleNodeCornerSmooth } from './pathGeometry'
 import type { AnchorSelection, CurveMode, PathAnchor, PathContour } from './pathGeometry'
 import { PathNodeInspector } from './PathNodeInspector'
 import type { NodeAction } from './PathNodeInspector'
@@ -321,7 +321,7 @@ export function PenOverlay({ store, controller, editingId, operandId, penMode, o
     const editSelected = (action: NodeAction, value?: number) => {
       stopGesture()
       const s = sessionRef.current, selected = selectedRef.current
-      if (!selected.length && action !== 'toggle-closed') return
+      if (!selected.length && action !== 'toggle-closed' && action !== 'split-to-layers' && action !== 'reverse') return
       const before = !s.id ? copyContours(s.contours) : null
       store.batch(() => {
         if (action === 'delete') {
@@ -329,6 +329,67 @@ export function PenOverlay({ store, controller, editingId, operandId, penMode, o
           s.contours = s.contours.map((c, ci) => ({ ...c, anchors: c.anchors.filter((_, ai) => !removed.has(`${ci}:${ai}`)) })).filter(c => c.anchors.length > 1)
           chooseMany([])
           if (s.id && !s.contours.length) { store.remove(s.id); callbackRef.current(); return }
+        } else if (action === 'split') {
+          if (selected.length === 1) {
+            const sel = selected[0]
+            const c = s.contours[sel.contour]
+            if (canSplitAnchor(c, sel.anchor)) {
+              s.contours = splitContoursAtSelection(s.contours, sel)
+              chooseMany([])
+            }
+          }
+        } else if (action === 'join') {
+          if (canJoinSelection(s.contours, selected)) {
+            const res = joinPathAnchors(s.contours, selected)
+            if (res.joined) {
+              s.contours = res.contours
+              chooseMany([])
+            }
+          }
+        } else if (action === 'reverse') {
+          const contourIdx = selected.length && selected.every(p => p.contour === selected[0].contour) ? selected[0].contour : s.contours.length - 1
+          const contour = s.contours[contourIdx]
+          if (contour) {
+            s.contours[contourIdx] = reversePathContour(contour)
+            chooseMany([])
+          }
+        } else if (action === 'split-to-layers') {
+          if (s.contours.length > 1) {
+            if (s.id) {
+              store.splitPathToSeparateElements(s.id)
+              callbackRef.current()
+              return
+            } else {
+              const validContours = s.contours.filter(c => c.anchors.length > 1)
+              if (validContours.length > 1) {
+                let parentId = s.parentId
+                if (parentId && !store.getSnapshot().elements[parentId]) parentId = null
+                const newIds: string[] = []
+                for (let i = 0; i < validContours.length; i++) {
+                  const c = validContours[i]
+                  const b = pathBounds([c])
+                  const sub = store.add('path', {
+                    name: `Pen path part ${i + 1}`,
+                    parentId: parentId ?? undefined,
+                    x: b.x,
+                    y: b.y,
+                    width: Math.max(1, b.width),
+                    height: Math.max(1, b.height),
+                    nodes: [c],
+                    viewBox: [b.x, b.y, b.width, b.height],
+                    style: {
+                      fill: c.closed ? '#81adec' : null,
+                      stroke: { color: '#080808', width: 2, dash: [] },
+                    },
+                  })
+                  newIds.push(sub.id)
+                }
+                store.select(newIds)
+                callbackRef.current()
+                return
+              }
+            }
+          }
         } else if (action === 'toggle-closed') {
           const contourIdx = selected.length && selected.every(p => p.contour === selected[0].contour) ? selected[0].contour : s.contours.length - 1
           const contour = s.contours[contourIdx]
@@ -378,7 +439,7 @@ export function PenOverlay({ store, controller, editingId, operandId, penMode, o
           else if (action === 'mirrored' || action === 'asymmetric' || action === 'disconnected') c.anchors[p.anchor] = setHandleType(c, p.anchor, action)
         }
         publish(); normalize()
-      }, action === 'delete' ? 'Delete path nodes' : action === 'insert' ? 'Insert path node' : action === 'toggle-closed' ? 'Toggle subpath closure' : action === 'toggle-smooth' ? 'Toggle corner/smooth' : action === 'curve-mode' ? 'Toggle curve mode' : 'Edit path nodes')
+      }, action === 'delete' ? 'Delete path nodes' : action === 'insert' ? 'Insert path node' : action === 'split' ? 'Split path anchor' : action === 'join' ? 'Join path endpoints' : action === 'reverse' ? 'Reverse path contour' : action === 'split-to-layers' ? 'Separate subpaths into layers' : action === 'toggle-closed' ? 'Toggle subpath closure' : action === 'toggle-smooth' ? 'Toggle corner/smooth' : action === 'curve-mode' ? 'Toggle curve mode' : 'Edit path nodes')
       if (before) { draftHistory.current.record(before, s.contours); redraw() }
     }
     editRef.current = editSelected
@@ -637,6 +698,22 @@ export function PenOverlay({ store, controller, editingId, operandId, penMode, o
           return
         }
       }
+      if (!gesture && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'x') {
+        if (selectedRef.current.length === 1) {
+          const p = selectedRef.current[0]
+          const c = sessionRef.current.contours[p.contour]
+          if (c && canSplitAnchor(c, p.anchor)) {
+            event.preventDefault(); event.stopImmediatePropagation()
+            editSelected('split'); return
+          }
+        }
+      }
+      if (!gesture && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'j') {
+        if (canJoinSelection(sessionRef.current.contours, selectedRef.current)) {
+          event.preventDefault(); event.stopImmediatePropagation()
+          editSelected('join'); return
+        }
+      }
       if (!gesture && !event.ctrlKey && !event.metaKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
         event.preventDefault(); event.stopImmediatePropagation()
         if (!selectedRef.current.length || store.getHistorySnapshot().active) return
@@ -823,6 +900,12 @@ export function PenOverlay({ store, controller, editingId, operandId, penMode, o
         <button onClick={() => editRef.current('toggle-smooth')} title="Toggle Corner vs Smooth Bézier curvature · S">Smooth/Corner <kbd>S</kbd></button>
         <button onClick={() => editRef.current('curve-mode')} title="Toggle Cubic vs Quadratic Bézier · Q">{curveMode === 'quadratic' ? 'Quadratic' : 'Cubic'} <kbd>Q</kbd></button>
       </>}
+      {selected.length === 1 && canSplitAnchor(session.contours[selected[0].contour], selected[0].anchor) && (
+        <button onClick={() => editRef.current('split')} title="Split path at anchor · X">Split <kbd>X</kbd></button>
+      )}
+      {canJoinSelection(session.contours, selected) && (
+        <button onClick={() => editRef.current('join')} title="Join open endpoints · J">Join <kbd>J</kbd></button>
+      )}
       {hasOpenContour && (
         <button onClick={() => editRef.current('toggle-closed')} title="Close subpath · C">Close path <kbd>C</kbd></button>
       )}

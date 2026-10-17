@@ -16,7 +16,7 @@ import type { ShaderPaint } from '../shaders/types.ts'
 import type { BooleanCompound, BooleanOperation, ElementInput, ElementOf, ElementPatch, ElementType, PathElement, SceneDocument, SceneElement, SceneSnapshot, VectorElement } from './types.ts'
 import { computeBoolean, evaluateVectorElement, findCompoundOperand, isVector, refreshBooleanElement, transformedSource } from './booleanGeometry.ts'
 import { optimizeSvgBezierData } from './bezierOptimization.ts'
-import { serializePath, type PathNodes, type PathContour } from './pathGeometry.ts'
+import { serializePath, copyContours, parsePath, pathBounds, type PathNodes, type PathContour } from './pathGeometry.ts'
 import { canMask, validateMaskGraph } from './maskGeometry.ts'
 import { getWorldBounds } from './geometry.ts'
 import { unionBounds } from '../canvas/math.ts'
@@ -2611,6 +2611,60 @@ export class SceneStore {
     this.ordered(elements, node.parentId, siblings)
     this.commit(elements, node.parentId === null ? siblings : this.state.rootIds, released, 'Release boolean compound')
     return released
+  }
+
+  /**
+   * Splits a multi-subpath vector path element into individual PathElement layers in the scene graph.
+   * Preserves styles, transforms, parent relationships, and exact geometry.
+   */
+  splitPathToSeparateElements(id: string): string[] {
+    const node = this.require(id)
+    if (node.type !== 'path') throw new Error('Selected element is not a vector path')
+    if (this.isLocked(id)) throw new Error('Element is locked')
+    if (this.history.getSnapshot().active) throw new Error('Finish the active edit first')
+
+    const contours: PathContour[] = node.nodes ? copyContours(node.nodes) : parsePath(node.d)
+    if (contours.length <= 1) return [id]
+
+    const newIds: string[] = []
+    const sx = node.width / (node.viewBox[2] || 1)
+    const sy = node.height / (node.viewBox[3] || 1)
+    const angle = (node.rotation * Math.PI) / 180
+    const cos = Math.cos(angle)
+    const sin = Math.sin(angle)
+
+    this.batch(() => {
+      for (let i = 0; i < contours.length; i++) {
+        const contour = contours[i]
+        const b = pathBounds([contour], (node.style.stroke?.width ?? 0) / 2)
+        const width = b.width * sx
+        const height = b.height * sy
+        const dx = (b.x - node.viewBox[0]) * sx + (width - node.width) / 2
+        const dy = (b.y - node.viewBox[1]) * sy + (height - node.height) / 2
+        const subX = node.x + cos * dx - sin * dy - (width - node.width) / 2
+        const subY = node.y + sin * dx + cos * dy - (height - node.height) / 2
+
+        const subNode = this.add('path', {
+          name: `${node.name} part ${i + 1}`,
+          parentId: node.parentId,
+          x: Math.round(subX * 2) / 2,
+          y: Math.round(subY * 2) / 2,
+          width: Math.max(1, Math.round(width * 2) / 2),
+          height: Math.max(1, Math.round(height * 2) / 2),
+          rotation: node.rotation,
+          nodes: [contour],
+          d: serializePath([contour]),
+          viewBox: [b.x, b.y, b.width, b.height],
+          fillRule: node.fillRule,
+          style: { ...node.style },
+        })
+        newIds.push(subNode.id)
+      }
+      this.remove(id)
+      this.select(newIds)
+    }, `Split path into ${contours.length} layers`)
+
+    return newIds
   }
 
   addToken(input: TokenInput): DesignToken {

@@ -1822,6 +1822,76 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "completed_at": "2026-10-17T07:50:27.340632+00:00"
+    },
+    {
+      "id": "T-EVOLVE-1792223448-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Generative Shader Material System with Dynamic WebGL Fills",
+      "description": "Implement interactive procedural shader materials utilizing @paper-design/shaders-react for canvas elements. Support customizable parameters (grain intensity, fluid distortion, chromatic aberration, turbulence speed, and color stops) with real-time GLSL canvas rendering, property panel controls, and serialization in the document state.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 62
+    },
+    {
+      "id": "T-EVOLVE-1792223448-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Vector Boolean Operations Engine with Compound Path Geometry",
+      "description": "Develop client-side 2D vector Boolean operation algorithms supporting Union, Subtract, Intersect, and Exclude for arbitrary paths and polygon layers. Provide non-destructive compound path evaluation, path outline expansion, visual preview indicators, and reversible shape tree hierarchies.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 63
+    },
+    {
+      "id": "T-EVOLVE-1792223448-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Design System Variable Tokens and Multi-Mode Theming Engine",
+      "description": "Build a centralized design token store for color, typography, spacing, and radius variables with token aliasing. Support multi-mode theming (e.g., Light, Dark, High-Contrast) with automatic canvas node style binding, token management modal UI, and one-click token export to Tailwind CSS and CSS custom properties.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 64
+    },
+    {
+      "id": "T-EVOLVE-1792225933-1",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Vector Pen & B\u00e9zier Path Editor with Interactive Control Handles",
+      "description": "Implement a vector pen tool supporting anchor point placement, tangent handle manipulation for cubic/quadratic B\u00e9zier curves, path closing/splitting, and real-time canvas preview integrated with the scene graph.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 65,
+      "started_at": "",
+      "attempt_count": 0,
+      "completed_at": "2026-10-17T09:07:25.949422+00:00"
+    },
+    {
+      "id": "T-EVOLVE-1792225933-2",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Interactive Multi-Stop Gradient Engine with On-Canvas Transform Handles",
+      "description": "Add linear, radial, and angular multi-stop gradient styling with interactive on-canvas handles for angle, focal length, spread, and color stop positioning linked directly into Paper WebGL shaders.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 66
+    },
+    {
+      "id": "T-EVOLVE-1792225933-3",
+      "phase": "Continuous Polish & Evolution",
+      "title": "Component Variant Matrix and Instance Property Override System",
+      "description": "Build master component definitions with multi-dimensional variant properties (size, state, theme), automated change propagation to instances, and localized scene graph property override preservation.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "github_issue_number": 67
     }
-  ]
+  ],
+  "active_attempt": {}
 }

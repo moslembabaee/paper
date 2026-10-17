@@ -504,3 +504,275 @@ export function curveRadius(p0: Point, p1: Point, p2: Point): number {
   return (d01 * d12 * d02) / (2 * area2)
 }
 
+/**
+ * Checks whether a specific anchor in a contour can be split.
+ * - Closed contours: any anchor can be split to open the path.
+ * - Open contours: any interior anchor (not start/end endpoint) can be split.
+ */
+export function canSplitAnchor(contour?: PathContour, anchorIndex?: number): boolean {
+  if (!contour || anchorIndex === undefined || anchorIndex < 0 || anchorIndex >= contour.anchors.length) return false
+  if (contour.closed) return contour.anchors.length >= 2
+  return anchorIndex > 0 && anchorIndex < contour.anchors.length - 1
+}
+
+/**
+ * Splits a path contour at a specified anchor index.
+ * - If closed: opens the contour into an open path where the anchor becomes both start and end.
+ * - If open and interior anchor: splits into two independent open contours.
+ * - If open and endpoint: returns the contour unchanged.
+ */
+export function splitPathAtAnchor(contour: PathContour, anchorIndex: number): PathContour[] {
+  const n = contour.anchors.length
+  if (n < 2 || anchorIndex < 0 || anchorIndex >= n) return [contour]
+
+  if (contour.closed) {
+    const rotated: PathAnchor[] = []
+    for (let i = 0; i < n; i++) {
+      rotated.push(contour.anchors[(anchorIndex + i) % n])
+    }
+    const original = rotated[0]
+    const startAnchor: PathAnchor = {
+      ...original,
+      in: undefined,
+      out: original.out ? { ...original.out } : undefined,
+      handleType: 'disconnected',
+    }
+    const middleAnchors = rotated.slice(1).map(a => ({
+      ...a,
+      in: a.in ? { ...a.in } : undefined,
+      out: a.out ? { ...a.out } : undefined,
+      quadApex: a.quadApex ? { ...a.quadApex } : undefined,
+    }))
+    const endAnchor: PathAnchor = {
+      ...original,
+      x: original.x,
+      y: original.y,
+      in: original.in ? { ...original.in } : undefined,
+      out: undefined,
+      cornerRadius: 0,
+      handleType: 'disconnected',
+      quadApex: undefined,
+    }
+    return [{
+      anchors: [startAnchor, ...middleAnchors, endAnchor],
+      closed: false,
+    }]
+  }
+
+  // Open contour
+  if (anchorIndex === 0 || anchorIndex === n - 1) {
+    return [contour]
+  }
+
+  const splitAnchor = contour.anchors[anchorIndex]
+  const anchorsA: PathAnchor[] = [
+    ...contour.anchors.slice(0, anchorIndex).map(a => ({
+      ...a,
+      in: a.in ? { ...a.in } : undefined,
+      out: a.out ? { ...a.out } : undefined,
+      quadApex: a.quadApex ? { ...a.quadApex } : undefined,
+    })),
+    {
+      ...splitAnchor,
+      in: splitAnchor.in ? { ...splitAnchor.in } : undefined,
+      out: undefined,
+      handleType: 'disconnected',
+      cornerRadius: 0,
+      quadApex: undefined,
+    },
+  ]
+
+  const anchorsB: PathAnchor[] = [
+    {
+      ...splitAnchor,
+      in: undefined,
+      out: splitAnchor.out ? { ...splitAnchor.out } : undefined,
+      handleType: 'disconnected',
+    },
+    ...contour.anchors.slice(anchorIndex + 1).map(a => ({
+      ...a,
+      in: a.in ? { ...a.in } : undefined,
+      out: a.out ? { ...a.out } : undefined,
+      quadApex: a.quadApex ? { ...a.quadApex } : undefined,
+    })),
+  ]
+
+  return [
+    { anchors: anchorsA, closed: false },
+    { anchors: anchorsB, closed: false },
+  ]
+}
+
+/**
+ * Splits a path contour at a specific segment index and parameter t (in [0.001, 0.999]).
+ */
+export function splitPathAtSegment(contour: PathContour, segmentIndex: number, t: number): PathContour[] {
+  const maxSeg = contour.closed ? contour.anchors.length : contour.anchors.length - 1
+  if (segmentIndex < 0 || segmentIndex >= maxSeg) return [copyContours([contour])[0]]
+  const copy = copyContours([contour])[0]
+  const newIndex = insertPathAnchor(copy, segmentIndex, t)
+  return splitPathAtAnchor(copy, newIndex)
+}
+
+/**
+ * Splits a list of contours at the specified anchor selection.
+ */
+export function splitContoursAtSelection(
+  contours: readonly PathContour[],
+  selection: AnchorSelection
+): PathContour[] {
+  const { contour: cIdx, anchor: aIdx } = selection
+  if (cIdx < 0 || cIdx >= contours.length) return copyContours(contours)
+  const target = contours[cIdx]
+  const splitResult = splitPathAtAnchor(target, aIdx)
+  const next: PathContour[] = []
+  for (let i = 0; i < contours.length; i++) {
+    if (i === cIdx) {
+      next.push(...splitResult)
+    } else {
+      next.push(contours[i])
+    }
+  }
+  return next
+}
+
+/**
+ * Reverses the direction of a path contour, swapping incoming and outgoing tangent handles.
+ */
+export function reversePathContour(contour: PathContour): PathContour {
+  const reversed = [...contour.anchors].reverse().map(a => ({
+    ...a,
+    in: a.out ? { ...a.out } : undefined,
+    out: a.in ? { ...a.in } : undefined,
+  }))
+  return {
+    anchors: reversed,
+    closed: contour.closed,
+  }
+}
+
+/**
+ * Checks whether the current selection can be joined.
+ */
+export function canJoinSelection(
+  contours: readonly PathContour[],
+  selection: readonly AnchorSelection[]
+): boolean {
+  if (selection.length === 2) {
+    const [s1, s2] = selection
+    if (s1.contour === s2.contour && s1.anchor === s2.anchor) return false
+    const c1 = contours[s1.contour], c2 = contours[s2.contour]
+    if (!c1 || !c2 || c1.closed || c2.closed) return false
+    const isEnd1 = s1.anchor === 0 || s1.anchor === c1.anchors.length - 1
+    const isEnd2 = s2.anchor === 0 || s2.anchor === c2.anchors.length - 1
+    return isEnd1 && isEnd2
+  }
+  if (selection.length === 1) {
+    const s = selection[0]
+    const c = contours[s.contour]
+    return !!c && !c.closed && c.anchors.length >= 2
+  }
+  return false
+}
+
+/**
+ * Joins selected endpoints of open path contours into a continuous path.
+ */
+export function joinPathAnchors(
+  contours: readonly PathContour[],
+  selection: readonly AnchorSelection[]
+): { contours: PathContour[]; joined: boolean } {
+  if (!canJoinSelection(contours, selection)) return { contours: copyContours(contours), joined: false }
+
+  const copied = copyContours(contours)
+
+  if (selection.length === 1) {
+    // Single open contour with anchor selected: close it
+    const s = selection[0]
+    const c = copied[s.contour]
+    if (c && !c.closed && c.anchors.length >= 2) {
+      c.closed = true
+      return { contours: copied, joined: true }
+    }
+    return { contours: copied, joined: false }
+  }
+
+  const [s1, s2] = selection
+  if (s1.contour === s2.contour) {
+    // Both endpoints are on the same open contour -> close it!
+    const c = copied[s1.contour]
+    if (c && !c.closed) {
+      // If start and end are coincident, merge them
+      const start = c.anchors[0], end = c.anchors[c.anchors.length - 1]
+      if (Math.hypot(start.x - end.x, start.y - end.y) < 1e-4) {
+        start.in = end.in ? { ...end.in } : undefined
+        c.anchors.pop()
+      }
+      c.closed = true
+      return { contours: copied, joined: true }
+    }
+    return { contours: copied, joined: false }
+  }
+
+  // Two different contours: connect them
+  const idx1 = Math.min(s1.contour, s2.contour)
+  const idx2 = Math.max(s1.contour, s2.contour)
+  const sel1 = s1.contour === idx1 ? s1 : s2
+  const sel2 = s1.contour === idx1 ? s2 : s1
+
+  const c1 = copied[idx1]
+  const c2 = copied[idx2]
+
+  const isEnd1 = sel1.anchor === c1.anchors.length - 1
+  const isStart2 = sel2.anchor === 0
+
+  let firstContour: PathContour
+  let secondContour: PathContour
+
+  if (isEnd1 && isStart2) {
+    // c1 end connects to c2 start
+    firstContour = c1
+    secondContour = c2
+  } else if (!isEnd1 && isStart2) {
+    // c1 start connects to c2 start -> reverse c1
+    firstContour = reversePathContour(c1)
+    secondContour = c2
+  } else if (isEnd1 && !isStart2) {
+    // c1 end connects to c2 end -> reverse c2
+    firstContour = c1
+    secondContour = reversePathContour(c2)
+  } else {
+    // c1 start connects to c2 end -> order is c2 then c1
+    firstContour = c2
+    secondContour = c1
+  }
+
+  const endA = firstContour.anchors[firstContour.anchors.length - 1]
+  const startB = secondContour.anchors[0]
+  const mergedAnchors: PathAnchor[] = [...firstContour.anchors]
+
+  if (Math.hypot(endA.x - startB.x, endA.y - startB.y) < 1e-4) {
+    // Merge common endpoint
+    mergedAnchors[mergedAnchors.length - 1] = {
+      ...endA,
+      out: startB.out ? { ...startB.out } : undefined,
+    }
+    mergedAnchors.push(...secondContour.anchors.slice(1))
+  } else {
+    // Keep both points with a connecting segment
+    mergedAnchors.push(...secondContour.anchors)
+  }
+
+  const nextContours: PathContour[] = []
+  for (let i = 0; i < copied.length; i++) {
+    if (i === idx1) {
+      nextContours.push({ anchors: mergedAnchors, closed: false })
+    } else if (i !== idx2) {
+      nextContours.push(copied[i])
+    }
+  }
+
+  return { contours: nextContours, joined: true }
+}
+
+

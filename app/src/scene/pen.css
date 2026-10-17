@@ -38,9 +38,6 @@
 .pen-help button:focus-visible { outline:2px solid #81adec; outline-offset:2px; }
 .pen-snap-target { pointer-events:none; fill:none; stroke:#81adec; stroke-width:1; }
 .pen-snap-target text { fill:var(--paper-text); stroke:var(--paper-surface); stroke-width:3px; paint-order:stroke; font:10px var(--font-mono); }
-.node-contour-toggle { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; margin-top:12px; padding:10px 0 0; border:0; border-top:1px solid var(--paper-border); background:transparent; color:var(--paper-text-muted); font:9px var(--font-mono); cursor:pointer; }
-.node-contour-toggle > span:last-child { color:var(--paper-accent-text); }
-.pen-help kbd { margin-left:8px; color:var(--paper-text-muted); }
 .canvas-viewport[data-space='true'] .pen-overlay, .canvas-viewport[data-pan-mode='true'] .pen-overlay { pointer-events:none; }
 .node-inspector { position:absolute; right:16px; top:16px; width:248px; padding:16px; border:1px solid var(--paper-border); border-radius:8px; background:var(--paper-surface); box-shadow:0 8px 32px #08080812; cursor:default; color:var(--paper-text); }
 .node-inspector-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
@@ -69,8 +66,19 @@
 .node-number input:disabled { opacity:.4; }
 .node-inspector-note, .node-inspector-empty { margin:10px 0 14px; font-size:10px; line-height:1.6; color:var(--paper-text-muted); }
 .node-inspector-empty { margin:0 0 16px; font-size:11px; }
-.node-actions { display:flex; gap:8px; }
-.node-actions button { display:flex; align-items:center; justify-content:center; gap:6px; flex:1; padding:8px 4px; border:1px solid var(--paper-border); border-radius:4px; background:transparent; color:var(--paper-text); font-size:10px; cursor:pointer; }
+.node-contour-row { display:flex; flex-direction:column; gap:6px; margin-top:12px; padding-top:10px; border-top:1px solid var(--paper-border); }
+.node-contour-toggle { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; padding:6px 8px; border:1px solid var(--paper-border); border-radius:4px; background:transparent; color:var(--paper-text-muted); font:10px var(--font-mono); cursor:pointer; transition:all 0.15s ease; }
+.node-contour-toggle:hover:enabled { background:var(--paper-accent-soft); border-color:#81adec; color:var(--paper-text); }
+.node-contour-toggle > span:last-child { color:var(--paper-accent-text); font-weight:500; }
+.node-reverse-btn { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:6px 8px; border:1px solid var(--paper-border); border-radius:4px; background:transparent; color:var(--paper-text-muted); font:10px var(--font-mono); cursor:pointer; transition:all 0.15s ease; }
+.node-reverse-btn:hover:enabled { background:var(--paper-accent-soft); border-color:#81adec; color:#81adec; }
+.node-subpath-split { margin-top:8px; }
+.node-split-layers-btn { display:flex; align-items:center; justify-content:center; gap:6px; width:100%; padding:6px 8px; border:1px dashed var(--paper-border); border-radius:4px; background:transparent; color:#81adec; font:10px var(--font-mono); cursor:pointer; transition:all 0.15s ease; }
+.node-split-layers-btn:hover:enabled { background:rgba(129,173,236,0.12); border-color:#81adec; }
+.node-actions { display:grid; grid-template-columns:repeat(auto-fit, minmax(46px, 1fr)); gap:6px; }
+.node-actions button { display:flex; align-items:center; justify-content:center; gap:4px; padding:6px 4px; border:1px solid var(--paper-border); border-radius:4px; background:transparent; color:var(--paper-text); font-size:10px; cursor:pointer; transition:all 0.12s ease; }
+.node-actions button kbd { font-size:8px; background:var(--paper-bg, #181818); border:1px solid var(--paper-border, #333333); border-radius:2px; padding:0 3px; color:var(--paper-text-muted, #888888); }
+.pen-help kbd { margin-left:8px; color:var(--paper-text-muted); }
 .node-inspector-footer { display:flex; justify-content:space-between; padding-top:14px; margin-top:14px; border-top:1px solid var(--paper-border); font:9px var(--font-mono); color:var(--paper-text-muted); }
 .node-inspector button:focus-visible { outline:2px solid #81adec; outline-offset:2px; }
 @media (max-width:900px) { .node-inspector { right:10px; top:10px; width:220px; padding:12px; } .pen-help > span:nth-child(2) { display:none; } }

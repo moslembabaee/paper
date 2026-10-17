@@ -130,6 +130,8 @@ export interface BooleanCompound {
   readonly operation: BooleanOperation
   /** Back to front, in the coordinate system of the compound's viewBox. */
   readonly operands: readonly VectorElement[]
+  /** Optional IDs of operands temporarily muted from evaluation */
+  readonly mutedOperandIds?: readonly string[]
 }
 
 export interface VariableFontAxes {

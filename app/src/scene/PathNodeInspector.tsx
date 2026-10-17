@@ -1,9 +1,25 @@
 import { useRef, useState } from 'react'
-import { Plus, Trash2, Spline } from 'lucide-react'
-import { getHandleType, isSmoothNode, evaluateSegmentCurvature } from './pathGeometry'
+import { Plus, Trash2, Spline, Scissors, Link2, RotateCw } from 'lucide-react'
+import { getHandleType, isSmoothNode, evaluateSegmentCurvature, canSplitAnchor, canJoinSelection } from './pathGeometry'
 import type { AnchorSelection, CurveMode, HandleType, PathContour } from './pathGeometry'
 
-export type NodeAction = 'corner' | HandleType | 'radius' | 'x' | 'y' | 'insert' | 'delete' | 'toggle-closed' | 'toggle-smooth' | 'curve-mode' | 'quad-apex-x' | 'quad-apex-y'
+export type NodeAction =
+  | 'corner'
+  | HandleType
+  | 'radius'
+  | 'x'
+  | 'y'
+  | 'insert'
+  | 'delete'
+  | 'toggle-closed'
+  | 'toggle-smooth'
+  | 'curve-mode'
+  | 'quad-apex-x'
+  | 'quad-apex-y'
+  | 'split'
+  | 'join'
+  | 'reverse'
+  | 'split-to-layers'
 interface Props { contours: PathContour[]; selection: AnchorSelection[]; title?: string; onEdit: (action: NodeAction, value?: number) => void }
 
 function NodeNumber({ label, value, disabled, min, onCommit }: { label: string; value: number | undefined; disabled?: boolean; min?: number; onCommit: (value: number) => void }) {
@@ -41,6 +57,8 @@ export function PathNodeInspector({ contours, selection, title, onEdit }: Props)
   const single = selection.length === 1 ? selection[0] : undefined, contour = single ? contours[single.contour] : undefined
   const selectedContour = selection.length && selection.every(p => p.contour === selection[0].contour) ? contours[selection[0].contour] : undefined
   const canInsert = single && contour && (contour.closed || single.anchor < contour.anchors.length - 1) && !contour.anchors.some(a => a.cornerRadius)
+  const canSplit = single && contour && canSplitAnchor(contour, single.anchor)
+  const canJoin = canJoinSelection(contours, selection)
 
   let curvatureMetric: { radius: number; curvature: number } | null = null
   if (single && contour && first && (contour.closed || single.anchor < contour.anchors.length - 1)) {
@@ -87,8 +105,64 @@ export function PathNodeInspector({ contours, selection, title, onEdit }: Props)
       <div className="node-coordinates"><NodeNumber label="X" value={common('x')} onCommit={value => onEdit('x', value)} /><NodeNumber label="Y" value={common('y')} onCommit={value => onEdit('y', value)} /></div>
       <NodeNumber label="Corner radius" value={common('cornerRadius')} min={0} disabled={selection.some(p => { const c = contours[p.contour]; return (!c.closed && (p.anchor === 0 || p.anchor === c.anchors.length - 1)) || !!c.anchors[(p.anchor + c.anchors.length - 1) % c.anchors.length].out || !!c.anchors[(p.anchor + 1) % c.anchors.length].in })} onCommit={value => onEdit('radius', value)} />
       <p className="node-inspector-note">{anchors.some(a => a.in || a.out) ? 'A radius converts the node to a corner.' : 'Radius is clamped to fit adjacent edges.'}</p>
-      <div className="node-actions"><button disabled={!canInsert} title="Insert at the midpoint of the next segment" onClick={() => onEdit('insert')}><Plus size={12} />Insert node</button><button onClick={() => onEdit('delete')} title="Delete selected nodes · Backspace"><Trash2 size={12} />Delete</button></div>
-      {selectedContour && <button className="node-contour-toggle" disabled={selectedContour.anchors.length < 2} aria-label={selectedContour.closed ? 'Open selected subpath' : 'Close selected subpath'} onClick={() => onEdit('toggle-closed')}><span>{selectedContour.closed ? 'Closed subpath' : 'Open subpath'}</span><span>{selectedContour.closed ? 'Open path ↗' : 'Close path ↩'}</span></button>}
+      <div className="node-actions">
+        <button disabled={!canInsert} title="Insert at the midpoint of the next segment" onClick={() => onEdit('insert')}>
+          <Plus size={12} />Insert
+        </button>
+        <button
+          disabled={!canSplit}
+          aria-label="Split path at selected anchor"
+          title={canSplit ? (contour?.closed ? 'Split path at anchor (open path · Hotkey: X)' : 'Split path at anchor (cut into 2 subpaths · Hotkey: X)') : 'Select an anchor to split'}
+          onClick={() => onEdit('split')}
+        >
+          <Scissors size={12} />Split <kbd>X</kbd>
+        </button>
+        {canJoin && (
+          <button
+            aria-label="Join endpoints"
+            title="Join open endpoints into continuous path (Hotkey: J)"
+            onClick={() => onEdit('join')}
+          >
+            <Link2 size={12} />Join <kbd>J</kbd>
+          </button>
+        )}
+        <button onClick={() => onEdit('delete')} title="Delete selected nodes · Backspace">
+          <Trash2 size={12} />Delete
+        </button>
+      </div>
+      {selectedContour && (
+        <div className="node-contour-row">
+          <button
+            className="node-contour-toggle"
+            disabled={selectedContour.anchors.length < 2}
+            aria-label={selectedContour.closed ? 'Open selected subpath' : 'Close selected subpath'}
+            onClick={() => onEdit('toggle-closed')}
+          >
+            <span>{selectedContour.closed ? 'Closed subpath' : 'Open subpath'}</span>
+            <span>{selectedContour.closed ? 'Open path ↗' : 'Close path ↩'}</span>
+          </button>
+          <button
+            type="button"
+            className="node-reverse-btn"
+            title="Reverse subpath direction"
+            onClick={() => onEdit('reverse')}
+          >
+            <RotateCw size={11} />Reverse direction
+          </button>
+        </div>
+      )}
+      {contours.length > 1 && (
+        <div className="node-subpath-split">
+          <button
+            type="button"
+            className="node-split-layers-btn"
+            title="Separate each subpath into its own vector layer in the scene graph"
+            onClick={() => onEdit('split-to-layers')}
+          >
+            <Scissors size={11} />Separate into {contours.length} layers
+          </button>
+        </div>
+      )}
     </> : <p className="node-inspector-empty">Select an anchor to refine its position, handles, and corner radius.</p>}
     <div className="node-inspector-footer"><span>⇧ Multi-select</span><span>↑↓←→ Nudge</span></div>
   </aside>

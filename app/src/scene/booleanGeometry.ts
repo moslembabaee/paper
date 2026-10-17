@@ -44,7 +44,9 @@ function slice(c: Curve, start: number, end: number): Curve {
 function contoursToCurves(contours: readonly PathContour[]): Curve[] {
   return contours.flatMap(({ anchors }) => anchors.map((a, index): Curve => {
     const b = anchors[(index + 1) % anchors.length]
-    return a.out || b.in ? [a, a.out ?? a, b.in ?? b, b] : line(a, b)
+    const aOut = a.out ?? (a.curveMode === 'quadratic' && a.quadApex ? point(a.x + (2 / 3) * (a.quadApex.x - a.x), a.y + (2 / 3) * (a.quadApex.y - a.y)) : undefined)
+    const bIn = b.in ?? (a.curveMode === 'quadratic' && a.quadApex ? point(b.x + (2 / 3) * (a.quadApex.x - b.x), b.y + (2 / 3) * (a.quadApex.y - b.y)) : undefined)
+    return aOut || bIn ? [a, aOut ?? a, bIn ?? b, b] : line(a, b)
   })).filter(c => c.some(p => distance(p, c[0]) > 1e-10))
 }
 
@@ -335,7 +337,10 @@ export function findCompoundOperand(compound: BooleanCompound, operandId: string
  */
 export function evaluateVectorElement(node: VectorElement, depth = 0): VectorElement {
   if (depth > 32 || node.type !== 'path' || !node.boolean) return node
-  const evaluatedOperands = node.boolean.operands.map(op => evaluateVectorElement(op, depth + 1))
+  const muted = new Set(node.boolean.mutedOperandIds ?? [])
+  const activeOperands = node.boolean.operands.filter(op => !muted.has(op.id))
+  const operandsToEvaluate = activeOperands.length >= 2 ? activeOperands : node.boolean.operands
+  const evaluatedOperands = operandsToEvaluate.map(op => evaluateVectorElement(op, depth + 1))
   const result = computeBoolean(evaluatedOperands, node.boolean.operation)
   return {
     ...node,
@@ -344,7 +349,7 @@ export function evaluateVectorElement(node: VectorElement, depth = 0): VectorEle
     fillRule: result.fillRule,
     boolean: {
       ...node.boolean,
-      operands: evaluatedOperands,
+      operands: node.boolean.operands.map(op => evaluateVectorElement(op, depth + 1)),
     },
   }
 }
@@ -353,7 +358,10 @@ export function evaluateVectorElement(node: VectorElement, depth = 0): VectorEle
  * Live evaluation of compound shape hierarchy down to root result.
  */
 export function evaluateCompoundHierarchy(compound: BooleanCompound): BooleanResult {
-  const evaluatedOperands = compound.operands.map(op => evaluateVectorElement(op))
+  const muted = new Set(compound.mutedOperandIds ?? [])
+  const activeOperands = compound.operands.filter(op => !muted.has(op.id))
+  const operandsToEvaluate = activeOperands.length >= 2 ? activeOperands : compound.operands
+  const evaluatedOperands = operandsToEvaluate.map(op => evaluateVectorElement(op))
   return computeBoolean(evaluatedOperands, compound.operation)
 }
 
@@ -397,7 +405,10 @@ export function computeBoolean(operands: readonly VectorElement[], operation: Bo
 
 /** Recompute source geometry without changing its existing mapping into the scene. */
 export function refreshBooleanElement(node: PathElement, compound: BooleanCompound): PathElement {
-  const evaluatedOperands = compound.operands.map(op => evaluateVectorElement(op))
+  const muted = new Set(compound.mutedOperandIds ?? [])
+  const activeOperands = compound.operands.filter(op => !muted.has(op.id))
+  const operandsToEvaluate = activeOperands.length >= 2 ? activeOperands : compound.operands
+  const evaluatedOperands = operandsToEvaluate.map(op => evaluateVectorElement(op))
   const result = computeBoolean(evaluatedOperands, compound.operation)
   const [vx, vy, vw, vh] = node.viewBox, sx = node.width / vw, sy = node.height / vh
   const width = result.bounds.width * sx, height = result.bounds.height * sy
