@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { CanvasViewport, unionBounds } from '../canvas'
 import type { ViewportController } from '../canvas'
@@ -36,23 +36,28 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   const interactionDisabled = Boolean(prototypeOverlay) || commentMode || interactiveMode || physicsMode
   if (interactionDisabled && editingId !== null) setEditingId(null)
   useArrangeShortcuts(store, controller, !interactionDisabled && !penMode && !editingId)
+
+  const enterPath = useCallback((id: string | undefined) => {
+    if (store.getHistorySnapshot().active) return
+    const node = id ? store.getSnapshot().elements[id] : undefined
+    if (node?.type === 'path' && !node.boolean && !store.isLocked(node.id) && store.isVisible(node.id)) {
+      store.select([node.id])
+      setEditingId(node.id)
+    }
+  }, [store])
+
   useLayoutEffect(() => {
     if (interactionDisabled) return
     const viewport = hostRef.current!.querySelector<HTMLElement>('.canvas-viewport')!
-    const enter = (id: string | undefined) => {
-      if (store.getHistorySnapshot().active) return
-      const node = id ? store.getSnapshot().elements[id] : undefined
-      if (node?.type === 'path' && !node.boolean && !store.isLocked(node.id) && store.isVisible(node.id)) { store.select([node.id]); setEditingId(node.id) }
-    }
     const doubleClick = (event: MouseEvent) => {
       if (panMode || penMode || editingId || viewport.dataset.space === 'true' || viewport.dataset.panning === 'true' || (event.target as Element).closest('.viewport-ui')) return
       const rect = viewport.getBoundingClientRect()
       const hit = measurementHit(store.getSnapshot(), controller.screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top }), true)
-      enter(hit ?? undefined)
+      enterPath(hit ?? undefined)
     }
     const keydown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.ctrlKey || event.metaKey || (event.target as Element).closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"]')) return
-      if (event.key === 'Enter' && !penMode && !panMode && !editingId) { event.preventDefault(); enter(store.getSnapshot().selection[0]) }
+      if (event.key === 'Enter' && !penMode && !panMode && !editingId) { event.preventDefault(); enterPath(store.getSnapshot().selection[0]) }
     }
     const handleContextMenu = (event: MouseEvent) => {
       if (panMode || penMode || (event.target as Element).closest('.viewport-ui, button, input, textarea, select, [role="dialog"], [role="menu"]')) return
@@ -88,7 +93,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   const bounds = useMemo(() => unionBounds(items), [items])
   return (
     <div ref={hostRef} style={{ display: 'contents' }}>
-      <CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (physicsMode ? <PhysicsOverlay store={store} controller={controller} onExit={onExitPhysicsMode} /> : interactiveMode ? <InteractiveCanvasOverlay store={store} controller={controller} onExit={onExitInteractiveMode} /> : !panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <><SelectionOverlay store={store} controller={controller} panMode={panMode} />{!panMode && <MeshCanvasOverlay store={store} controller={controller} />}</>)}</>}>
+      <CanvasViewport controller={controller} initialCamera={initialCamera} contentBounds={bounds} minimapItems={items} gridVisible={grid} panMode={panMode} background={backgroundShader && <ShaderSurface paint={backgroundShader} />} overlay={<>{collaboration && <CollaborationOverlay session={collaboration} store={store} controller={controller} />}<AgentOverlay store={store} controller={controller} activity={agentActivity} />{annotationOverlay}{commentMode ? null : prototypeOverlay ?? (physicsMode ? <PhysicsOverlay store={store} controller={controller} onExit={onExitPhysicsMode} /> : interactiveMode ? <InteractiveCanvasOverlay store={store} controller={controller} onExit={onExitInteractiveMode} /> : !panMode && (penMode || (editingId && elements[editingId]?.type === 'path' && !store.isLocked(editingId) && store.isVisible(editingId))) ? <PenOverlay key={`${editingId ?? 'new'}-${penMode}`} store={store} controller={controller} editingId={editingId} penMode={penMode} onFinish={() => { setEditingId(null); onExitPen?.() }} /> : <><SelectionOverlay store={store} controller={controller} panMode={panMode} onEditPath={enterPath} />{!panMode && <MeshCanvasOverlay store={store} controller={controller} />}</>)}</>}>
         <SceneRenderer store={store} interactive={!panMode && !commentMode && !interactiveMode && !physicsMode} />
       </CanvasViewport>
       {interactiveMode && (
@@ -105,6 +110,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
           controller={controller}
           position={contextMenu}
           onClose={() => setContextMenu(null)}
+          onEditPath={enterPath}
         />
       )}
     </div>

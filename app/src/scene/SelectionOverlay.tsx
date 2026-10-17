@@ -1,4 +1,5 @@
 import { memo, useLayoutEffect, useRef, useState } from 'react'
+import { PenTool } from 'lucide-react'
 import type { ViewportController } from '../canvas'
 import type { Bounds, Point } from '../canvas/types'
 import { getWorldBounds } from './geometry'
@@ -46,10 +47,10 @@ type Drag = Gesture & (
   | { type: 'rotate'; box: SelectionBox; startAngle: number }
   | { type: 'spacing'; id: string; layout: AutoLayout; property: SpacingProperty; axis: 'x' | 'y'; sign: number; rotation: number }
 )
-interface Props { store: SceneStore; controller: ViewportController; panMode: boolean }
+interface Props { store: SceneStore; controller: ViewportController; panMode: boolean; onEditPath?: (id: string) => void }
 
 /** Screen-space affordances; scene hits and viewport navigation remain unobstructed. */
-export const SelectionOverlay = memo(function SelectionOverlay({ store, controller, panMode }: Props) {
+export const SelectionOverlay = memo(function SelectionOverlay({ store, controller, panMode, onEditPath }: Props) {
   const state = useScene(store, snapshot => snapshot)
   const [camera, setCamera] = useState(() => controller.getSnapshot().camera)
   const [guides, setGuides] = useState<SnapGuide[]>([])
@@ -279,6 +280,31 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
     </div>}
     {!panMode && box && selectedNode?.type === 'text' && !activeCursor && (
       <CanvasTypographyScrubber node={selectedNode} store={store} camera={camera} box={box} />
+    )}
+    {!panMode && box && selectedNode?.type === 'path' && !selectedNode.boolean && !activeCursor && (
+      <div
+        className="sel-vector-badge"
+        data-testid="sel-vector-badge"
+        style={{
+          left: box.x * camera.zoom + camera.x,
+          top: (box.y + box.height) * camera.zoom + camera.y + 8,
+        }}
+      >
+        <button
+          type="button"
+          className="vector-edit-btn"
+          data-testid="vector-edit-btn"
+          onClick={e => {
+            e.stopPropagation()
+            onEditPath?.(selectedNode.id)
+          }}
+          title="Edit vector path nodes (Hotkey: Enter or double-click)"
+        >
+          <PenTool size={11} />
+          <span>Edit Vector Path</span>
+          <kbd>↵</kbd>
+        </button>
+      </div>
     )}
     <MeasurementHUD store={store} controller={controller} suppressed={panMode || activeCursor !== null} />
   </div>

@@ -263,3 +263,29 @@ test('elements validation and freezing preserve quadratic quadApex on path nodes
   assert.deepEqual(frozen.nodes[0].anchors[0].quadApex, { x: 60, y: 120 })
 })
 
+test('path closing serializes with Z and integrates with boolean engine', () => {
+  const openContour = {
+    closed: false,
+    anchors: [
+      { x: 0, y: 0 },
+      { x: 100, y: 0, out: { x: 100, y: 50 } },
+      { x: 100, y: 100, in: { x: 100, y: 50 } },
+      { x: 0, y: 100 },
+    ],
+  }
+  const openSvg = serializePath([openContour])
+  assert.ok(!openSvg.includes('Z'))
+
+  // Close the contour
+  const closedContour = { ...openContour, closed: true }
+  const closedSvg = serializePath([closedContour])
+  assert.ok(closedSvg.includes('Z'))
+
+  // Test boolean operation with closed path
+  const cutter = 'M 50 50 L 150 50 L 150 150 L 50 150 Z'
+  const result = evaluatePathCAG(closedSvg, cutter, 'intersection')
+  assert.ok(result.d)
+  assert.ok(result.metrics.area > 0)
+})
+
+

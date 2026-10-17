@@ -42,6 +42,7 @@ import {
   RotateCcw,
   ArrowUpRight,
   Plus,
+  PenTool,
 } from 'lucide-react'
 import type { ViewportController } from '../canvas'
 import type { Point } from '../canvas/types'
@@ -69,6 +70,7 @@ interface CanvasContextMenuProps {
   controller: ViewportController
   position: ContextMenuPosition
   onClose: () => void
+  onEditPath?: (id: string) => void
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -92,7 +94,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function CanvasContextMenu({ store, controller, position, onClose }: CanvasContextMenuProps) {
+export function CanvasContextMenu({ store, controller, position, onClose, onEditPath }: CanvasContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [coords, setCoords] = useState<{ top: number; left: number }>({ top: position.y, left: position.x })
   const state = store.getSnapshot()
@@ -441,6 +443,17 @@ export function CanvasContextMenu({ store, controller, position, onClose }: Canv
             label={anyVisible ? 'Hide' : 'Show'}
             onClick={handleToggleVisibility}
           />
+          {isSingle && firstNode?.type === 'path' && !firstNode.boolean && (
+            <MenuItem
+              icon={<PenTool size={14} />}
+              label="Edit Vector Path"
+              shortcut="Enter"
+              onClick={() => {
+                onEditPath?.(firstNode.id)
+                onClose()
+              }}
+            />
+          )}
           {isSingle && firstNode?.type === 'frame' && !!firstNode.layout ? (
             <MenuItem icon={<LayoutGrid size={14} />} label="Remove Auto Layout" shortcut="Alt+Shift+A" onClick={handleRemoveAutoLayout} />
           ) : (
