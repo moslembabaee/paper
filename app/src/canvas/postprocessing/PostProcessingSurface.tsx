@@ -48,8 +48,14 @@ export function PostProcessingSurface({ paint, paused, children }: { paint: Shad
           host.style.opacity = '0'
         }
       } catch { failed = true; revealSource(); compositor.dispose(); return }
-      const grain = next.postProcessing?.passes.some(pass => pass.enabled && pass.opacity > 0 && pass.type === 'film-grain' && pass.params.temporal && pass.params.speed > 0 && pass.params.intensity > 0)
-      if ((animated && (next.speed !== 0 || grain)) || extraFrames-- > 0) request = requestAnimationFrame(tick)
+      const isTemporal = next.postProcessing?.passes.some(pass => {
+        if (!pass.enabled || pass.opacity === 0) return false
+        if (pass.type === 'film-grain' && pass.params.temporal && pass.params.speed > 0 && pass.params.intensity > 0) return true
+        if (pass.type === 'procedural-grain' && pass.params.temporal && pass.params.speed > 0 && pass.params.intensity > 0) return true
+        if (pass.type === 'frosted-glass' && (pass.params.surfacePattern === 'rippled' || pass.params.surfacePattern === 'frosted') && pass.params.frostIntensity > 0) return true
+        return false
+      })
+      if ((animated && (next.speed !== 0 || isTemporal)) || (!animated && isTemporal) || extraFrames-- > 0) request = requestAnimationFrame(tick)
     }
     const update = () => {
       if (failed) return

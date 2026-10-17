@@ -75,7 +75,7 @@ export class PostProcessingCompositor {
     } catch (error) { gl.deleteProgram(program); throw error }
     finally { gl.deleteShader(vertex); if (fragment) gl.deleteShader(fragment) }
     const result = { program, uniforms: new Map<string, WebGLUniformLocation | null>() }
-    for (const key of ['source', 'aux', 'resolution', 'params', 'extra', 'color', 'time', 'opacity', 'blend']) result.uniforms.set(key, gl.getUniformLocation(program, `u_${key}`))
+    for (const key of ['source', 'aux', 'resolution', 'params', 'extra', 'params2', 'params3', 'color', 'color2', 'time', 'opacity', 'blend']) result.uniforms.set(key, gl.getUniformLocation(program, `u_${key}`))
     this.programs.set(name, result)
     return result
   }
@@ -111,7 +111,18 @@ export class PostProcessingCompositor {
     } catch (error) { this.releaseTargets(); throw error }
   }
 
-  private draw(name: ProgramName, source: WebGLTexture, target: Target | null, params: readonly number[] = [0, 0, 0, 0], pass?: PostProcessPass, time = 0, aux?: WebGLTexture) {
+  private draw(
+    name: ProgramName,
+    source: WebGLTexture,
+    target: Target | null,
+    params: readonly number[] = [0, 0, 0, 0],
+    pass?: PostProcessPass,
+    time = 0,
+    aux?: WebGLTexture,
+    extra: readonly number[] = [0, 0, 0, 0],
+    params2: readonly number[] = [0, 0, 0, 0],
+    colorHex?: string,
+  ) {
     const gl = this.gl
     const p = this.getProgram(name)
     const uniform = (key: string) => p.uniforms.get(key) ?? null
@@ -126,11 +137,15 @@ export class PostProcessingCompositor {
     gl.uniform1i(uniform('aux'), 1)
     gl.uniform2f(uniform('resolution'), target?.width ?? this.canvas.width, target?.height ?? this.canvas.height)
     gl.uniform4f(uniform('params'), params[0], params[1], params[2], params[3])
+    gl.uniform4f(uniform('extra'), extra[0], extra[1], extra[2], extra[3])
+    gl.uniform4f(uniform('params2'), params2[0], params2[1], params2[2], params2[3])
     gl.uniform1f(uniform('time'), time)
     gl.uniform1f(uniform('opacity'), pass?.opacity ?? 1)
     gl.uniform1i(uniform('blend'), ['normal', 'screen', 'multiply', 'overlay'].indexOf(pass?.blendMode ?? 'normal'))
     if (pass?.type === 'film-grain') gl.uniform4f(uniform('extra'), Number(pass.params.temporal), Number(pass.params.monochrome), 0, 0)
-    if (pass?.type === 'vignette' || pass?.type === 'color-grade') {
+    if (colorHex) {
+      gl.uniform3f(uniform('color'), parseInt(colorHex.slice(1, 3), 16) / 255, parseInt(colorHex.slice(3, 5), 16) / 255, parseInt(colorHex.slice(5, 7), 16) / 255)
+    } else if (pass?.type === 'vignette' || pass?.type === 'color-grade') {
       const color = pass.type === 'vignette' ? pass.params.color : pass.params.tint
       gl.uniform3f(uniform('color'), parseInt(color.slice(1, 3), 16) / 255, parseInt(color.slice(3, 5), 16) / 255, parseInt(color.slice(5, 7), 16) / 255)
     }
@@ -172,6 +187,39 @@ export class PostProcessingCompositor {
         case 'film-grain': this.draw(pass.type, input, target, [pass.params.intensity, pass.params.size, pass.params.speed, 0], pass, time); break
         case 'vignette': this.draw(pass.type, input, target, [pass.params.intensity, pass.params.radius, pass.params.smoothness, pass.params.roundness], pass, time); break
         case 'color-grade': this.draw(pass.type, input, target, [pass.params.contrast, pass.params.brightness, pass.params.saturation, pass.params.exposure], pass, time); break
+        case 'frosted-glass': {
+          const p = pass.params
+          const patternMap = { smooth: 0, frosted: 1, fluted: 2, rippled: 3, faceted: 4 }
+          this.draw(
+            pass.type,
+            input,
+            target,
+            [p.refractionIndex, p.dispersion, p.roughness, p.blurRadius],
+            pass,
+            time,
+            undefined,
+            [p.frostIntensity, p.patternScale, patternMap[p.surfacePattern] ?? 1, p.bevelWidth],
+            [p.tintOpacity, p.specularStrength, (p.lightAngle * Math.PI) / 180, 0],
+            p.tintColor,
+          )
+          break
+        }
+        case 'procedural-grain': {
+          const p = pass.params
+          const noiseMap = { simplex: 0, perlin: 1, worley: 2, hash: 3 }
+          this.draw(
+            pass.type,
+            input,
+            target,
+            [p.intensity, p.size, p.speed, p.frequency],
+            pass,
+            time,
+            undefined,
+            [Number(p.temporal), Number(p.monochrome), noiseMap[p.noiseType] ?? 0, p.turbulence],
+            [p.octaves, 0, 0, 0],
+          )
+          break
+        }
       }
       input = target.texture
       index++

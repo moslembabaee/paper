@@ -43,6 +43,128 @@ test('malformed stacks reject atomically, including pass limits, ranges and disc
     assert.equal(store.getSnapshot(), before)
   }
   validateShader(createShader('mesh-gradient')) // Legacy documents have no stack.
-  const passes = ['bloom', 'film-grain', 'vignette', 'chromatic-aberration', 'color-grade'].map(createPostProcessPass)
+  const passes = ['bloom', 'film-grain', 'vignette', 'chromatic-aberration', 'color-grade', 'frosted-glass', 'procedural-grain'].map(createPostProcessPass)
   validatePostProcessing({ version: 1, enabled: true, preset: 'custom', passes })
 })
+
+test('frosted-glass post-processing pass validates parameters and pattern profiles', () => {
+  const pass = createPostProcessPass('frosted-glass')
+  assert.equal(pass.type, 'frosted-glass')
+  assert.equal(pass.name, 'Frosted glass')
+  assert.equal(pass.params.refractionIndex, 1.52)
+  assert.equal(pass.params.dispersion, 0.35)
+  assert.equal(pass.params.surfacePattern, 'frosted')
+
+  // Valid pipeline with frosted glass
+  const pipeline = {
+    version: 1,
+    enabled: true,
+    preset: 'custom',
+    passes: [pass],
+  }
+  validatePostProcessing(pipeline)
+
+  // Pattern variations (smooth, frosted, fluted, rippled, faceted)
+  for (const pattern of ['smooth', 'frosted', 'fluted', 'rippled', 'faceted']) {
+    validatePostProcessing({
+      ...pipeline,
+      passes: [{ ...pass, params: { ...pass.params, surfacePattern: pattern } }],
+    })
+  }
+
+  // Reject invalid patterns or bounds
+  assert.throws(() => validatePostProcessing({
+    ...pipeline,
+    passes: [{ ...pass, params: { ...pass.params, surfacePattern: 'invalid-pattern' } }],
+  }), /Invalid shader post-processing/)
+
+  assert.throws(() => validatePostProcessing({
+    ...pipeline,
+    passes: [{ ...pass, params: { ...pass.params, refractionIndex: 0.8 } }], // below 1.0
+  }), /Invalid shader post-processing/)
+
+  assert.throws(() => validatePostProcessing({
+    ...pipeline,
+    passes: [{ ...pass, params: { ...pass.params, refractionIndex: 3.5 } }], // above 2.5
+  }), /Invalid shader post-processing/)
+
+  assert.throws(() => validatePostProcessing({
+    ...pipeline,
+    passes: [{ ...pass, params: { ...pass.params, tintColor: 'not-a-color' } }],
+  }), /Invalid shader post-processing/)
+})
+
+test('procedural-grain post-processing pass validates noise generators and uniforms', () => {
+  const pass = createPostProcessPass('procedural-grain')
+  assert.equal(pass.type, 'procedural-grain')
+  assert.equal(pass.name, 'Procedural grain')
+  assert.equal(pass.params.noiseType, 'simplex')
+  assert.equal(pass.params.octaves, 3)
+  assert.equal(pass.params.temporal, true)
+
+  const pipeline = {
+    version: 1,
+    enabled: true,
+    preset: 'custom',
+    passes: [pass],
+  }
+  validatePostProcessing(pipeline)
+
+  // All 4 noise algorithms validate
+  for (const noiseType of ['simplex', 'perlin', 'worley', 'hash']) {
+    validatePostProcessing({
+      ...pipeline,
+      passes: [{ ...pass, params: { ...pass.params, noiseType } }],
+    })
+  }
+
+  // Reject invalid noise algorithm or out-of-range octaves
+  assert.throws(() => validatePostProcessing({
+    ...pipeline,
+    passes: [{ ...pass, params: { ...pass.params, noiseType: 'fbm-unknown' } }],
+  }), /Invalid shader post-processing/)
+
+  assert.throws(() => validatePostProcessing({
+    ...pipeline,
+    passes: [{ ...pass, params: { ...pass.params, octaves: 0 } }],
+  }), /Invalid shader post-processing/)
+
+  assert.throws(() => validatePostProcessing({
+    ...pipeline,
+    passes: [{ ...pass, params: { ...pass.params, octaves: 8 } }],
+  }), /Invalid shader post-processing/)
+
+  assert.throws(() => validatePostProcessing({
+    ...pipeline,
+    passes: [{ ...pass, params: { ...pass.params, intensity: -0.1 } }],
+  }), /Invalid shader post-processing/)
+})
+
+test('curated frosted glass and procedural grain presets instantiate with authentic uniforms', () => {
+  const targetPresets = [
+    'frosted-acrylic',
+    'prismatic-glass',
+    'architectural-fluted',
+    'procedural-paper-grain',
+    'cyber-glitch-glass',
+    'etched-frosted-minimal',
+  ]
+
+  for (const presetKey of targetPresets) {
+    const pipeline = createDefaultPostProcessing(presetKey)
+    assert.equal(pipeline.preset, presetKey)
+    assert.ok(pipeline.passes.length >= 2, `${presetKey} should have at least 2 passes`)
+    validatePostProcessing(pipeline)
+
+    // Check presence of frosted-glass, procedural-grain, or chromatic-aberration in curated presets
+    const hasFrostedGlass = pipeline.passes.some(p => p.type === 'frosted-glass')
+    const hasProceduralGrain = pipeline.passes.some(p => p.type === 'procedural-grain')
+    const hasChromatic = pipeline.passes.some(p => p.type === 'chromatic-aberration')
+
+    assert.ok(
+      hasFrostedGlass || hasProceduralGrain || hasChromatic,
+      `${presetKey} must include frosted glass, procedural grain, or chromatic aberration`
+    )
+  }
+})
+

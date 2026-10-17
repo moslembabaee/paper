@@ -5,9 +5,11 @@ type Control = { label: string } & (
   | { kind: 'number'; min: number; max: number; step: number }
   | { kind: 'boolean' }
   | { kind: 'color' }
+  | { kind: 'select'; options: readonly string[] }
 )
 const number = (label: string, min = 0, max = 1, step = .01): Control => ({ label, kind: 'number', min, max, step })
 const boolean = (label: string): Control => ({ label, kind: 'boolean' })
+const select = (label: string, options: readonly string[]): Control => ({ label, kind: 'select', options })
 export const postProcessDefinitions: Record<PostProcessPassType, { name: string; defaults: PostProcessPass['params']; controls: Record<string, Control> }> = {
   bloom: {
     name: 'Bloom', defaults: { threshold: .62, intensity: 1.35, radius: .65, knee: .25 },
@@ -28,6 +30,62 @@ export const postProcessDefinitions: Record<PostProcessPassType, { name: string;
   'color-grade': {
     name: 'Color grade', defaults: { contrast: 1, brightness: 0, saturation: 1, exposure: 0, tint: '#ffffff' },
     controls: { contrast: number('Contrast', 0, 2), brightness: number('Brightness', -1, 1), saturation: number('Saturation', 0, 2), exposure: number('Exposure', -2, 2), tint: { label: 'Tint', kind: 'color' } },
+  },
+  'frosted-glass': {
+    name: 'Frosted glass',
+    defaults: {
+      refractionIndex: 1.52,
+      dispersion: 0.35,
+      roughness: 0.45,
+      blurRadius: 0.65,
+      surfacePattern: 'frosted',
+      patternScale: 1.8,
+      frostIntensity: 0.55,
+      bevelWidth: 0.4,
+      tintColor: '#edebe1',
+      tintOpacity: 0.25,
+      lightAngle: 45,
+      specularStrength: 0.75,
+    },
+    controls: {
+      refractionIndex: number('Refraction (IOR)', 1.0, 2.5, 0.01),
+      dispersion: number('Dispersion', 0, 1, 0.01),
+      roughness: number('Roughness', 0, 1, 0.01),
+      blurRadius: number('Frost blur', 0, 2, 0.01),
+      surfacePattern: select('Pattern', ['smooth', 'frosted', 'fluted', 'rippled', 'faceted']),
+      patternScale: number('Pattern scale', 0.2, 5, 0.1),
+      frostIntensity: number('Frost intensity', 0, 1, 0.01),
+      bevelWidth: number('Bevel width', 0, 1, 0.01),
+      tintColor: { label: 'Tint color', kind: 'color' },
+      tintOpacity: number('Tint opacity', 0, 1, 0.01),
+      lightAngle: number('Light angle', 0, 360, 1),
+      specularStrength: number('Specular', 0, 2, 0.01),
+    },
+  },
+  'procedural-grain': {
+    name: 'Procedural grain',
+    defaults: {
+      intensity: 0.22,
+      size: 1.2,
+      frequency: 4.0,
+      noiseType: 'simplex',
+      octaves: 3,
+      turbulence: 0.25,
+      speed: 1.0,
+      temporal: true,
+      monochrome: true,
+    },
+    controls: {
+      intensity: number('Intensity', 0, 1, 0.01),
+      size: number('Grain size', 0.5, 10, 0.1),
+      frequency: number('Frequency', 0.5, 20, 0.1),
+      noiseType: select('Noise generator', ['simplex', 'perlin', 'worley', 'hash']),
+      octaves: number('Octaves', 1, 6, 1),
+      turbulence: number('Turbulence', 0, 1, 0.01),
+      speed: number('Speed', 0, 3, 0.1),
+      temporal: boolean('Animated grain'),
+      monochrome: boolean('Monochrome'),
+    },
   },
 }
 
@@ -51,6 +109,7 @@ export function validatePostProcessing(value: unknown): asserts value is CanvasP
       const param = (pass.params as unknown as Record<string, unknown>)[key]
       if (control.kind === 'number' ? typeof param !== 'number' || !Number.isFinite(param) || param < control.min || param > control.max
         : control.kind === 'boolean' ? typeof param !== 'boolean'
+        : control.kind === 'select' ? typeof param !== 'string' || !control.options.includes(param)
         : typeof param !== 'string' || !/^#[\da-f]{6}$/i.test(param)) fail()
     }
   }

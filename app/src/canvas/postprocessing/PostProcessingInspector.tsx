@@ -45,6 +45,7 @@ export function PostProcessingInspector({ pipeline, onChange }: { pipeline?: Can
               const change = (value: number | boolean | string) => patch(pass.id, { params: { ...pass.params, [key]: value } } as Partial<PostProcessPass>)
               if (control.kind === 'number') return <NumberControl key={key} value={params[key] as number} {...control} onChange={change} />
               if (control.kind === 'boolean') return <label key={key} className="post-toggle">{control.label}<input type="checkbox" aria-label={`Post-process ${control.label}`} checked={params[key] as boolean} onChange={e => change(e.currentTarget.checked)} /></label>
+              if (control.kind === 'select') return <label key={key} className="property-select">{control.label}<select aria-label={`Post-process ${control.label}`} value={params[key] as string} onChange={e => change(e.currentTarget.value)}>{control.options.map(opt => <option key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</option>)}</select></label>
               return <label key={key} className="post-toggle">{control.label}<input type="color" aria-label={`Post-process ${control.label}`} value={params[key] as string} onChange={e => change(e.currentTarget.value)} /></label>
             })}
             <NumberControl label="Mix" min={0} max={1} step={.01} value={pass.opacity} onChange={opacity => patch(pass.id, { opacity })} />

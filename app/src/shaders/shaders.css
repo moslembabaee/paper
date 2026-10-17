@@ -871,6 +871,145 @@
   font-weight: 600;
 }
 
+/* ==================== REFRACTIVE & GLASSMORPHISM INSPECTOR ==================== */
+.refractive-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.refractive-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.refractive-title-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #81adec;
+}
+.refractive-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--paper-border, #222);
+  background: var(--paper-input, #181818);
+  color: var(--paper-text-secondary, #a0a0a0);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.refractive-copy-btn:hover {
+  background: var(--paper-hover, #222);
+  color: var(--paper-text, #edebe1);
+  border-color: #81adec;
+}
+.refractive-presets-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.refractive-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 5px;
+}
+.refractive-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--paper-border, #222);
+  background: var(--paper-surface, #141414);
+  color: var(--paper-text, #edebe1);
+  font-size: 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+.refractive-chip:hover {
+  border-color: #81adec;
+  background: var(--paper-hover, #1e1e1e);
+  color: #81adec;
+}
+.refractive-controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.refractive-color-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+.refractive-color-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid var(--paper-border, #222);
+  border-radius: 4px;
+  background: var(--paper-input, #181818);
+  font-size: 10px;
+  color: var(--paper-text-secondary, #aaa);
+  cursor: pointer;
+}
+.refractive-color-picker input[type="color"] {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  background: transparent;
+}
+.refractive-bind-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  border: 1px solid var(--paper-border, #222);
+  border-radius: 4px;
+  background: var(--paper-input, #181818);
+  margin-top: 6px;
+}
+.refractive-bind-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: var(--paper-text-muted, #888);
+}
+.refractive-bind-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.refractive-action-btn {
+  padding: 3px 7px;
+  font-size: 9.5px;
+  border-radius: 3px;
+  border: 1px solid var(--paper-border, #333);
+  background: var(--paper-surface, #222);
+  color: var(--paper-text, #edebe1);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.refractive-action-btn:hover {
+  border-color: #81adec;
+  color: #81adec;
+}
+
+
 
 
 

@@ -10,6 +10,8 @@ import { PostProcessingInspector } from '../canvas/postprocessing/PostProcessing
 import { NoiseInspector } from './noise/NoiseInspector'
 import { GradientInspector } from './GradientInspector'
 import { createDefaultGradient, gradientToShaderPaint } from './gradient'
+import { RefractiveInspector } from './refractive/RefractiveInspector'
+import type { RefractivePaint } from './refractive/types'
 
 function Slider({ control, value, onChange }: { control: Extract<ShaderControl, { type: 'number' }>; value: number; onChange: (value: number) => void }) {
   const inputId = useId()
@@ -54,10 +56,19 @@ export function ShaderInspector({ paint, onChange, target, image, showPicker = t
           showShaderLinkToggle={false}
         />
       )}
+      {(paint.kind === 'glassmorphism' || paint.kind === 'liquid-chrome') && (
+        <RefractiveInspector
+          paint={paint as unknown as RefractivePaint}
+          onChange={onChange as unknown as (p: RefractivePaint) => void}
+          target={target}
+          onBindTarget={onBindTarget}
+        />
+      )}
       {definition.controls.map(control => {
         if (paint.kind === 'multi-pass') return null
         if (paint.kind === 'procedural-noise') return null
         if (paint.kind === 'multi-stop-gradient') return null
+        if (paint.kind === 'glassmorphism' || paint.kind === 'liquid-chrome') return null
         if (paint.kind === 'mesh-gradient' && paint.mesh && control.type === 'palette') return null
         if (paint.kind === 'mesh-gradient' && paint.mesh && (control.key === 'grainMixer' || control.key === 'grainOverlay')) return null
         const value = params[control.key]

@@ -4,6 +4,8 @@ export type PostProcessPassType =
   | 'film-grain'
   | 'vignette'
   | 'color-grade'
+  | 'frosted-glass'
+  | 'procedural-grain'
 
 export const postProcessPassTypes: readonly PostProcessPassType[] = [
   'bloom',
@@ -11,6 +13,8 @@ export const postProcessPassTypes: readonly PostProcessPassType[] = [
   'film-grain',
   'vignette',
   'color-grade',
+  'frosted-glass',
+  'procedural-grain',
 ] as const
 
 export interface BloomPassParams {
@@ -69,12 +73,66 @@ export interface ColorGradePassParams {
   readonly tint: string
 }
 
+export type FrostedGlassPattern = 'smooth' | 'frosted' | 'fluted' | 'rippled' | 'faceted'
+
+export interface FrostedGlassPassParams {
+  /** Index of refraction (1.0 to 2.5). Optical glass is ~1.52. */
+  readonly refractionIndex: number
+  /** Cauchy spectral chromatic dispersion (0 to 1). */
+  readonly dispersion: number
+  /** Surface microfacet roughness (0 to 1). */
+  readonly roughness: number
+  /** Golden-angle blur spread radius (0 to 2). */
+  readonly blurRadius: number
+  /** Surface pattern profile: smooth lens, frosted etched, fluted ribs, organic ripple, faceted crystal. */
+  readonly surfacePattern: FrostedGlassPattern
+  /** Spatial frequency / scale of surface patterns (0.2 to 5). */
+  readonly patternScale: number
+  /** Relief depth of frosted etch texture (0 to 1). */
+  readonly frostIntensity: number
+  /** Edge bevel highlight feather (0 to 1). */
+  readonly bevelWidth: number
+  /** Hex color tint for volume absorption (e.g. #edebe1 or #81adec). */
+  readonly tintColor: string
+  /** Opacity of volume tint (0 to 1). */
+  readonly tintOpacity: number
+  /** Key light angle in degrees (0 to 360). */
+  readonly lightAngle: number
+  /** Specular highlight reflection strength (0 to 2). */
+  readonly specularStrength: number
+}
+
+export type ProceduralGrainNoiseType = 'simplex' | 'perlin' | 'worley' | 'hash'
+
+export interface ProceduralGrainPassParams {
+  /** Opacity / amplitude of procedural grain (0 to 1). */
+  readonly intensity: number
+  /** Physical grain particle scale / size (0.5 to 10). */
+  readonly size: number
+  /** Spatial frequency of noise generator (0.5 to 20). */
+  readonly frequency: number
+  /** Noise algorithm: simplex, perlin, worley, or hash. */
+  readonly noiseType: ProceduralGrainNoiseType
+  /** Multi-octave detail layers (1 to 6). */
+  readonly octaves: number
+  /** Harmonic roughness / turbulence (0 to 1). */
+  readonly turbulence: number
+  /** Animation speed of temporal jitter (0 to 3). */
+  readonly speed: number
+  /** Whether the noise updates dynamically at 60fps or stays fixed. */
+  readonly temporal: boolean
+  /** Single-channel luminance grain vs tri-color RGB spectral grain. */
+  readonly monochrome: boolean
+}
+
 export interface PostProcessPassParamsMap {
   bloom: BloomPassParams
   'chromatic-aberration': ChromaticAberrationPassParams
   'film-grain': FilmGrainPassParams
   vignette: VignettePassParams
   'color-grade': ColorGradePassParams
+  'frosted-glass': FrostedGlassPassParams
+  'procedural-grain': ProceduralGrainPassParams
 }
 
 export type PostProcessPass<T extends PostProcessPassType = PostProcessPassType> = { [K in T]: {

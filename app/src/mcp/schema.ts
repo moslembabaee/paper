@@ -107,7 +107,9 @@ export const shaderSchema: JsonSchema = {
         passes: { type: 'array', maxItems: MAX_POST_PROCESS_PASSES, items: { anyOf: Object.entries(postProcessDefinitions).map(([type, definition]) => {
           const params = Object.fromEntries(Object.entries(definition.controls).map(([key, control]): [string, JsonSchema] => [key,
             control.kind === 'number' ? { type: 'number', minimum: control.min, maximum: control.max }
-              : control.kind === 'boolean' ? flag : { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }]))
+              : control.kind === 'boolean' ? flag
+              : control.kind === 'select' ? { type: 'string', enum: [...control.options] }
+              : { type: 'string', pattern: '^#[0-9a-fA-F]{6}$' }]))
           return object({ id: str(), type: { type: 'string', enum: [type] }, name: str(), enabled: flag, opacity: { type: 'number', minimum: 0, maximum: 1 }, blendMode: { type: 'string', enum: ['normal', 'screen', 'multiply', 'overlay'] }, params: object(params, Object.keys(params)) }, ['id', 'type', 'name', 'enabled', 'opacity', 'blendMode', 'params'])
         }) } },
       }, ['version', 'enabled', 'preset', 'passes']),
