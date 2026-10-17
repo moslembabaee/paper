@@ -166,6 +166,12 @@ export async function exportAsset(state: SceneSnapshot, options: ExportOptions, 
 export const exportPNG = (state: SceneSnapshot, options: ExportOptions) => exportAsset(state, options, 'png')
 export const exportWebP = (state: SceneSnapshot, options: ExportOptions) => exportAsset(state, options, 'webp')
 export const exportPDF = (state: SceneSnapshot, options: ExportOptions) => exportAsset(state, options, 'pdf')
+export {
+  drawSvgPathToCanvas2D,
+  renderCompoundToCanvas2D,
+  renderCompoundMaskToCanvas2D,
+  renderSceneToCanvas2D,
+} from './canvas2dExport.ts'
 
 /** Preview resolution is bounded independently of the chosen output scale. */
 export async function exportThumbnail(state: SceneSnapshot, options: ExportOptions, format: AssetFormat, signal: AbortSignal): Promise<Blob> {

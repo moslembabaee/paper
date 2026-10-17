@@ -133,7 +133,7 @@ function Editor({ workspace, manager, profile, onProfileSave, account, onMake }:
     setActiveRoom(roomId)
   }, [roomId])
 
-  const collaboration = useCollaboration(roomId, store, controller, profile.name, activeRoom !== null)
+  const collaboration = useCollaboration(roomId, store, controller, profile.name, activeRoom !== null, profile.avatar)
   const comments = useComments(workspace.record.id, store, controller, profile.name)
   const { setOpen: setCommentsOpen, setDraft: setCommentDraft, setActiveId: setCommentActiveId } = comments
   const startComment = useCallback(() => { setTool('comment'); setCommentsOpen(true); setCommentDraft(null); setCommentActiveId(null); setPrototypeMode(false) }, [setCommentsOpen, setCommentDraft, setCommentActiveId])

@@ -8,7 +8,8 @@ export function useCollaboration(
   store: SceneStore,
   controller: ViewportController,
   name: string,
-  enabled = false
+  enabled = false,
+  avatar?: string
 ) {
   const [session, setSession] = useState<CollaborationSession | null>(null)
   useEffect(() => {
@@ -16,7 +17,7 @@ export function useCollaboration(
       setSession(null)
       return
     }
-    const current = new CollaborationSession(room, store, controller, name)
+    const current = new CollaborationSession(room, store, controller, name, avatar)
     setSession(current)
     current.start()
     return () => current.stop()
@@ -24,5 +25,6 @@ export function useCollaboration(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room, store, controller, enabled])
   useEffect(() => { session?.setName(name) }, [session, name])
+  useEffect(() => { if (typeof session?.setAvatar === 'function') session.setAvatar(avatar) }, [session, avatar])
   return session
 }

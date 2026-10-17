@@ -250,10 +250,104 @@ function serializeCurves(curves: Curve[]): string {
 
 export interface BooleanResult { d: string; viewBox: readonly [number, number, number, number]; bounds: Bounds; fillRule: 'nonzero' }
 
+/**
+ * Converts any vector element (path, rectangle, ellipse) into editable sub-path anchors.
+ */
+export function vectorToContours(node: VectorElement): PathContour[] {
+  if (node.type === 'path') {
+    if (node.nodes && node.nodes.length > 0) {
+      return node.nodes.map(c => ({
+        closed: c.closed,
+        anchors: c.anchors.map(a => ({
+          ...a,
+          ...(a.in ? { in: { ...a.in } } : {}),
+          ...(a.out ? { out: { ...a.out } } : {}),
+          ...(a.quadApex ? { quadApex: { ...a.quadApex } } : {}),
+        })),
+      }))
+    }
+    return parsePath(node.d)
+  }
+
+  const w = node.width, h = node.height
+  if (node.type === 'ellipse') {
+    const rx = w / 2, ry = h / 2, cx = rx, cy = ry
+    const kx = rx * K, ky = ry * K
+    return [{
+      closed: true,
+      anchors: [
+        { x: cx, y: 0, in: { x: cx - kx, y: 0 }, out: { x: cx + kx, y: 0 }, handleType: 'mirrored' },
+        { x: w, y: cy, in: { x: w, y: cy - ky }, out: { x: w, y: cy + ky }, handleType: 'mirrored' },
+        { x: cx, y: h, in: { x: cx + kx, y: h }, out: { x: cx - kx, y: h }, handleType: 'mirrored' },
+        { x: 0, y: cy, in: { x: 0, y: cy + ky }, out: { x: 0, y: cy - ky }, handleType: 'mirrored' },
+      ],
+    }]
+  }
+
+  // Rectangle
+  const r = Math.min(Math.max(0, node.cornerRadius), w / 2, h / 2)
+  if (r < 1e-4) {
+    return [{
+      closed: true,
+      anchors: [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: h },
+        { x: 0, y: h },
+      ],
+    }]
+  }
+
+  const kr = r * K
+  return [{
+    closed: true,
+    anchors: [
+      { x: r, y: 0 },
+      { x: w - r, y: 0, out: { x: w - r + kr, y: 0 }, handleType: 'disconnected' },
+      { x: w, y: r, in: { x: w, y: r - kr }, handleType: 'disconnected' },
+      { x: w, y: h - r, out: { x: w, y: h - r + kr }, handleType: 'disconnected' },
+      { x: w - r, y: h, in: { x: w - r + kr, y: h }, handleType: 'disconnected' },
+      { x: r, y: h, out: { x: r - kr, y: h }, handleType: 'disconnected' },
+      { x: 0, y: h - r, in: { x: 0, y: h - r + kr }, handleType: 'disconnected' },
+      { x: 0, y: r, out: { x: 0, y: r - kr }, in: { x: r - kr, y: 0 }, handleType: 'disconnected' },
+    ],
+  }]
+}
+
+/**
+ * Recursively evaluates a compound vector shape hierarchy.
+ * If an operand is itself a compound shape, it is evaluated first so that
+ * live edits at any depth propagate immediately to root compound outlines.
+ */
+export function evaluateVectorElement(node: VectorElement, depth = 0): VectorElement {
+  if (depth > 32 || node.type !== 'path' || !node.boolean) return node
+  const evaluatedOperands = node.boolean.operands.map(op => evaluateVectorElement(op, depth + 1))
+  const result = computeBoolean(evaluatedOperands, node.boolean.operation)
+  return {
+    ...node,
+    d: result.d,
+    viewBox: result.viewBox,
+    fillRule: result.fillRule,
+    boolean: {
+      ...node.boolean,
+      operands: evaluatedOperands,
+    },
+  }
+}
+
+/**
+ * Live evaluation of compound shape hierarchy down to root result.
+ */
+export function evaluateCompoundHierarchy(compound: BooleanCompound): BooleanResult {
+  const evaluatedOperands = compound.operands.map(op => evaluateVectorElement(op))
+  return computeBoolean(evaluatedOperands, compound.operation)
+}
+
 /** Preserve cubic segments and holes; only intersection parameters are numerical. */
 export function computeBoolean(operands: readonly VectorElement[], operation: BooleanOperation): BooleanResult {
   if (!BOOLEAN_OPERATIONS.includes(operation) || operands.length < 2) throw new Error('Choose a boolean operation and at least two vector shapes.')
-  const shapes = operands.map(shapeFor)
+  const evaluatedOperands = operands.map(op => op.type === 'path' && op.boolean ? evaluateVectorElement(op) : op)
+  const shapes = evaluatedOperands.map(shapeFor)
   if (shapes.reduce((count, shape) => count + shape.curves.length, 0) > 2000) throw new Error('These paths have too many segments. Simplify them and try again.')
   // Split loops and extrema before intersection search, so every collinear
   // span is monotone even when its controls double back beyond its endpoints.

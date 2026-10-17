@@ -65,12 +65,22 @@ export class CollaborationSession {
 
   readonly undoManager: CollaborativeUndoManager
 
-  constructor(room: string, store: SceneStore, controller: ViewportController, name: string) {
+  constructor(room: string, store: SceneStore, controller: ViewportController, name: string, avatar?: string) {
     this.room = room; this.store = store; this.controller = controller
     this.undoManager = new CollaborativeUndoManager(this.id)
     this.previous = store.toJSON(); this.replica = new SceneReplica(this.id); this.replica.seed(this.previous)
     const { camera, size } = controller.getSnapshot()
-    this.own = { id: this.id, name, color: PRESENCE_COLORS[parseInt(this.id.slice(0, 6), 16) % PRESENCE_COLORS.length], status: 'active', cursor: null, selection: store.getSnapshot().selection, viewport: { center: controller.screenToWorld({ x: size.width / 2, y: size.height / 2 }), zoom: camera.zoom, size }, following: null }
+    this.own = {
+      id: this.id,
+      name,
+      color: PRESENCE_COLORS[parseInt(this.id.slice(0, 6), 16) % PRESENCE_COLORS.length],
+      status: 'active',
+      cursor: null,
+      selection: store.getSnapshot().selection,
+      viewport: { center: controller.screenToWorld({ x: size.width / 2, y: size.height / 2 }), zoom: camera.zoom, size },
+      following: null,
+      ...(avatar ? { avatar } : {}),
+    }
   }
   getSnapshot = () => this.snapshot
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener) } }
@@ -278,6 +288,13 @@ export class CollaborationSession {
     finally { this.sending = false; if (this.pending.size || this.dirtyPresence) this.schedule() }
   }
   setName(name: string) { this.own.name = name; this.dirtyPresence = true; this.schedule() }
+  setAvatar(avatar?: string) {
+    if (this.own.avatar !== avatar) {
+      this.own.avatar = avatar
+      this.dirtyPresence = true
+      this.schedule()
+    }
+  }
   setPointerDown(pointerDown: boolean) {
     if (this.own.pointerDown !== pointerDown) {
       this.own.pointerDown = pointerDown
@@ -320,7 +337,13 @@ export class CollaborationSession {
   }
   setCursor(cursor: Point | null) {
     this.own.cursor = cursor
-    if (cursor) { this.lastActivity = Date.now(); this.own.status = 'active' }
+    if (cursor) {
+      this.lastActivity = Date.now()
+      this.own.status = 'active'
+      this.own.cursorTimestamp = this.lastActivity
+    } else {
+      this.own.cursorTimestamp = undefined
+    }
     this.dirtyPresence = true; this.schedule()
   }
   follow(id: string | null) {

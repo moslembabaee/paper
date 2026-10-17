@@ -74,3 +74,82 @@
 .node-inspector-footer { display:flex; justify-content:space-between; padding-top:14px; margin-top:14px; border-top:1px solid var(--paper-border); font:9px var(--font-mono); color:var(--paper-text-muted); }
 .node-inspector button:focus-visible { outline:2px solid #81adec; outline-offset:2px; }
 @media (max-width:900px) { .node-inspector { right:10px; top:10px; width:220px; padding:12px; } .pen-help > span:nth-child(2) { display:none; } }
+
+/* Compound Shape Sub-path Anchor Editing Toolbar */
+.pen-compound-toolbar {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  background: var(--paper-surface, #1e1e1e);
+  border: 1px solid var(--paper-border, #333333);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(8, 8, 8, 0.2);
+  z-index: 20;
+  backdrop-filter: blur(12px);
+  font: 10px var(--font-mono, monospace);
+  color: var(--paper-text, #edebe1);
+}
+.pen-compound-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+  border-right: 1px solid var(--paper-border, #333333);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+.pen-compound-symbol {
+  font-size: 13px;
+  color: #81adec;
+}
+.pen-compound-op-badge {
+  font-size: 8px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(129, 173, 236, 0.15);
+  color: #81adec;
+}
+.pen-compound-operands {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pen-compound-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--paper-border, #333333);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--paper-text-muted, #888888);
+  font: 9px var(--font-mono, monospace);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.pen-compound-chip:hover {
+  background: rgba(129, 173, 236, 0.1);
+  color: #edebe1;
+  border-color: rgba(129, 173, 236, 0.4);
+}
+.pen-compound-chip.active {
+  background: rgba(129, 173, 236, 0.2);
+  color: #81adec;
+  border-color: #81adec;
+  font-weight: 500;
+}
+.pen-compound-chip .chip-badge {
+  font-size: 8px;
+  opacity: 0.7;
+}
+.pen-sibling-ghost {
+  transition: all 120ms ease;
+}
+.pen-compound-result-preview {
+  transition: all 60ms ease;
+}

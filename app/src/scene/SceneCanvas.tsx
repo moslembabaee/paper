@@ -40,7 +40,7 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
   const enterPath = useCallback((id: string | undefined) => {
     if (store.getHistorySnapshot().active) return
     const node = id ? store.getSnapshot().elements[id] : undefined
-    if (node?.type === 'path' && !node.boolean && !store.isLocked(node.id) && store.isVisible(node.id)) {
+    if (node?.type === 'path' && !store.isLocked(node.id) && store.isVisible(node.id)) {
       store.select([node.id])
       setEditingId(node.id)
     }

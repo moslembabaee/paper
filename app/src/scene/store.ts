@@ -16,7 +16,7 @@ import type { ShaderPaint } from '../shaders/types.ts'
 import type { BooleanCompound, BooleanOperation, ElementInput, ElementOf, ElementPatch, ElementType, PathElement, SceneDocument, SceneElement, SceneSnapshot, VectorElement } from './types.ts'
 import { computeBoolean, isVector, refreshBooleanElement, transformedSource } from './booleanGeometry.ts'
 import { optimizeSvgBezierData } from './bezierOptimization.ts'
-import { serializePath } from './pathGeometry.ts'
+import { serializePath, type PathNodes, type PathContour } from './pathGeometry.ts'
 import { canMask, validateMaskGraph } from './maskGeometry.ts'
 import { getWorldBounds } from './geometry.ts'
 import { unionBounds } from '../canvas/math.ts'
@@ -2313,6 +2313,118 @@ export class SceneStore {
     validateElement(updated)
     if (equalValue(operand, updated)) return
     this.refreshCompound(node, { ...node.boolean, operands: node.boolean.operands.map(source => source.id === operandId ? updated : source) }, `Edit ${operand.name} source`)
+  }
+
+  updateBooleanOperandNodes(id: string, operandId: string, nodes: readonly PathNodes[] | readonly PathContour[]): void {
+    const node = this.requireCompound(id)
+    const operand = node.boolean.operands.find(source => source.id === operandId)
+    if (!operand) throw new Error('Unknown boolean source')
+    const d = serializePath(nodes)
+    let updated: VectorElement
+    if (operand.type === 'path') {
+      updated = {
+        ...operand,
+        nodes: nodes as readonly PathNodes[],
+        d,
+      }
+    } else {
+      updated = createElement('path', {
+        id: operand.id,
+        name: operand.name,
+        parentId: operand.parentId,
+        x: operand.x,
+        y: operand.y,
+        width: operand.width,
+        height: operand.height,
+        rotation: operand.rotation,
+        d,
+        nodes: nodes as readonly PathNodes[],
+        viewBox: [0, 0, operand.width, operand.height],
+        fillRule: 'nonzero',
+        style: operand.style,
+      })
+    }
+    validateElement(updated)
+    this.refreshCompound(
+      node,
+      {
+        ...node.boolean,
+        operands: node.boolean.operands.map(source => source.id === operandId ? updated : source),
+      },
+      `Edit ${operand.name} sub-path anchors`
+    )
+  }
+
+  addBooleanOperand(id: string, operand: VectorElement, index?: number): void {
+    const node = this.requireCompound(id)
+    validateElement(operand)
+    const current = node.boolean.operands
+    const insertIdx = index !== undefined ? Math.max(0, Math.min(current.length, index)) : current.length
+    const nextOperands = [...current.slice(0, insertIdx), operand, ...current.slice(insertIdx)]
+    this.refreshCompound(node, { ...node.boolean, operands: nextOperands }, `Add ${operand.name} to compound`)
+  }
+
+  removeBooleanOperand(id: string, operandId: string): void {
+    const node = this.requireCompound(id)
+    const current = node.boolean.operands
+    if (current.length <= 2) {
+      throw new Error('A boolean compound must retain at least two vector shapes. Release the compound instead.')
+    }
+    const nextOperands = current.filter(op => op.id !== operandId)
+    this.refreshCompound(node, { ...node.boolean, operands: nextOperands }, 'Remove boolean operand')
+  }
+
+  createCompoundMask(operation: BooleanOperation = 'subtract', ids = this.state.selection): SceneElement {
+    const reason = this.maskSelectionReason(ids)
+    if (reason) throw new Error(reason)
+    const nodes = [...new Set(ids)].map(id => this.require(id)).sort((a, b) => a.zIndex - b.zIndex)
+    const vectorNodes = nodes.filter(isVector)
+    if (vectorNodes.length < 2) {
+      throw new Error('Select at least two vector shapes to create a compound mask')
+    }
+    const compoundResult = computeBoolean(vectorNodes, operation)
+    const baseVector = vectorNodes[0]
+    const maskCompound = createElement('path', {
+      name: `${operation[0].toUpperCase() + operation.slice(1)} mask`,
+      parentId: baseVector.parentId,
+      ...compoundResult.bounds,
+      d: compoundResult.d,
+      viewBox: compoundResult.viewBox,
+      fillRule: compoundResult.fillRule,
+      style: { fill: '#81adec' },
+      boolean: { operation, operands: vectorNodes },
+      mask: { enabled: true, showOutline: true },
+    })
+
+    const nonVectorTargets = nodes.filter(n => !vectorNodes.includes(n as VectorElement))
+    const parentId = nodes[0].parentId
+    const bounds = unionBounds(nodes.map(n => getWorldBounds({ ...this.state, elements: { ...this.state.elements, [n.id]: { ...n, parentId: null } } }, n.id)))!
+    const group = createElement('frame', { name: 'Compound mask group', parentId, ...bounds, clipContent: false, style: { fill: null } })
+    const elements = { ...this.state.elements, [group.id]: group, [maskCompound.id]: maskCompound }
+    for (const v of vectorNodes) delete elements[v.id]
+
+    const childIds = [maskCompound.id]
+    for (const target of nonVectorTargets) {
+      const patch = { x: target.x - bounds.x, y: target.y - bounds.y, parentId: group.id }
+      elements[target.id] = freezeElement({ ...target, ...patch })
+      childIds.push(target.id)
+    }
+    this.ordered(elements, group.id, childIds)
+
+    const selected = new Set(ids), siblings = this.getChildren(parentId)
+    const next = siblings.filter(id => !selected.has(id))
+    next.splice(siblings.slice(0, nodes.at(-1)!.zIndex).filter(id => !selected.has(id)).length, 0, group.id)
+    this.ordered(elements, parentId, next)
+    this.commit(elements, parentId === null ? next : this.state.rootIds, [group.id], `Create ${operation} compound mask`)
+    return this.state.elements[group.id]
+  }
+
+  setCompoundMaskOperation(id: string, operation: BooleanOperation): void {
+    const node = this.require(id)
+    if (node.type !== 'path' || !node.boolean || !node.mask) {
+      throw new Error('Selected element is not a compound mask')
+    }
+    this.setBooleanOperation(id, operation)
   }
 
   flattenBoolean(id: string): void {

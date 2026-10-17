@@ -18,6 +18,8 @@ export interface Presence {
   activity?: string
   chat?: string | null
   chatTimestamp?: number
+  avatar?: string
+  cursorTimestamp?: number
 }
 
 /** A Lamport timestamp plus actor ID gives every register a total order. */

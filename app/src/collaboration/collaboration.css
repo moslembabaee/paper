@@ -60,10 +60,274 @@
 .remote-cursor { position: absolute; top: 0; left: 0; will-change: transform; visibility: hidden; }
 .remote-cursor svg { display: block; filter: drop-shadow(0 1px 2px #08080820); transition: transform 0.08s ease; }
 .remote-cursor.pointer-down svg { transform: scale(0.9); transform-origin: 1.5px 1.5px; }
-.remote-cursor > span { position: absolute; top: 22px; left: 14px; max-width: 180px; padding: 4px 7px; color: #080808; background: var(--presence-color); font: 500 10px/1.3 var(--font-sans); border-radius: 0 4px 4px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 5px #08080815; }
-.remote-cursor-chat { position: absolute; bottom: calc(100% + 4px); left: 14px; max-width: 200px; padding: 5px 9px; background: var(--presence-surface, #222222); color: var(--presence-ink, #edebe1); border: 1px solid var(--presence-color); border-radius: 6px; font: 500 11px/1.3 var(--font-sans); white-space: normal; word-break: break-word; pointer-events: none; box-shadow: 0 4px 12px rgba(8, 8, 8, 0.4); }
-.remote-selection { position: absolute; top: 0; left: 0; transform-origin: 0 0; border: 1.5px solid var(--presence-color); box-shadow: 0 0 0 1px rgba(8, 8, 8, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.08); box-sizing: border-box; visibility: hidden; pointer-events: none; }
-.remote-selection > span { position: absolute; top: -19px; left: -1.5px; max-width: 150px; padding: 3px 6px; background: var(--presence-color); color: #080808; font: 500 9px/12px var(--font-sans); border-radius: 3px 3px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 1px 3px rgba(8, 8, 8, 0.2); }
+
+.remote-cursor-badge, .remote-cursor > span {
+  position: absolute;
+  top: 20px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 280px;
+  padding: 3px 6px 3px 4px;
+  color: #080808;
+  background: var(--presence-color);
+  font: 500 10px/1.3 var(--font-sans);
+  border-radius: 0 5px 5px 5px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(8, 8, 8, 0.22);
+  pointer-events: none;
+}
+
+.remote-cursor-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #080808;
+  color: #edebe1;
+  font: 600 8px var(--font-mono);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.remote-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.remote-cursor-name {
+  font-weight: 600;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-cursor-activity {
+  font-size: 9px;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.remote-cursor-coords {
+  font: 9px var(--font-mono);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+  padding-left: 5px;
+  margin-left: 2px;
+  border-left: 1px solid rgba(8, 8, 8, 0.2);
+  white-space: nowrap;
+}
+
+.remote-cursor-click-ring {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 1.5px solid var(--presence-color);
+  pointer-events: none;
+  animation: cursor-click-pulse 0.5s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+
+@keyframes cursor-click-pulse {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.remote-cursor-chat {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 14px;
+  max-width: 200px;
+  padding: 5px 9px;
+  background: var(--presence-surface, #222222);
+  color: var(--presence-ink, #edebe1);
+  border: 1px solid var(--presence-color);
+  border-radius: 6px;
+  font: 500 11px/1.3 var(--font-sans);
+  white-space: normal;
+  word-break: break-word;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(8, 8, 8, 0.4);
+}
+
+/* Remote selection bounding box enhancements */
+.remote-selection {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  border: 1.5px solid var(--presence-color);
+  box-shadow: 0 0 0 1px rgba(8, 8, 8, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-sizing: border-box;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.remote-selection-handle {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: #edebe1;
+  border: 1px solid var(--presence-color);
+  border-radius: 1px;
+  box-shadow: 0 1px 2px rgba(8, 8, 8, 0.25);
+  pointer-events: none;
+}
+.remote-selection-handle.top-left { top: -3px; left: -3px; }
+.remote-selection-handle.top-right { top: -3px; right: -3px; }
+.remote-selection-handle.bottom-left { bottom: -3px; left: -3px; }
+.remote-selection-handle.bottom-right { bottom: -3px; right: -3px; }
+
+.remote-selection > span {
+  position: absolute;
+  top: -21px;
+  left: -1.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 2px 6px 2px 3px;
+  background: var(--presence-color);
+  color: #080808;
+  font: 500 9px/13px var(--font-sans);
+  border-radius: 3px 3px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 1px 3px rgba(8, 8, 8, 0.2);
+}
+
+.remote-selection-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #080808;
+  color: #edebe1;
+  font: 600 7px var(--font-mono);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.remote-selection-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remote-selection-dim {
+  font: 8px var(--font-mono);
+  opacity: 0.75;
+  padding-left: 3px;
+  border-left: 1px solid rgba(8, 8, 8, 0.2);
+}
+
+/* Off-screen canvas edge radar */
+.presence-edge-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  border: 1px solid var(--presence-color);
+  background: var(--presence-surface, #222222);
+  color: var(--presence-ink, #edebe1);
+  border-radius: 13px;
+  font: 500 10px var(--font-sans);
+  box-shadow: 0 2px 8px rgba(8, 8, 8, 0.35);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: transform 0.08s ease, box-shadow 0.15s ease;
+  will-change: transform;
+}
+.presence-edge-badge:hover {
+  box-shadow: 0 4px 12px rgba(8, 8, 8, 0.5);
+  border-color: #81adec;
+}
+.presence-edge-arrow {
+  display: grid;
+  place-items: center;
+  width: 10px;
+  height: 10px;
+  transition: transform 0.08s ease;
+  flex-shrink: 0;
+}
+.presence-edge-avatar-circle {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: #080808;
+  font: 600 8px var(--font-mono);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.presence-edge-name {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.presence-edge-coords {
+  font: 9px var(--font-mono);
+  color: var(--paper-text-muted);
+  opacity: 0.8;
+}
+
+/* Peer viewport outline when zoomed out */
+.remote-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 1.5px dashed var(--presence-color);
+  border-radius: 4px;
+  opacity: 0.45;
+  pointer-events: none;
+  will-change: transform;
+  transition: opacity 0.2s ease;
+  display: none;
+}
+.remote-viewport-label {
+  position: absolute;
+  top: -18px;
+  left: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px;
+  background: var(--presence-color);
+  color: #080808;
+  font: 500 9px var(--font-sans);
+  border-radius: 3px 3px 0 0;
+  white-space: nowrap;
+}
+.remote-viewport-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #080808;
+  color: #edebe1;
+  font: 600 7px var(--font-mono);
+  overflow: hidden;
+}
+
 .follow-banner { position: absolute; top: 83px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid #81adec50; border-radius: 6px; background: var(--paper-surface); box-shadow: var(--paper-shadow-sm); color: var(--paper-text-secondary); font-size: 10px; white-space: nowrap; }
 .follow-banner > span:first-child { width: 5px; height: 5px; border-radius: 50%; }
 .follow-banner strong { font-weight: 500; color: var(--paper-text); }

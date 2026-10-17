@@ -20,6 +20,8 @@ function presence(value: unknown, id: string): Presence {
   const activity = typeof value.activity === 'string' ? value.activity.slice(0, 50) : undefined
   const chat = typeof value.chat === 'string' ? value.chat.slice(0, 200) : undefined
   const chatTimestamp = typeof value.chatTimestamp === 'number' && Number.isFinite(value.chatTimestamp) ? value.chatTimestamp : undefined
+  const avatar = typeof value.avatar === 'string' && value.avatar.length < 400_000 ? value.avatar : undefined
+  const cursorTimestamp = typeof value.cursorTimestamp === 'number' && Number.isFinite(value.cursorTimestamp) ? value.cursorTimestamp : undefined
   return {
     ...value,
     id,
@@ -28,6 +30,8 @@ function presence(value: unknown, id: string): Presence {
     ...(pointerDown ? { pointerDown: true } : {}),
     ...(activity ? { activity } : {}),
     ...(chat ? { chat, chatTimestamp } : {}),
+    ...(avatar ? { avatar } : {}),
+    ...(cursorTimestamp ? { cursorTimestamp } : {}),
   } as unknown as Presence
 }
 async function read(request: IncomingMessage, parsed?: unknown): Promise<Record<string, unknown>> {

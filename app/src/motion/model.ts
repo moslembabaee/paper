@@ -2,6 +2,7 @@ import { easeProgress } from '../prototype/model.ts'
 import { DEFAULT_SPRING, springDuration, springProgress, validateSpring } from '../prototype/spring.ts'
 import type { BezierCurve, SpringParameters } from '../prototype/types.ts'
 import type { SceneElement } from '../scene/types.ts'
+import { interpolatePathShapes, SHAPE_PRESETS } from './pathInterpolation.ts'
 import type { MotionDocument, MotionEasing, MotionKeyframe, MotionProperty, MotionTrack } from './types.ts'
 
 export const EMPTY_MOTION: MotionDocument = Object.freeze({ duration: 2000, tracks: Object.freeze([]) })
@@ -16,7 +17,7 @@ export interface PropertyMeta {
   readonly min: number
   readonly max: number
   readonly step: number
-  readonly category: 'transform' | 'shader' | 'typography'
+  readonly category: 'transform' | 'shader' | 'typography' | 'path'
 }
 
 export const PROPERTY_META: Record<MotionProperty, PropertyMeta> = {
@@ -24,13 +25,25 @@ export const PROPERTY_META: Record<MotionProperty, PropertyMeta> = {
   y: { label: 'Translate Y', shortLabel: 'Y', unit: 'px', from: 24, to: 0, min: -100000, max: 100000, step: 1, category: 'transform' },
   rotation: { label: 'Rotation', shortLabel: 'Rotate', unit: '°', from: 0, to: 90, min: -36000, max: 36000, step: 1, category: 'transform' },
   scale: { label: 'Scale', shortLabel: 'Scale', unit: '×', from: 0.8, to: 1, min: 0.01, max: 100, step: 0.01, category: 'transform' },
+  scaleX: { label: 'Scale X', shortLabel: 'Scale X', unit: '×', from: 0.8, to: 1, min: 0.01, max: 100, step: 0.01, category: 'transform' },
+  scaleY: { label: 'Scale Y', shortLabel: 'Scale Y', unit: '×', from: 0.8, to: 1, min: 0.01, max: 100, step: 0.01, category: 'transform' },
+  skewX: { label: 'Skew X', shortLabel: 'Skew X', unit: '°', from: 0, to: 15, min: -85, max: 85, step: 1, category: 'transform' },
+  skewY: { label: 'Skew Y', shortLabel: 'Skew Y', unit: '°', from: 0, to: 15, min: -85, max: 85, step: 1, category: 'transform' },
   opacity: { label: 'Opacity', shortLabel: 'Opacity', unit: '', from: 0, to: 1, min: 0, max: 1, step: 0.01, category: 'transform' },
+  cornerRadius: { label: 'Corner Radius', shortLabel: 'Radius', unit: 'px', from: 0, to: 24, min: 0, max: 500, step: 1, category: 'transform' },
   shaderSpeed: { label: 'Shader Speed', shortLabel: 'Shd Speed', unit: '×', from: 1, to: 2.5, min: 0, max: 10, step: 0.1, category: 'shader' },
   shaderScale: { label: 'Shader Scale', shortLabel: 'Shd Scale', unit: '×', from: 1, to: 2, min: 0.01, max: 20, step: 0.05, category: 'shader' },
   shaderRotation: { label: 'Shader Rotation', shortLabel: 'Shd Rot', unit: '°', from: 0, to: 180, min: -36000, max: 36000, step: 1, category: 'shader' },
   shaderOffsetX: { label: 'Shader Offset X', shortLabel: 'Shd OffX', unit: '', from: 0, to: 0.3, min: -10, max: 10, step: 0.01, category: 'shader' },
   shaderOffsetY: { label: 'Shader Offset Y', shortLabel: 'Shd OffY', unit: '', from: 0, to: 0.3, min: -10, max: 10, step: 0.01, category: 'shader' },
   shaderOpacity: { label: 'Shader Opacity', shortLabel: 'Shd Opacity', unit: '', from: 0.2, to: 1, min: 0, max: 1, step: 0.01, category: 'shader' },
+  pathShape: { label: 'Path Shape Morph', shortLabel: 'Shape', unit: '', from: 0, to: 1, min: 0, max: 1, step: 0.01, category: 'path' },
+  pathMorphProgress: { label: 'Morph Progress', shortLabel: 'Morph', unit: '%', from: 0, to: 100, min: 0, max: 100, step: 1, category: 'path' },
+  pathTrimStart: { label: 'Stroke Trim Start', shortLabel: 'Trim Start', unit: '%', from: 0, to: 100, min: 0, max: 100, step: 1, category: 'path' },
+  pathTrimEnd: { label: 'Stroke Trim End', shortLabel: 'Trim End', unit: '%', from: 0, to: 100, min: 0, max: 100, step: 1, category: 'path' },
+  pathTrimOffset: { label: 'Stroke Trim Offset', shortLabel: 'Trim Off', unit: '%', from: 0, to: 100, min: -360, max: 360, step: 1, category: 'path' },
+  pathStrokeWidth: { label: 'Stroke Width', shortLabel: 'Width', unit: 'px', from: 2, to: 8, min: 0, max: 100, step: 1, category: 'path' },
+  pathDashOffset: { label: 'Stroke Dash Offset', shortLabel: 'Dash Off', unit: 'px', from: 0, to: 48, min: -10000, max: 10000, step: 1, category: 'path' },
   fontWeight: { label: 'Font Weight (wght)', shortLabel: 'Weight', unit: '', from: 400, to: 800, min: 1, max: 1000, step: 10, category: 'typography' },
   fontWidth: { label: 'Font Width (wdth)', shortLabel: 'Width', unit: '%', from: 100, to: 130, min: 25, max: 200, step: 1, category: 'typography' },
   fontSlant: { label: 'Font Slant (slnt)', shortLabel: 'Slant', unit: '°', from: 0, to: -14, min: -90, max: 90, step: 1, category: 'typography' },
@@ -50,6 +63,8 @@ export const PROPERTY_META: Record<MotionProperty, PropertyMeta> = {
 
 export const isShaderProperty = (property: MotionProperty): boolean => PROPERTY_META[property]?.category === 'shader'
 export const isTypographyProperty = (property: MotionProperty): boolean => PROPERTY_META[property]?.category === 'typography'
+export const isPathProperty = (property: MotionProperty): boolean => PROPERTY_META[property]?.category === 'path'
+export const isTransformProperty = (property: MotionProperty): boolean => PROPERTY_META[property]?.category === 'transform'
 
 export const MOTION_BEZIER_PRESETS: Record<string, { label: string; curve: BezierCurve }> = {
   linear: { label: 'Linear', curve: [0, 0, 1, 1] },
@@ -86,7 +101,14 @@ export function validateMotion(value: MotionDocument, elements: Readonly<Record<
         if (!Array.isArray(curve) || curve.length !== 4 || !curve.every((n, index) => finite(n, index % 2 ? -2 : 0, index % 2 ? 3 : 1))) throw new Error('Invalid motion Bézier curve')
         easing = Object.freeze({ kind: 'bezier', curve: Object.freeze([...curve]) as unknown as typeof curve })
       } else throw new Error('Invalid motion easing')
-      return Object.freeze({ id: key.id, time: key.time, value: key.value, easing })
+      return Object.freeze({
+        id: key.id,
+        time: key.time,
+        value: key.value,
+        ...(typeof key.pathData === 'string' && key.pathData.length <= 100000 ? { pathData: key.pathData } : {}),
+        ...(typeof key.shapePreset === 'string' && key.shapePreset.length <= 100 ? { shapePreset: key.shapePreset } : {}),
+        easing,
+      })
     })
     return Object.freeze({ id: track.id, elementId: track.elementId, property: track.property, enabled: track.enabled, keyframes: Object.freeze(keyframes) })
   })
@@ -109,13 +131,25 @@ export function getElementPropertyValue(element: SceneElement, property: MotionP
     case 'y': return 0
     case 'rotation': return 0
     case 'scale': return 1
+    case 'scaleX': return 1
+    case 'scaleY': return 1
+    case 'skewX': return 0
+    case 'skewY': return 0
     case 'opacity': return element.style.opacity ?? 1
+    case 'cornerRadius': return 'cornerRadius' in element ? ((element as { cornerRadius?: number }).cornerRadius ?? 0) : 0
     case 'shaderSpeed': return element.style.shader?.speed ?? 1
     case 'shaderScale': return element.style.shader?.scale ?? 1
     case 'shaderRotation': return element.style.shader?.rotation ?? 0
     case 'shaderOffsetX': return element.style.shader?.offsetX ?? 0
     case 'shaderOffsetY': return element.style.shader?.offsetY ?? 0
     case 'shaderOpacity': return element.style.shader?.composite?.opacity ?? 1
+    case 'pathShape': return 0
+    case 'pathMorphProgress': return 0
+    case 'pathTrimStart': return 0
+    case 'pathTrimEnd': return 100
+    case 'pathTrimOffset': return 0
+    case 'pathStrokeWidth': return element.style.stroke?.width ?? 2
+    case 'pathDashOffset': return 0
     case 'fontWeight': return element.type === 'text' ? (element.variableAxes?.wght ?? element.fontWeight ?? 400) : 400
     case 'fontWidth': return element.type === 'text' ? (element.variableAxes?.wdth ?? 100) : 100
     case 'fontSlant': return element.type === 'text' ? (element.variableAxes?.slnt ?? 0) : 0
@@ -144,10 +178,52 @@ export function createTrack(
   let from = meta.from
   let to = meta.to
 
+  if (property === 'pathShape') {
+    const baseD = (element && element.type === 'path') ? element.d : SHAPE_PRESETS.circle.d
+    const targetPreset = SHAPE_PRESETS.star5
+    return {
+      id: crypto.randomUUID(),
+      elementId,
+      property,
+      enabled: true,
+      keyframes: [
+        { id: crypto.randomUUID(), time: 0, value: 0, pathData: baseD, shapePreset: 'custom', easing: DEFAULT_EASING },
+        { id: crypto.randomUUID(), time: duration, value: 1, pathData: targetPreset.d, shapePreset: 'star5', easing: DEFAULT_EASING },
+      ],
+    }
+  }
+
   if (element) {
     if (property === 'scale') {
       from = 1
       to = 1.2
+    } else if (property === 'scaleX' || property === 'scaleY') {
+      from = 1
+      to = 1.3
+    } else if (property === 'skewX' || property === 'skewY') {
+      from = 0
+      to = 15
+    } else if (property === 'cornerRadius') {
+      from = 'cornerRadius' in element ? ((element as { cornerRadius?: number }).cornerRadius ?? 0) : 0
+      to = from === 0 ? 24 : 0
+    } else if (property === 'pathTrimStart') {
+      from = 0
+      to = 100
+    } else if (property === 'pathTrimEnd') {
+      from = 0
+      to = 100
+    } else if (property === 'pathTrimOffset') {
+      from = 0
+      to = 100
+    } else if (property === 'pathStrokeWidth') {
+      from = element.style.stroke?.width ?? 2
+      to = Math.min(24, Math.max(6, from * 2.5))
+    } else if (property === 'pathDashOffset') {
+      from = 0
+      to = 48
+    } else if (property === 'pathMorphProgress') {
+      from = 0
+      to = 100
     } else if (property === 'opacity') {
       from = element.style.opacity ?? 1
       to = from < 0.5 ? 1 : 0.2
@@ -295,7 +371,13 @@ export function patchKeyframe(track: MotionTrack, id: string, patch: Partial<Mot
   return { ...track, keyframes: track.keyframes.map(key => key.id === id ? { ...key, ...patch } : key).sort((a, b) => a.time - b.time) }
 }
 
-export function addKeyframeAtTime(track: MotionTrack, time: number, customValue?: number): { track: MotionTrack; keyframeId: string } | null {
+export function addKeyframeAtTime(
+  track: MotionTrack,
+  time: number,
+  customValue?: number,
+  customPathData?: string,
+  customShapePreset?: string,
+): { track: MotionTrack; keyframeId: string } | null {
   if (track.keyframes.length >= 200) return null
   const roundedTime = Math.round(time)
   if (track.keyframes.some(key => Math.abs(key.time - roundedTime) < 1)) return null
@@ -305,10 +387,27 @@ export function addKeyframeAtTime(track: MotionTrack, time: number, customValue?
   const easing = prevKey?.easing ?? nextKey?.easing ?? DEFAULT_EASING
   const meta = PROPERTY_META[track.property]
   const clampedValue = Math.max(meta.min, Math.min(meta.max, Number(value.toFixed(3))))
+
+  let pathData = customPathData
+  let shapePreset = customShapePreset
+  if (track.property === 'pathShape' && !pathData) {
+    if (prevKey?.pathData && nextKey?.pathData) {
+      const p = (roundedTime - prevKey.time) / (nextKey.time - prevKey.time)
+      const easedP = easingProgress(p, prevKey.easing)
+      pathData = interpolatePathShapes(prevKey.pathData, nextKey.pathData, easedP)
+      shapePreset = 'interpolated'
+    } else {
+      pathData = prevKey?.pathData ?? nextKey?.pathData
+      shapePreset = prevKey?.shapePreset ?? nextKey?.shapePreset
+    }
+  }
+
   const newKey: MotionKeyframe = {
     id: crypto.randomUUID(),
     time: roundedTime,
     value: clampedValue,
+    ...(pathData ? { pathData } : {}),
+    ...(shapePreset ? { shapePreset } : {}),
     easing,
   }
   const keyframes = [...track.keyframes, newKey].sort((a, b) => a.time - b.time)
@@ -339,6 +438,8 @@ export function duplicateKeyframeInTrack(track: MotionTrack, keyId: string, dura
     id: crypto.randomUUID(),
     time: targetTime,
     value: key.value,
+    ...(key.pathData ? { pathData: key.pathData } : {}),
+    ...(key.shapePreset ? { shapePreset: key.shapePreset } : {}),
     easing: key.easing,
   }
   return {

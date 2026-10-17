@@ -2,7 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { SceneElement, TextElement } from '../scene/types.ts'
 import { calculateStaggerDelay, evaluateWaveform } from '../scene/glyphDecomposition.ts'
-import { findAdjacentKeyframeTimes, isShaderProperty, isTypographyProperty, sampleTimes, trackValue } from './model.ts'
+import {
+  easingProgress,
+  findAdjacentKeyframeTimes,
+  isPathProperty,
+  isShaderProperty,
+  isTypographyProperty,
+  sampleTimes,
+  trackValue,
+} from './model.ts'
+import { computeStrokeTrimDash, interpolatePathShapes, SHAPE_PRESETS } from './pathInterpolation.ts'
 import type { MotionDocument, MotionProperty } from './types.ts'
 
 interface GlyphRecord {
@@ -28,6 +37,11 @@ interface ModifiedNodeRecord {
   readonly textPathElement?: SVGTextPathElement | null
   readonly originalStartOffset?: string
   glyphRecords?: GlyphRecord[]
+  readonly pathElement?: SVGPathElement | null
+  readonly originalPathD?: string
+  readonly originalStrokeDasharray?: string
+  readonly originalStrokeDashoffset?: string
+  readonly originalStrokeWidth?: string
 }
 
 /** Native paused animations and WebGL shader modulations isolate preview from scene edits, history and autosave. */
@@ -107,6 +121,33 @@ export function useMotionPlayback(
             (g.element as HTMLElement).style.fontVariationSettings = g.originalFontVariationSettings
           }
           g.element.style.animation = g.originalAnimation
+        }
+      }
+      if (record.pathElement) {
+        if (record.originalPathD !== undefined) {
+          record.pathElement.setAttribute('d', record.originalPathD)
+        }
+        if (record.originalStrokeDasharray !== undefined) {
+          if (record.originalStrokeDasharray) {
+            record.pathElement.style.strokeDasharray = record.originalStrokeDasharray
+          } else {
+            record.pathElement.style.removeProperty('stroke-dasharray')
+          }
+        }
+        if (record.originalStrokeDashoffset !== undefined) {
+          if (record.originalStrokeDashoffset) {
+            record.pathElement.style.strokeDashoffset = record.originalStrokeDashoffset
+          } else {
+            record.pathElement.style.removeProperty('stroke-dashoffset')
+          }
+        }
+        if (record.originalStrokeWidth !== undefined) {
+          if (record.originalStrokeWidth) {
+            record.pathElement.setAttribute('stroke-width', record.originalStrokeWidth)
+            record.pathElement.style.strokeWidth = record.originalStrokeWidth
+          } else {
+            record.pathElement.style.removeProperty('stroke-width')
+          }
         }
       }
       record.node.style.removeProperty('--kinetic-phase')
@@ -378,6 +419,114 @@ export function useMotionPlayback(
         }
       }
 
+      // Update vector path shapes and stroke properties directly on canvas elements
+      const pathTracks = motion.tracks.filter(t => t.enabled && isPathProperty(t.property))
+      if (applyPreview && pathTracks.length > 0 && stage.current) {
+        const pathElementIds = new Set(pathTracks.map(t => t.elementId))
+        for (const id of pathElementIds) {
+          const elem = elements[id]
+          if (!elem) continue
+          const node = stage.current.querySelector<HTMLElement>(
+            `.viewport-world .scene-node[data-element-id="${CSS.escape(id)}"]`
+          )
+          if (!node) continue
+
+          const pathElement = node.querySelector<SVGPathElement>('svg.scene-vector path')
+          if (!pathElement) continue
+
+          let record = modifiedElements.current.find(m => m.node === node)
+          if (!record) {
+            record = {
+              node,
+              shaderSurface: null,
+              originalTransform: '',
+              originalOpacity: '',
+              originalTransformOrigin: '',
+              pathElement,
+              originalPathD: pathElement.getAttribute('d') ?? (elem.type === 'path' ? elem.d : ''),
+              originalStrokeDasharray: pathElement.style.strokeDasharray || pathElement.getAttribute('stroke-dasharray') || '',
+              originalStrokeDashoffset: pathElement.style.strokeDashoffset || pathElement.getAttribute('stroke-dashoffset') || '',
+              originalStrokeWidth: pathElement.style.strokeWidth || pathElement.getAttribute('stroke-width') || '',
+            }
+            modifiedElements.current.push(record)
+          }
+
+          const elemTracks = pathTracks.filter(t => t.elementId === id)
+
+          // Handle pathShape track (morphing between keyframe pathData)
+          const shapeTrack = elemTracks.find(t => t.property === 'pathShape')
+          if (shapeTrack && shapeTrack.keyframes.length >= 2) {
+            const keys = shapeTrack.keyframes
+            let targetD = ''
+            if (time.current <= keys[0].time) {
+              targetD = keys[0].pathData ?? (elem.type === 'path' ? elem.d : '')
+            } else {
+              const nextIdx = keys.findIndex(k => k.time > time.current)
+              if (nextIdx < 0) {
+                targetD = keys.at(-1)?.pathData ?? (elem.type === 'path' ? elem.d : '')
+              } else {
+                const kA = keys[nextIdx - 1]
+                const kB = keys[nextIdx]
+                const segProgress = (time.current - kA.time) / (kB.time - kA.time)
+                const easedProgress = easingProgress(segProgress, kA.easing)
+                const dA = kA.pathData || (elem.type === 'path' ? elem.d : '')
+                const dB = kB.pathData || SHAPE_PRESETS.star5.d
+                targetD = interpolatePathShapes(dA, dB, easedProgress)
+              }
+            }
+            if (targetD) {
+              pathElement.setAttribute('d', targetD)
+            }
+          }
+
+          // Handle pathMorphProgress (0..100% morph against target shape)
+          const morphTrack = elemTracks.find(t => t.property === 'pathMorphProgress')
+          if (morphTrack && elem.type === 'path') {
+            const morphProgress = trackValue(morphTrack, time.current) / 100
+            const baseD = record.originalPathD || elem.d
+            const targetPresetD = SHAPE_PRESETS.star5.d
+            const morphedD = interpolatePathShapes(baseD, targetPresetD, morphProgress)
+            if (morphedD) {
+              pathElement.setAttribute('d', morphedD)
+            }
+          }
+
+          // Handle trim paths (pathTrimStart, pathTrimEnd, pathTrimOffset)
+          const trimStartTrack = elemTracks.find(t => t.property === 'pathTrimStart')
+          const trimEndTrack = elemTracks.find(t => t.property === 'pathTrimEnd')
+          const trimOffsetTrack = elemTracks.find(t => t.property === 'pathTrimOffset')
+          if (trimStartTrack || trimEndTrack || trimOffsetTrack) {
+            const trimStart = trimStartTrack ? trackValue(trimStartTrack, time.current) : 0
+            const trimEnd = trimEndTrack ? trackValue(trimEndTrack, time.current) : 100
+            const trimOffset = trimOffsetTrack ? trackValue(trimOffsetTrack, time.current) : 0
+            let totalLength = 500
+            try {
+              totalLength = pathElement.getTotalLength() || 500
+            } catch {
+              totalLength = 500
+            }
+            const { strokeDasharray, strokeDashoffset } = computeStrokeTrimDash(totalLength, trimStart, trimEnd, trimOffset)
+            pathElement.style.strokeDasharray = strokeDasharray
+            pathElement.style.strokeDashoffset = strokeDashoffset
+          }
+
+          // Handle stroke width
+          const strokeWidthTrack = elemTracks.find(t => t.property === 'pathStrokeWidth')
+          if (strokeWidthTrack) {
+            const sw = trackValue(strokeWidthTrack, time.current)
+            pathElement.setAttribute('stroke-width', String(sw))
+            pathElement.style.strokeWidth = `${sw}px`
+          }
+
+          // Handle dash offset
+          const dashOffsetTrack = elemTracks.find(t => t.property === 'pathDashOffset')
+          if (dashOffsetTrack && !trimStartTrack && !trimEndTrack) {
+            const dOff = trackValue(dashOffsetTrack, time.current)
+            pathElement.style.strokeDashoffset = `${dOff}px`
+          }
+        }
+      }
+
       root.current?.style.setProperty('--motion-progress', `${(time.current / duration) * 100}%`)
       if (readout.current) readout.current.value = `${(time.current / 1000).toFixed(2)} s`
       if (scrubber.current) scrubber.current.value = String(time.current)
@@ -400,7 +549,18 @@ export function useMotionPlayback(
     )
 
     const created: Animation[] = []
-    const transformProperties = new Set<MotionProperty>(['x', 'y', 'rotation', 'scale', 'opacity'])
+    const transformProperties = new Set<MotionProperty>([
+      'x',
+      'y',
+      'rotation',
+      'scale',
+      'scaleX',
+      'scaleY',
+      'skewX',
+      'skewY',
+      'opacity',
+      'cornerRadius',
+    ])
 
     for (const id of new Set(tracks.map(track => track.elementId))) {
       const node = nodes.get(id)
@@ -412,12 +572,33 @@ export function useMotionPlayback(
       const times = sampleTimes(motion, group)
       const frames = times.map(t => {
         const values = Object.fromEntries(group.map(track => [track.property, trackValue(track, t)]))
-        return {
-          offset: t / duration,
-          ...('x' in values || 'y' in values ? { translate: `${values.x ?? 0}px ${values.y ?? 0}px` } : {}),
-          ...('rotation' in values ? { rotate: `${values.rotation}deg` } : {}),
-          ...('scale' in values ? { scale: String(values.scale) } : {}),
+        const transformParts: string[] = []
+        if ('x' in values || 'y' in values) {
+          transformParts.push(`translate(${values.x ?? 0}px, ${values.y ?? 0}px)`)
         }
+        if ('rotation' in values) {
+          transformParts.push(`rotate(${values.rotation}deg)`)
+        }
+        if ('scale' in values) {
+          transformParts.push(`scale(${values.scale})`)
+        }
+        if ('scaleX' in values || 'scaleY' in values) {
+          transformParts.push(`scale(${values.scaleX ?? 1}, ${values.scaleY ?? 1})`)
+        }
+        if ('skewX' in values || 'skewY' in values) {
+          transformParts.push(`skew(${values.skewX ?? 0}deg, ${values.skewY ?? 0}deg)`)
+        }
+
+        const frame: Record<string, string | number> = {
+          offset: t / duration,
+        }
+        if (transformParts.length > 0) {
+          frame.transform = transformParts.join(' ')
+        }
+        if ('cornerRadius' in values) {
+          frame.borderRadius = `${values.cornerRadius}px`
+        }
+        return frame
       })
 
       if (group.some(track => track.property !== 'opacity')) {

@@ -30,6 +30,8 @@ export function maskPathData(node: MaskElement): string {
 }
 export const maskFillRule = (node: MaskElement) => node.type === 'path' ? node.fillRule : 'nonzero'
 
+export const isCompoundMask = (node: MaskElement): boolean => node.type === 'path' && !!node.boolean
+
 export function worldToLocal(state: SceneSnapshot, id: string, world: Point): Point {
   const [a, b, c, d, e, f] = getWorldMatrix(state, id)
   const det = a * d - b * c, dx = world.x - e, dy = world.y - f
