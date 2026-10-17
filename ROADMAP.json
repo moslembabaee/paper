@@ -1868,7 +1868,8 @@
       "github_issue_number": 65,
       "started_at": "",
       "attempt_count": 0,
-      "completed_at": "2026-10-17T09:07:25.949422+00:00"
+      "completed_at": "2026-10-17T09:07:25.949422+00:00",
+      "closed_at": "2026-10-17T09:07:29Z"
     },
     {
       "id": "T-EVOLVE-1792225933-2",
@@ -1876,10 +1877,11 @@
       "title": "Interactive Multi-Stop Gradient Engine with On-Canvas Transform Handles",
       "description": "Add linear, radial, and angular multi-stop gradient styling with interactive on-canvas handles for angle, focal length, spread, and color stop positioning linked directly into Paper WebGL shaders.",
       "assigned_agent": "claude",
-      "status": "approved",
+      "status": "completed",
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 66
+      "github_issue_number": 66,
+      "completed_at": "2026-10-17T09:41:31.764012+00:00"
     },
     {
       "id": "T-EVOLVE-1792225933-3",

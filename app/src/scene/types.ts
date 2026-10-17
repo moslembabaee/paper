@@ -28,11 +28,35 @@ export interface Shadow {
   readonly blur: number
 }
 
+export type GradientType = 'linear' | 'radial' | 'angular'
+
+export interface GradientColorStop {
+  readonly id: string
+  readonly offset: number
+  readonly color: string
+  readonly opacity?: number
+}
+
+export interface GradientPaint {
+  readonly type: GradientType
+  readonly stops: readonly GradientColorStop[]
+  readonly angle: number
+  readonly origin: { readonly x: number; readonly y: number }
+  readonly focalLength: number
+  readonly spread: number
+  readonly dither?: number
+  readonly smoothness?: number
+  readonly linkToShader?: boolean
+  readonly enabled?: boolean
+}
+
 export interface ElementStyle {
   /** Optional to retain compatibility with version 1 documents. */
   readonly shader?: ShaderPaint | null
   /** Any CSS color; null means no paint. Text uses fill as its text color. */
   readonly fill: string | null
+  /** Multi-stop linear, radial, and angular gradient styling */
+  readonly gradient?: GradientPaint | null
   readonly stroke: Stroke | null
   readonly opacity: number
   readonly shadow: Shadow | null

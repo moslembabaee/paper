@@ -1,9 +1,23 @@
 import type { DitheringParams, DotOrbitParams, FlutedGlassParams, GrainGradientParams, HalftoneCmykParams, MeshGradientParams, MetaballsParams, NeuroNoiseParams, PerlinNoiseParams, WarpParams } from '@paper-design/shaders-react'
 import type { MultiPassParams, ShaderPipeline } from './pipeline/types.ts'
 import type { CanvasPostProcessingPipeline } from '../canvas/postprocessing/types.ts'
+import type { GradientPaint } from '../scene/types.ts'
 
 export type { MultiPassParams, ShaderPipeline } from './pipeline/types.ts'
 export type { PipelinePass, PipelinePassType, UniformModulator } from './pipeline/types.ts'
+export type { GradientPaint, GradientType, GradientColorStop } from '../scene/types.ts'
+
+export interface MultiStopGradientParams {
+  readonly gradientType: 'linear' | 'radial' | 'angular'
+  readonly colors: readonly string[]
+  readonly angle: number
+  readonly originX: number
+  readonly originY: number
+  readonly focalLength: number
+  readonly spread: number
+  readonly dither: number
+  readonly smoothness: number
+}
 
 type Controls<T> = Readonly<Required<Omit<T, 'speed' | 'frame' | 'scale' | 'rotation' | 'offsetX' | 'offsetY' | 'fit' | 'originX' | 'originY' | 'worldWidth' | 'worldHeight'>>>
 type Palette<T> = Omit<Controls<T>, 'colors'> & { readonly colors: readonly string[] }
@@ -21,6 +35,7 @@ export interface ShaderParams {
   'glass-refraction': Omit<Controls<FlutedGlassParams>, 'image' | 'margin'> & { readonly image: string }
   'multi-pass': MultiPassParams
   'procedural-noise': ProceduralNoiseParams
+  'multi-stop-gradient': MultiStopGradientParams
 }
 export type ShaderKind = keyof ShaderParams
 export interface ShaderMotion {
@@ -123,7 +138,7 @@ export interface ProceduralNoiseParams {
   readonly specularStrength: number
   readonly viewMode: 'shaded' | 'normal-map' | 'heightmap'
 }
-export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K]; readonly composite?: ShaderComposite; readonly mesh?: MeshMaterial; readonly pipeline?: ShaderPipeline; readonly postProcessing?: CanvasPostProcessingPipeline } }[ShaderKind]
+export type ShaderPaint = { [K in ShaderKind]: ShaderMotion & { readonly kind: K; readonly params: ShaderParams[K]; readonly composite?: ShaderComposite; readonly mesh?: MeshMaterial; readonly pipeline?: ShaderPipeline; readonly postProcessing?: CanvasPostProcessingPipeline; readonly gradient?: GradientPaint } }[ShaderKind]
 export type ShaderValue = number | string | readonly string[]
 export type ShaderControl =
   | { readonly key: string; readonly label: string; readonly type: 'number'; readonly min: number; readonly max: number; readonly step: number; readonly integer?: boolean }

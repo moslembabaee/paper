@@ -101,9 +101,31 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
   const render = (id: string, root = false): string => {
     const node = state.elements[id]
     if (!node.visible) return ''
-    const { fill, stroke, shadow, shader } = node.style
+    const { fill, stroke, shadow, shader, gradient } = node.style
     const shaderSrc = assets.shaders.get(id)
     if (shader && !shaderSrc) throw new Error(`The shader on “${node.name}” could not be captured.`)
+    let effectiveFill = fill ?? 'none'
+    if (!shaderSrc && gradient && gradient.enabled !== false && (gradient.type === 'linear' || gradient.type === 'radial')) {
+      const gId = unique()
+      const rad = (gradient.angle * Math.PI) / 180
+      const spreadHalf = gradient.spread * 0.5
+      const stopsXml = gradient.stops.map(s => `<stop offset="${(s.offset * 100).toFixed(2)}%" stop-color="${xml(s.color)}" stop-opacity="${num(s.opacity ?? 1)}"/>`).join('')
+      if (gradient.type === 'linear') {
+        const x1 = `${((gradient.origin.x - Math.cos(rad) * spreadHalf) * 100).toFixed(2)}%`
+        const y1 = `${((gradient.origin.y - Math.sin(rad) * spreadHalf) * 100).toFixed(2)}%`
+        const x2 = `${((gradient.origin.x + Math.cos(rad) * spreadHalf) * 100).toFixed(2)}%`
+        const y2 = `${((gradient.origin.y + Math.sin(rad) * spreadHalf) * 100).toFixed(2)}%`
+        defs.push(`<linearGradient id="${gId}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${stopsXml}</linearGradient>`)
+      } else {
+        const cx = `${(gradient.origin.x * 100).toFixed(2)}%`
+        const cy = `${(gradient.origin.y * 100).toFixed(2)}%`
+        const r = `${(gradient.spread * 50).toFixed(2)}%`
+        const fx = `${((gradient.origin.x + Math.cos(rad) * gradient.focalLength * 0.25) * 100).toFixed(2)}%`
+        const fy = `${((gradient.origin.y + Math.sin(rad) * gradient.focalLength * 0.25) * 100).toFixed(2)}%`
+        defs.push(`<radialGradient id="${gId}" cx="${cx}" cy="${cy}" r="${r}" fx="${fx}" fy="${fy}">${stopsXml}</radialGradient>`)
+      }
+      effectiveFill = `url(#${gId})`
+    }
     let shadowAttr = ''
     if (node.style.effects?.some(effect => effect.enabled)) {
       const filter = unique()
@@ -124,17 +146,17 @@ export function sceneToSVG(state: SceneSnapshot, options: ExportOptions, assets 
     }
     if (node.type === 'frame') {
       const mask = frameMask(state.elements, node)
-      if (!shaderSrc) content += `<g fill="${xml(fill ?? 'none')}">${rect(node)}</g>`
+      if (!shaderSrc) content += `<g fill="${xml(effectiveFill)}">${rect(node)}</g>`
       const children = node.children.filter(child => child !== mask?.id).map(child => render(child)).join('')
       const masked = mask ? `<g ${clip(`<path d="${xml(optimizeSVGPath(maskPathData(mask)))}" clip-rule="${maskFillRule(mask)}"/>`)}>${children}</g>` : children
       content += `<g ${node.clipContent ? clip(rect(node)) : ''}>${masked}</g>`
       content += `<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`
     } else if (node.type === 'text') {
-      content += `<g ${node.textOnPath?.enabled || node.kinetic?.enabled ? '' : clip(rect(node))} ${strokeAttrs}>${renderText(node, shaderSrc ? 'none' : fill ?? 'none')}</g>`
+      content += `<g ${node.textOnPath?.enabled || node.kinetic?.enabled ? '' : clip(rect(node))} ${strokeAttrs}>${renderText(node, shaderSrc ? 'none' : effectiveFill)}</g>`
     } else if (node.type === 'image') {
       const src = assets.images.get(id) ?? node.src
       content += `${shaderSrc ? '' : `<g ${clip(rect(node))}><g fill="${xml(fill ?? 'none')}">${rect(node)}</g><image href="${xml(src)}" width="${num(node.width)}" height="${num(node.height)}" preserveAspectRatio="${node.fit === 'fill' ? 'none' : node.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'}"/></g>`}<g fill="none" ${strokeAttrs}>${rect(node, (stroke?.width ?? 0) / 2)}</g>`
-    } else content += `<g fill="${xml(shaderSrc ? 'none' : fill ?? 'none')}" ${strokeAttrs}>${shape(node, (stroke?.width ?? 0) / 2)}</g>`
+    } else content += `<g fill="${xml(shaderSrc ? 'none' : effectiveFill)}" ${strokeAttrs}>${shape(node, (stroke?.width ?? 0) / 2)}</g>`
     const transform = root ? matrix(getWorldMatrix(state, id)) : `translate(${num(node.x)} ${num(node.y)}) rotate(${num(node.rotation)} ${num(node.width / 2)} ${num(node.height / 2)})`
     // A selected descendant retains inherited opacity, without exporting siblings.
     let opacity = node.style.opacity

@@ -356,5 +356,521 @@
 .mesh-canvas-tangent-stick { pointer-events:auto; cursor:grab; }
 .mesh-canvas-tangent-stick:active { cursor:grabbing; }
 
+/* -------------------------------------------------------------------------
+   Interactive Multi-Stop Gradient Engine & On-Canvas Transform Handles
+   ------------------------------------------------------------------------- */
+
+.gradient-canvas-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.gradient-handle {
+  position: absolute;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  transition: transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+/* Origin Handle */
+.gradient-origin-handle {
+  width: 22px;
+  height: 22px;
+  cursor: move;
+  display: grid;
+  place-items: center;
+}
+.gradient-handle-ring {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid #81adec;
+  background: rgba(8, 8, 8, 0.45);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(237, 235, 225, 0.3);
+}
+.gradient-handle-dot.origin-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #edebe1;
+  box-shadow: 0 0 4px #81adec;
+}
+.gradient-origin-handle:hover .gradient-handle-ring {
+  border-color: #edebe1;
+  transform: scale(1.15);
+}
+
+/* Angle & Spread Handle */
+.gradient-angle-handle {
+  cursor: grab;
+}
+.gradient-angle-handle:active {
+  cursor: grabbing;
+}
+.gradient-angle-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 12px;
+  background: #080808;
+  border: 1.5px solid #81adec;
+  color: #edebe1;
+  font: 9px/1 var(--font-mono);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+}
+.gradient-angle-handle:hover .gradient-angle-badge {
+  background: #111;
+  border-color: #edebe1;
+  transform: scale(1.08);
+}
+
+/* Focal Handle */
+.gradient-focal-handle {
+  cursor: crosshair;
+}
+.gradient-focal-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #080808;
+  border: 1.5px solid #81adec;
+  color: #81adec;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+.gradient-focal-handle:hover .gradient-focal-badge {
+  color: #edebe1;
+  border-color: #edebe1;
+  transform: scale(1.15);
+}
+
+/* Color Stop Handles */
+.gradient-stop-handle {
+  cursor: pointer;
+}
+.gradient-stop-chip {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #edebe1;
+  box-shadow: 0 0 0 1px rgba(8, 8, 8, 0.8), 0 2px 6px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.gradient-stop-handle:hover .gradient-stop-chip {
+  transform: scale(1.2);
+  border-color: #81adec;
+}
+.gradient-stop-handle.is-selected .gradient-stop-chip {
+  transform: scale(1.25);
+  border-color: #81adec;
+  box-shadow: 0 0 0 2px #81adec, 0 3px 8px rgba(0, 0, 0, 0.7);
+}
+.gradient-stop-indicator {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #81adec;
+}
+
+/* Stop HUD Popover */
+.gradient-stop-hud {
+  pointer-events: auto;
+  user-select: none;
+  animation: hud-fade-in 0.12s ease-out;
+}
+@keyframes hud-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.gradient-stop-hud-inner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: #080808;
+  border: 1px solid var(--paper-border-strong, #333);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7);
+}
+.hud-color-swatch-wrap {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.hud-color-swatch-wrap input[type='color'] {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  cursor: pointer;
+  opacity: 0;
+}
+.hud-swatch-preview {
+  position: absolute;
+  inset: 0;
+}
+.hud-hex-input {
+  width: 60px;
+  font: 10px/1.2 var(--font-mono);
+  color: #edebe1;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 3px;
+  padding: 2px 4px;
+  text-transform: uppercase;
+}
+.hud-hex-input:focus {
+  outline: none;
+  border-color: #81adec;
+}
+.hud-offset-badge {
+  font: 9px var(--font-mono);
+  color: #81adec;
+  padding: 2px 4px;
+  background: rgba(129, 172, 236, 0.12);
+  border-radius: 3px;
+}
+.hud-btn-delete, .hud-btn-close {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  color: var(--paper-text-muted, #888);
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+}
+.hud-btn-delete:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.15);
+}
+.hud-btn-close:hover {
+  color: #edebe1;
+  background: #222;
+}
+
+/* Gradient Inspector Styles */
+.gradient-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.gradient-type-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  background: var(--paper-bg, #080808);
+  border: 1px solid var(--paper-border, #222);
+  border-radius: 6px;
+}
+.gradient-type-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--paper-text-muted, #888);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.gradient-type-tab:hover {
+  color: var(--paper-text, #edebe1);
+}
+.gradient-type-tab.active {
+  background: var(--paper-surface, #181818);
+  color: #81adec;
+  font-weight: 500;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.gradient-presets-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.gradient-subheading {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  color: var(--paper-text-muted, #888);
+  letter-spacing: 0.04em;
+}
+.gradient-preset-chips {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+.gradient-preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--paper-border, #222);
+  background: var(--paper-surface, #141414);
+  color: var(--paper-text, #edebe1);
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+.gradient-preset-chip:hover {
+  border-color: #81adec;
+}
+.gradient-preset-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.gradient-preset-name {
+  font-size: 9.5px;
+}
+
+.gradient-track-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.gradient-track-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.gradient-stops-counter {
+  font: 9px var(--font-mono);
+  color: var(--paper-text-muted, #888);
+}
+.gradient-track-bar {
+  position: relative;
+  height: 20px;
+  border-radius: 4px;
+  border: 1px solid var(--paper-border-strong, #333);
+  cursor: copy;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.gradient-track-pin {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #edebe1;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  padding: 0;
+  touch-action: none;
+}
+.gradient-track-pin.selected {
+  outline: 2px solid #81adec;
+  outline-offset: 1px;
+  z-index: 2;
+  transform: translate(-50%, -50%) scale(1.15);
+}
+
+.gradient-active-stop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--paper-input, #111);
+  border: 1px solid var(--paper-border, #222);
+  border-radius: 5px;
+}
+.gradient-stop-card-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gradient-color-field {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--paper-border-strong, #333);
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gradient-color-field input[type='color'] {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  opacity: 0;
+  cursor: pointer;
+}
+.gradient-swatch-box {
+  position: absolute;
+  inset: 0;
+}
+.gradient-hex-input {
+  flex: 1;
+  font: 11px var(--font-mono);
+  color: var(--paper-text, #edebe1);
+  background: var(--paper-surface, #181818);
+  border: 1px solid var(--paper-border, #222);
+  border-radius: 3px;
+  padding: 3px 6px;
+  text-transform: uppercase;
+}
+.gradient-hex-input:focus {
+  border-color: #81adec;
+  outline: none;
+}
+.gradient-stop-actions {
+  display: flex;
+  gap: 3px;
+}
+.gradient-action-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  color: var(--paper-text-muted, #888);
+}
+.gradient-action-btn:hover {
+  color: var(--paper-text, #edebe1);
+  background: var(--paper-surface, #1c1c1c);
+}
+
+.gradient-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gradient-slider-row.mini {
+  gap: 4px;
+}
+.gradient-label-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 65px;
+  color: var(--paper-text-muted, #888);
+}
+.gradient-field-label {
+  font-size: 10px;
+  color: var(--paper-text-muted, #888);
+  min-width: 44px;
+}
+.gradient-slider-row input[type='range'] {
+  flex: 1;
+}
+.gradient-value-display {
+  font: 9.5px var(--font-mono);
+  color: var(--paper-text, #edebe1);
+  min-width: 34px;
+  text-align: right;
+}
+.gradient-reverse-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  color: var(--paper-text-muted, #888);
+}
+.gradient-reverse-btn:hover {
+  color: #81adec;
+}
+
+.gradient-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.gradient-geometry-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 4px;
+  border-top: 1px solid var(--paper-border, #222);
+}
+
+.gradient-shader-link-section {
+  padding-top: 4px;
+  border-top: 1px solid var(--paper-border, #222);
+}
+.gradient-shader-link-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--paper-border, #222);
+  border-radius: 5px;
+  background: var(--paper-surface, #141414);
+  color: var(--paper-text, #edebe1);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+}
+.gradient-shader-link-btn:hover {
+  border-color: #81adec;
+}
+.gradient-shader-link-btn.active {
+  background: rgba(129, 172, 236, 0.08);
+  border-color: #81adec;
+}
+.gradient-shader-link-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.gradient-shader-link-title {
+  font-size: 11px;
+  font-weight: 500;
+}
+.gradient-shader-link-desc {
+  font-size: 9px;
+  color: var(--paper-text-muted, #888);
+}
+.gradient-link-badge {
+  font: 8.5px var(--font-mono);
+  padding: 2px 5px;
+  border-radius: 3px;
+  background: var(--paper-input, #222);
+  color: var(--paper-text-muted, #888);
+}
+.gradient-link-badge.linked {
+  background: rgba(129, 172, 236, 0.2);
+  color: #81adec;
+  font-weight: 600;
+}
+
+
 
 

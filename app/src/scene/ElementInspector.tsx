@@ -19,6 +19,8 @@ import { ComponentInspector } from './ComponentPanel'
 import type { MorphTarget } from '../morph/types'
 import { TypographyStudio } from './TypographyStudio'
 import { componentRoot } from './components'
+import { GradientInspector } from '../shaders/GradientInspector'
+import { createDefaultGradient, gradientToShaderPaint } from '../shaders/gradient'
 
 function NumberField({ label, value, onChange, min, max, step = 1, binding, disabled = false }: { disabled?: boolean; binding?: ReactNode; label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: number }) {
   return <div className="token-number-field"><label className="property-number"><span>{label}</span><input key={value} aria-label={label} disabled={disabled} type="number" defaultValue={Number(value.toFixed(3))} min={min} max={max} step={step} onBlur={(event) => {
@@ -50,6 +52,7 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
   const masterId = node?.component?.kind === 'instance' ? node.component.masterId : undefined
   const isMasterLocked = masterId ? store.isLocked(masterId) : false
   const hasFillOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'fill')
+  const hasGradientOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'gradient')
   const hasStrokeOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'stroke')
   const hasOpacityOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'opacity')
   const hasShadowOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'shadow')
@@ -384,6 +387,86 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
           </div>
         </div>
         {node.style.fill !== null && <ColorField binding={binding('fill', 'Fill', true)} label="Fill" value={node.style.fill} onChange={fill => style({ fill })} />}
+        <div className="property-heading">
+          <span className="property-heading-title">
+            Gradient
+            {hasGradientOverride && (
+              <span className="property-override-badge mini" title="Gradient locally overridden from master">
+                <span className="property-override-dot" />
+                Override
+              </span>
+            )}
+          </span>
+          <div className="property-heading-actions">
+            {hasGradientOverride && (
+              <>
+                <button
+                  className="quiet-button"
+                  disabled={isMasterLocked}
+                  aria-label="Push gradient to master"
+                  title="Push gradient override to master"
+                  onClick={() => store.pushPropertyOverrideToMaster(node.id, 'style.gradient')}
+                >
+                  <Upload size={11} />
+                </button>
+                <button
+                  className="quiet-button"
+                  aria-label="Reset gradient override"
+                  title="Reset gradient override to master"
+                  onClick={() => store.resetPropertyOverride(node.id, 'style.gradient')}
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </>
+            )}
+            <button
+              className="quiet-button paint-toggle"
+              aria-label="Toggle gradient"
+              aria-pressed={!!node.style.gradient}
+              onClick={() => {
+                if (node.style.gradient) {
+                  style({
+                    gradient: null,
+                    ...(node.style.shader?.kind === 'multi-stop-gradient' ? { shader: null } : {}),
+                  })
+                } else {
+                  const defaultGrad = createDefaultGradient('linear')
+                  style({ gradient: defaultGrad })
+                }
+              }}
+            >
+              {node.style.gradient ? '−' : '+'}
+            </button>
+          </div>
+        </div>
+        {node.style.gradient && (
+          <GradientInspector
+            gradient={node.style.gradient}
+            onChange={gradient => {
+              const shaderUpdate = (gradient.linkToShader || node.style.shader?.kind === 'multi-stop-gradient' || gradient.type === 'angular')
+                ? { shader: gradientToShaderPaint(gradient, node.style.shader ?? undefined) }
+                : {}
+              style({
+                gradient,
+                ...shaderUpdate,
+              })
+            }}
+            onLinkToShader={linked => {
+              if (linked && node.style.gradient) {
+                const nextGrad = { ...node.style.gradient, linkToShader: true }
+                style({
+                  gradient: nextGrad,
+                  shader: gradientToShaderPaint(nextGrad, node.style.shader ?? undefined),
+                })
+              } else if (!linked && node.style.gradient) {
+                style({
+                  gradient: { ...node.style.gradient, linkToShader: false },
+                  ...(node.style.shader?.kind === 'multi-stop-gradient' ? { shader: null } : {}),
+                })
+              }
+            }}
+          />
+        )}
         <div className="property-heading">
           <span className="property-heading-title">
             Stroke

@@ -1,6 +1,8 @@
 import type { ShaderPaint } from './types.ts'
 import { meshUniforms } from './mesh.ts'
 import { meshFragmentShader } from './meshFragment.ts'
+import { gradientUniforms } from './gradient.ts'
+import { gradientFragmentShader } from './gradientFragment.ts'
 import { exportPipelineReact, exportPipelineGLSL, exportPipelineUniforms } from './pipeline/pipelineExport.ts'
 
 export { exportPipelineReact, exportPipelineGLSL, exportPipelineUniforms }
@@ -12,8 +14,14 @@ export function exportMeshReact(paint: Extract<ShaderPaint, { kind: 'mesh-gradie
   return `import { ShaderMount } from '@paper-design/shaders-react';\n\nconst fragmentShader = \`${meshFragmentShader}\`;\nconst uniforms = ${JSON.stringify(meshUniforms(paint), null, 2)};\n\n// Place inside a parent with an explicit height.\nexport default function Material() {\n  return (\n    <ShaderMount\n      fragmentShader={fragmentShader}\n      uniforms={uniforms}\n      speed={${paint.animated ? paint.speed : 0}}\n      frame={${paint.frame}}\n      minPixelRatio={1}\n      maxPixelCount={1500000}\n      style={${JSON.stringify(style)}}\n    />\n  );\n}\n`
 }
 
+export function exportGradientReact(paint: Extract<ShaderPaint, { kind: 'multi-stop-gradient' }>): string {
+  const style = { width: '100%', height: '100%', opacity: paint.composite?.opacity ?? 1, mixBlendMode: paint.composite?.blendMode ?? 'normal' }
+  return `import { ShaderMount } from '@paper-design/shaders-react';\n\nconst fragmentShader = \`${gradientFragmentShader}\`;\nconst uniforms = ${JSON.stringify(gradientUniforms(paint), null, 2)};\n\n// Place inside a parent with an explicit height.\nexport default function Material() {\n  return (\n    <ShaderMount\n      fragmentShader={fragmentShader}\n      uniforms={uniforms}\n      speed={${paint.animated ? paint.speed : 0}}\n      frame={${paint.frame}}\n      minPixelRatio={1}\n      maxPixelCount={1500000}\n      style={${JSON.stringify(style)}}\n    />\n  );\n}\n`
+}
+
 export function exportShaderSource(paint: ShaderPaint): string {
   if (paint.kind === 'mesh-gradient') return exportMeshReact(paint)
+  if (paint.kind === 'multi-stop-gradient') return exportGradientReact(paint)
   if (paint.kind === 'multi-pass') return exportPipelineReact(paint)
   return `// Shader export for ${paint.kind}\nexport default function Material() { return null; }\n`
 }

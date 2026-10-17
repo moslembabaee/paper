@@ -1,6 +1,7 @@
 import type { ShaderControl, ShaderDefinition, ShaderKind, ShaderMotion, ShaderPaint, ShaderValue } from './types.ts'
 import { shaderBlendModes } from './types.ts'
 import { createMeshMaterial, defaultMeshAnchor, validateMeshMaterial } from './mesh.ts'
+import { createDefaultGradient, freezeGradient, validateGradient } from './gradient.ts'
 import { PIPELINE_PRESETS, createDefaultPipeline, presetKeys } from './pipeline/presets.ts'
 import { validatePipeline } from './pipeline/pipelineOps.ts'
 import { freezePostProcessing, validatePostProcessing } from '../canvas/postprocessing/model.ts'
@@ -134,6 +135,32 @@ export const shaderCatalog = {
       select('viewMode', 'View mode', ['shaded', 'normal-map', 'heightmap']),
     ],
   },
+  'multi-stop-gradient': {
+    label: 'Multi-Stop Gradient',
+    description: 'Linear, radial, and angular multi-stop color transitions with on-canvas control handles.',
+    defaults: {
+      gradientType: 'linear',
+      colors,
+      angle: 90,
+      originX: 0.5,
+      originY: 0.5,
+      focalLength: 0.0,
+      spread: 1.0,
+      dither: 0.25,
+      smoothness: 0.5,
+    },
+    controls: [
+      select('gradientType', 'Type', ['linear', 'radial', 'angular']),
+      palette(16),
+      number('angle', 'Angle', 0, 360, 1),
+      number('originX', 'Center X', 0, 1, 0.01),
+      number('originY', 'Center Y', 0, 1, 0.01),
+      number('focalLength', 'Focal length', 0, 2, 0.01),
+      number('spread', 'Spread', 0.1, 3, 0.01),
+      number('dither', 'Dither noise', 0, 1, 0.01),
+      number('smoothness', 'Interpolation', 0, 1, 0.01),
+    ],
+  },
 } satisfies { [K in ShaderKind]: ShaderDefinition<K> }
 
 export const shaderKinds = Object.keys(shaderCatalog) as ShaderKind[]
@@ -145,11 +172,13 @@ export function createShader(kind: ShaderKind, image?: string): ShaderPaint {
   return freezeShader(
     kind === 'mesh-gradient'
       ? { ...paint, mesh: createMeshMaterial(colors.length) }
-      : kind === 'multi-pass'
-        ? { ...paint, pipeline: createDefaultPipeline('prismatic-glass') }
-        : (kind === 'halftone-cmyk' || kind === 'glass-refraction') && image
-          ? ({ ...paint, params: { ...params, image } } as ShaderPaint)
-          : paint
+      : kind === 'multi-stop-gradient'
+        ? { ...paint, gradient: createDefaultGradient() }
+        : kind === 'multi-pass'
+          ? { ...paint, pipeline: createDefaultPipeline('prismatic-glass') }
+          : (kind === 'halftone-cmyk' || kind === 'glass-refraction') && image
+            ? ({ ...paint, params: { ...params, image } } as ShaderPaint)
+            : paint
   )
 }
 
@@ -159,6 +188,7 @@ export function freezeShader(paint: ShaderPaint): ShaderPaint {
     Object.isFrozen(paint) &&
     (!paint.postProcessing || (Object.isFrozen(paint.postProcessing) && Object.isFrozen(paint.postProcessing.passes) && paint.postProcessing.passes.every(pass => Object.isFrozen(pass) && Object.isFrozen(pass.params)))) &&
     (!paint.mesh || (Object.isFrozen(paint.mesh) && Object.isFrozen(paint.mesh.anchors) && paint.mesh.anchors.every(Object.isFrozen) && (!paint.mesh.grid || (Object.isFrozen(paint.mesh.grid) && Object.isFrozen(paint.mesh.grid.vertices) && paint.mesh.grid.vertices.every(Object.isFrozen))))) &&
+    (!paint.gradient || Object.isFrozen(paint.gradient)) &&
     (!paint.pipeline ||
       (Object.isFrozen(paint.pipeline) &&
         Object.isFrozen(paint.pipeline.passes) &&
@@ -206,6 +236,7 @@ export function freezeShader(paint: ShaderPaint): ShaderPaint {
         vertices: Object.freeze(paint.mesh.grid.vertices.map(v => Object.freeze({ ...v }))),
       }) } : {}),
     }) } : {}),
+    ...(paint.gradient ? { gradient: freezeGradient(paint.gradient) } : {}),
     ...(pipeline ? { pipeline } : {}),
     ...(paint.composite ? { composite: Object.freeze({ ...paint.composite }) } : {}),
     params: Object.freeze(params),
@@ -285,6 +316,7 @@ export function validateShader(value: unknown): asserts value is ShaderPaint {
     if (!valid) throw new Error(`Invalid shader ${control.key}`)
   }
   if (paint.mesh !== undefined) validateMeshMaterial(paint.mesh, paint)
+  if (paint.gradient !== undefined) validateGradient(paint.gradient)
   if (paint.pipeline !== undefined) {
     if (paint.kind !== 'multi-pass') throw new Error('Invalid shader pipeline')
     validatePipeline(paint.pipeline, paint)

@@ -10,6 +10,8 @@ import { compileTypographyStyles, embeddedFontCSS, resolveTextPathD, textPathOff
 import { createCurvePath } from './textOnPath'
 import { textMarkup } from './textMarkup'
 import { KineticText } from './KineticText'
+import { gradientToCSS, gradientToShaderPaint } from '../shaders/gradient'
+import type { ShaderPaint } from '../shaders/types'
 import './scene.css'
 
 interface NodeProps { store: SceneStore; id: string; interactive: boolean; inheritedLocked?: boolean; presentationRoot?: boolean; presentation?: boolean }
@@ -25,10 +27,46 @@ function BooleanCanvasPreview({ store, parentId }: { store: SceneStore; parentId
   </div>
 }
 
-function Paint({ node, pathD, paintId }: { node: SceneElement; pathD: string; paintId: string }) {
+function Paint({ node, pathD, paintId, activeShader }: { node: SceneElement; pathD: string; paintId: string; activeShader?: ShaderPaint | null }) {
   const { fill: solidFill, stroke, shader } = node.style
   const shadow = node.style.effects?.some(effect => effect.enabled) ? null : node.style.shadow
-  const fill = shader ? null : solidFill
+  const gradient = node.style.gradient && node.style.gradient.enabled !== false ? node.style.gradient : null
+  const isShaderActive = !!(shader || activeShader)
+  const gradId = `gradient-${paintId}`
+  const rad = gradient ? (gradient.angle * Math.PI) / 180 : 0
+  const spreadHalf = gradient ? gradient.spread * 0.5 : 0.5
+  const svgGradientDefs = gradient && !isShaderActive && (gradient.type === 'linear' || gradient.type === 'radial') ? (
+    <defs>
+      {gradient.type === 'linear' ? (
+        <linearGradient
+          id={gradId}
+          x1={`${((gradient.origin.x - Math.cos(rad) * spreadHalf) * 100).toFixed(2)}%`}
+          y1={`${((gradient.origin.y - Math.sin(rad) * spreadHalf) * 100).toFixed(2)}%`}
+          x2={`${((gradient.origin.x + Math.cos(rad) * spreadHalf) * 100).toFixed(2)}%`}
+          y2={`${((gradient.origin.y + Math.sin(rad) * spreadHalf) * 100).toFixed(2)}%`}
+        >
+          {gradient.stops.map(s => (
+            <stop key={s.id} offset={`${(s.offset * 100).toFixed(2)}%`} stopColor={s.color} stopOpacity={s.opacity ?? 1} />
+          ))}
+        </linearGradient>
+      ) : (
+        <radialGradient
+          id={gradId}
+          cx={`${(gradient.origin.x * 100).toFixed(2)}%`}
+          cy={`${(gradient.origin.y * 100).toFixed(2)}%`}
+          r={`${(gradient.spread * 50).toFixed(2)}%`}
+          fx={`${((gradient.origin.x + Math.cos(rad) * gradient.focalLength * 0.25) * 100).toFixed(2)}%`}
+          fy={`${((gradient.origin.y + Math.sin(rad) * gradient.focalLength * 0.25) * 100).toFixed(2)}%`}
+        >
+          {gradient.stops.map(s => (
+            <stop key={s.id} offset={`${(s.offset * 100).toFixed(2)}%`} stopColor={s.color} stopOpacity={s.opacity ?? 1} />
+          ))}
+        </radialGradient>
+      )}
+    </defs>
+  ) : null
+
+  const fill = isShaderActive ? null : gradient ? `url(#${gradId})` : solidFill
   const shadowStyle = shadow ? { filter: `drop-shadow(${shadow.x}px ${shadow.y}px ${shadow.blur / 2}px ${shadow.color})` } : undefined
   if (node.type === 'frame') return null
   if (node.type === 'text') {
@@ -36,10 +74,17 @@ function Paint({ node, pathD, paintId }: { node: SceneElement; pathD: string; pa
     if (node.textOnPath?.enabled) {
       const pathNode = { ...node, textOnPath: { ...node.textOnPath, pathId: null, preset: 'custom' as const, pathData: pathD, reverse: false, side: 'left' as const } }
       return <svg className="scene-text-on-path" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" style={shadowStyle} role="img" aria-label={node.text}>
+        {svgGradientDefs}
         <g stroke={stroke?.color ?? 'none'} strokeWidth={stroke?.width ?? 0} dangerouslySetInnerHTML={{ __html: textMarkup(pathNode, fill ?? 'none', undefined, undefined, undefined, paintId) }} />
       </svg>
     }
-    return <div className="scene-text" style={{ ...shadowStyle, ...compileTypographyStyles(node), color: fill ?? 'transparent', WebkitTextStroke: stroke ? `${stroke.width}px ${stroke.color}` : undefined }}>{node.text}</div>
+    const textGradStyle: CSSProperties = gradient && !isShaderActive ? {
+      background: gradientToCSS(gradient),
+      WebkitBackgroundClip: 'text',
+      WebkitTextFillColor: 'transparent',
+      color: 'transparent',
+    } : { color: fill ?? 'transparent' }
+    return <div className="scene-text" style={{ ...shadowStyle, ...compileTypographyStyles(node), ...textGradStyle, WebkitTextStroke: stroke ? `${stroke.width}px ${stroke.color}` : undefined }}>{node.text}</div>
   }
   if (node.type === 'image') {
     return <div className="scene-image" style={{ background: fill ?? undefined, borderRadius: node.cornerRadius, boxShadow: shadow ? `${shadow.x}px ${shadow.y}px ${shadow.blur}px ${shadow.color}` : undefined }}>
@@ -51,6 +96,7 @@ function Paint({ node, pathD, paintId }: { node: SceneElement; pathD: string; pa
   const inset = (stroke?.width ?? 0) / 2
   const viewBox = node.type === 'path' ? node.viewBox.join(' ') : `0 0 ${node.width} ${node.height}`
   return <svg className="scene-vector" viewBox={viewBox} preserveAspectRatio="none" style={shadowStyle} aria-hidden="true">
+    {svgGradientDefs}
     {node.type === 'rectangle' && <rect x={inset} y={inset} width={Math.max(0, node.width - inset * 2)} height={Math.max(0, node.height - inset * 2)} rx={node.cornerRadius} {...paint} />}
     {node.type === 'ellipse' && <ellipse cx={node.width / 2} cy={node.height / 2} rx={Math.max(0, node.width / 2 - inset)} ry={Math.max(0, node.height / 2 - inset)} {...paint} />}
     {node.type === 'path' && <path d={node.d} fillRule={node.fillRule} {...paint} />}
@@ -80,18 +126,20 @@ const SceneNode = memo(function SceneNode({ store, id, interactive, inheritedLoc
     opacity: previewSource ? .2 : undefined,
   }
   const hasEffects = node.style.effects?.some(effect => effect.enabled)
+  const gradient = node.style.gradient && node.style.gradient.enabled !== false ? node.style.gradient : null
+  const activeShader = node.style.shader ?? (gradient && (gradient.linkToShader || gradient.type === 'angular') ? gradientToShaderPaint(gradient) : null)
   const frameStyle: CSSProperties | undefined = isFrame ? {
-    background: node.style.shader ? undefined : node.style.fill ?? undefined, borderRadius: node.cornerRadius,
+    background: activeShader ? undefined : gradient ? gradientToCSS(gradient) : node.style.fill ?? undefined, borderRadius: node.cornerRadius,
     overflow: node.clipContent && !presentationRoot ? 'hidden' : 'visible',
-    boxShadow: !hasEffects && node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : node.style.fill === null ? 'none' : undefined,
+    boxShadow: !hasEffects && node.style.shadow ? `${node.style.shadow.x}px ${node.style.shadow.y}px ${node.style.shadow.blur}px ${node.style.shadow.color}` : (node.style.fill === null && !gradient) ? 'none' : undefined,
   } : undefined
   return <div className={`scene-node ${isFrame ? 'scene-frame' : ''} ${selected ? 'is-selected' : ''}`} style={style} data-element-id={id} data-element-type={node.type} data-component-kind={node.component?.kind} data-component-master={node.component?.kind === 'instance' ? node.component.masterId : undefined} data-boolean-operation={node.type === 'path' ? node.boolean?.operation : undefined} aria-label={node.name}>
     {isFrame && node.parentId === null && !presentation && <div className="artboard-label">{node.name}<span>{node.width} × {node.height}</span></div>}
     {hasEffects && <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none' }} aria-hidden="true"><defs dangerouslySetInnerHTML={{ __html: effectMarkup }} /></svg>}
     <div className="scene-content" style={{ ...frameStyle, opacity: node.style.opacity, filter: hasEffects ? `url(#${effectId})` : undefined }}>
       {node.type === 'text' && node.fontSource && <style>{embeddedFontCSS(node)}</style>}
-      {node.style.shader && !(node.type === 'text' && node.kinetic?.enabled) && <ShapeShader node={node} textPathD={pathD} />}
-      <Paint node={node} pathD={pathD} paintId={`${effectId}-text`} />
+      {activeShader && !(node.type === 'text' && node.kinetic?.enabled) && <ShapeShader node={{ ...node, style: { ...node.style, shader: activeShader } }} textPathD={pathD} />}
+      <Paint node={node} pathD={pathD} paintId={`${effectId}-text`} activeShader={activeShader} />
       {selected && !presentation && node.type === 'text' && node.textOnPath?.enabled && (() => {
         const curve = pathD ? createCurvePath(pathD) : null
         const offsetPx = node.textOnPath?.offsetMode === 'pixels'
