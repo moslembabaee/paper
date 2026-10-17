@@ -41,7 +41,7 @@ export function validateComponentProperties(properties: readonly ComponentProper
       if (!safeId(property.sourceId) || typeof property.defaultValue !== 'number' || !Number.isFinite(property.defaultValue)) throw new Error('Invalid component property')
     } else if (property.kind === 'kinetic') {
       if (!safeId(property.sourceId) || !property.targetProperty) throw new Error('Invalid component property')
-      const validTargets = ['enabled', 'amplitude', 'rotation', 'duration', 'stagger', 'waveShape', 'staggerMode', 'weightModulation', 'slantModulation', 'scaleModulation', 'playing', 'phase']
+      const validTargets = ['enabled', 'amplitude', 'rotation', 'duration', 'stagger', 'waveShape', 'staggerMode', 'weightModulation', 'slantModulation', 'scaleModulation', 'playing', 'phase', 'horizontalAmplitude', 'widthModulation', 'opticalSizeModulation']
       if (!validTargets.includes(property.targetProperty)) throw new Error('Invalid kinetic target property')
     } else if (property.kind === 'shader') {
       if (!safeId(property.sourceId) || !property.targetProperty) throw new Error('Invalid component property')
@@ -85,6 +85,162 @@ export function validPropertyValue(property: ComponentProperty, value: Component
   return false
 }
 
+/** Apply a single property value directly to an element without mutating component metadata. */
+export function applyPropertyValueToElement(
+  source: SceneElement,
+  property: ComponentProperty,
+  value: ComponentPropertyValue
+): SceneElement {
+  let updated = { ...source }
+  if (property.kind === 'variant') {
+    const option = property.options.find(opt => opt.value === value)
+    if (option && option.layers[source.id]) {
+      const overrides = option.layers[source.id]
+      if (overrides.properties) {
+        for (const [k, v] of Object.entries(overrides.properties)) {
+          if (k === 'kinetic' && updated.type === 'text') {
+            updated = { ...updated, kinetic: { ...(updated.kinetic ?? {}), ...(v as Record<string, unknown>) } as any }
+          } else {
+            (updated as any)[k] = v
+          }
+        }
+      }
+      if (overrides.style) {
+        updated = {
+          ...updated,
+          style: {
+            ...updated.style,
+            ...overrides.style,
+            ...(overrides.style.stroke ? { stroke: { ...(updated.style.stroke ?? { color: '#080808', width: 1, dash: [] }), ...overrides.style.stroke } } : {}),
+            ...(overrides.style.shader ? { shader: { ...(updated.style.shader ?? {}), ...overrides.style.shader } } : {}),
+          } as any,
+        }
+      }
+    }
+    return updated
+  }
+  if (property.kind === 'text') {
+    const textVal = String(value)
+    if (property.targetProperty === 'fontFamily' && updated.type === 'text') {
+      updated = { ...updated, fontFamily: textVal }
+    } else if (property.targetProperty === 'src' && updated.type === 'image') {
+      updated = { ...updated, src: textVal }
+    } else if (property.targetProperty === 'alt' && updated.type === 'image') {
+      updated = { ...updated, alt: textVal }
+    } else if (property.targetProperty === 'textTransform' && updated.type === 'text') {
+      updated = { ...updated, textTransform: textVal as any }
+    } else if (updated.type === 'text') {
+      updated = { ...updated, text: textVal }
+    }
+  } else if (property.kind === 'boolean') {
+    const boolVal = Boolean(value)
+    if (property.targetProperty === 'clipContent' && updated.type === 'frame') {
+      updated = { ...updated, clipContent: boolVal }
+    } else if (property.targetProperty === 'kinetic.enabled' && updated.type === 'text') {
+      const current = updated.kinetic ?? { enabled: true, playing: true, amplitude: 16, rotation: 0, duration: 800, stagger: 40, phase: 0 }
+      updated = { ...updated, kinetic: { ...current, enabled: boolVal } }
+    } else if (property.targetProperty === 'shader.animated' && updated.style.shader) {
+      updated = { ...updated, style: { ...updated.style, shader: { ...updated.style.shader, animated: boolVal } } }
+    } else if (property.targetProperty === 'locked') {
+      updated = { ...updated, locked: boolVal }
+    } else {
+      updated = { ...updated, visible: boolVal }
+    }
+  } else if (property.kind === 'color') {
+    const colorVal = String(value)
+    if (property.targetProperty === 'stroke') {
+      updated = { ...updated, style: { ...updated.style, stroke: { color: colorVal, width: updated.style.stroke?.width ?? 1, dash: updated.style.stroke?.dash ?? [] } } }
+    } else if (property.targetProperty === 'shadow') {
+      updated = { ...updated, style: { ...updated.style, shadow: { color: colorVal, x: updated.style.shadow?.x ?? 0, y: updated.style.shadow?.y ?? 4, blur: updated.style.shadow?.blur ?? 8 } } }
+    } else if (property.targetProperty && (property.targetProperty.startsWith('shader.') || ['colorFront', 'colorMid', 'colorBack'].includes(property.targetProperty))) {
+      if (updated.style.shader) {
+        const paramKey = property.targetProperty.replace('shader.', '')
+        updated = { ...updated, style: { ...updated.style, shader: { ...updated.style.shader, params: { ...updated.style.shader.params, [paramKey]: colorVal } as any } } }
+      }
+    } else if (property.targetProperty === 'shader') {
+      if (updated.style.shader) {
+        updated = { ...updated, style: { ...updated.style, shader: { ...updated.style.shader, params: { ...updated.style.shader.params, color: colorVal, tint: colorVal } as any } } }
+      }
+    } else {
+      updated = { ...updated, style: { ...updated.style, fill: colorVal } }
+    }
+  } else if (property.kind === 'number') {
+    const numVal = Number(value)
+    if (Number.isFinite(numVal)) {
+      const target = property.targetProperty ?? 'opacity'
+      if (target === 'opacity') {
+        updated = { ...updated, style: { ...updated.style, opacity: numVal } }
+      } else if (target === 'cornerRadius' && 'cornerRadius' in updated) {
+        updated = { ...updated, cornerRadius: numVal }
+      } else if (target === 'width') {
+        updated = { ...updated, width: numVal }
+      } else if (target === 'height') {
+        updated = { ...updated, height: numVal }
+      } else if (target === 'rotation') {
+        updated = { ...updated, rotation: numVal }
+      } else if (target === 'strokeWidth') {
+        updated = { ...updated, style: { ...updated.style, stroke: { color: updated.style.stroke?.color ?? '#080808', width: numVal, dash: updated.style.stroke?.dash ?? [] } } }
+      } else if (target === 'fontSize' && updated.type === 'text') {
+        updated = { ...updated, fontSize: numVal }
+      } else if (target === 'fontWeight' && updated.type === 'text') {
+        updated = { ...updated, fontWeight: numVal }
+      } else if (target === 'letterSpacing' && updated.type === 'text') {
+        updated = { ...updated, letterSpacing: numVal }
+      } else if (target === 'lineHeight' && updated.type === 'text') {
+        updated = { ...updated, lineHeight: numVal }
+      } else if (target === 'layout.gap' && updated.type === 'frame' && updated.layout) {
+        updated = { ...updated, layout: { ...updated.layout, gap: numVal } }
+      } else if (target.startsWith('kinetic.') && updated.type === 'text') {
+        const kProp = target.replace('kinetic.', '')
+        const currentKinetic = updated.kinetic ?? { enabled: true, playing: true, amplitude: 16, rotation: 0, duration: 800, stagger: 40, phase: 0, staggerMode: 'cascade', waveShape: 'sine' }
+        updated = { ...updated, kinetic: { ...currentKinetic, [kProp]: numVal } }
+      } else if (target.startsWith('shader.') && updated.style.shader) {
+        const sProp = target.replace('shader.', '')
+        if (['speed', 'scale', 'rotation'].includes(sProp)) {
+          updated = { ...updated, style: { ...updated.style, shader: { ...updated.style.shader, [sProp]: numVal } } }
+        } else if (updated.style.shader.mesh && sProp in updated.style.shader.mesh) {
+          updated = { ...updated, style: { ...updated.style, shader: { ...updated.style.shader, mesh: { ...updated.style.shader.mesh, [sProp]: numVal } } } }
+        } else if (updated.style.shader.params) {
+          updated = { ...updated, style: { ...updated.style, shader: { ...updated.style.shader, params: { ...updated.style.shader.params, [sProp]: numVal } as any } } }
+        }
+      }
+    }
+  } else if (property.kind === 'kinetic' && updated.type === 'text') {
+    const currentKinetic = updated.kinetic ?? {
+      enabled: true,
+      playing: true,
+      amplitude: 16,
+      rotation: 0,
+      duration: 800,
+      stagger: 40,
+      phase: 0,
+      staggerMode: 'cascade',
+      waveShape: 'sine',
+    }
+    updated = { ...updated, kinetic: { ...currentKinetic, [property.targetProperty]: value } }
+  } else if (property.kind === 'shader' && updated.style.shader) {
+    const prop = property.targetProperty
+    const existingShader = updated.style.shader
+    if (['speed', 'scale', 'rotation'].includes(prop)) {
+      updated = { ...updated, style: { ...updated.style, shader: { ...existingShader, [prop]: typeof value === 'number' ? value : Number(value) } } }
+    } else if (prop === 'blendMode') {
+      updated = { ...updated, style: { ...updated.style, shader: { ...existingShader, composite: { blendMode: value as any, opacity: existingShader.composite?.opacity ?? 1 } } } }
+    } else {
+      const meshKeys = new Set(['frequency', 'turbulence', 'chromaticAberration', 'lacunarity', 'octaves', 'normalPerturbation', 'grainDisplacement', 'grainOverlay', 'fluidAdvection', 'fluidViscosity', 'distortionMode', 'warpModulation', 'noiseType', 'viewMode'])
+      let nextMesh = existingShader.mesh
+      if (nextMesh && (prop in nextMesh || meshKeys.has(prop))) {
+        nextMesh = { ...nextMesh, [prop]: value }
+      }
+      let nextParams = existingShader.params
+      if (existingShader.params && (prop in existingShader.params || !nextMesh || !meshKeys.has(prop))) {
+        nextParams = { ...existingShader.params, [prop]: value } as any
+      }
+      updated = { ...updated, style: { ...updated.style, shader: { ...existingShader, params: nextParams, ...(nextMesh ? { mesh: nextMesh } : {}) } as any } }
+    }
+  }
+  return updated
+}
+
 /** Variants compose first; slots then win over variants, and local layer edits win last. */
 export function resolveComponentProperties(source: SceneElement, properties: readonly ComponentProperty[], values: Readonly<Record<string, ComponentPropertyValue>>, tokens: readonly DesignToken[], library: StyleLibrary, activeState?: string): SceneElement {
   let next = source
@@ -103,108 +259,7 @@ export function resolveComponentProperties(source: SceneElement, properties: rea
   for (const property of properties) {
     if (property.kind === 'variant' || property.sourceId !== source.id) continue
     const value = values[property.id] ?? property.defaultValue
-    if (property.kind === 'text') {
-      const textVal = String(value)
-      if (property.targetProperty === 'fontFamily' && source.type === 'text') {
-        apply({ properties: { fontFamily: textVal } as any })
-      } else if (property.targetProperty === 'src' && source.type === 'image') {
-        apply({ properties: { src: textVal } as any })
-      } else if (property.targetProperty === 'alt' && source.type === 'image') {
-        apply({ properties: { alt: textVal } as any })
-      } else if (property.targetProperty === 'textTransform' && source.type === 'text') {
-        apply({ properties: { textTransform: textVal as any } as any })
-      } else {
-        apply({ properties: { text: textVal } })
-      }
-    } else if (property.kind === 'boolean') {
-      const boolVal = Boolean(value)
-      if (property.targetProperty === 'clipContent' && source.type === 'frame') {
-        apply({ properties: { clipContent: boolVal } })
-      } else if (property.targetProperty === 'kinetic.enabled' && source.type === 'text') {
-        const kineticOverrides = { ...(source.kinetic ?? { enabled: true, playing: true, amplitude: 16, rotation: 0, duration: 800, stagger: 40, phase: 0 }), enabled: boolVal }
-        apply({ properties: { kinetic: kineticOverrides } as any })
-      } else if (property.targetProperty === 'shader.animated' && source.style.shader) {
-        apply({ style: { shader: { ...source.style.shader, animated: boolVal } } })
-      } else if (property.targetProperty === 'locked') {
-        apply({ properties: { locked: boolVal } as any })
-      } else {
-        apply({ properties: { visible: boolVal } })
-      }
-    } else if (property.kind === 'color') {
-      const colorVal = String(value)
-      if (property.targetProperty === 'stroke') {
-        apply({ style: { stroke: { color: colorVal, width: source.style.stroke?.width ?? 1, dash: source.style.stroke?.dash ?? [] } } })
-      } else if (property.targetProperty === 'shadow') {
-        apply({ style: { shadow: { color: colorVal, x: source.style.shadow?.x ?? 0, y: source.style.shadow?.y ?? 4, blur: source.style.shadow?.blur ?? 8 } } })
-      } else if (property.targetProperty && property.targetProperty.startsWith('shader.')) {
-        if (source.style.shader) {
-          const paramKey = property.targetProperty.replace('shader.', '')
-          apply({ style: { shader: { ...source.style.shader, params: { ...source.style.shader.params, [paramKey]: colorVal } as any } } })
-        }
-      } else if (property.targetProperty === 'shader') {
-        if (source.style.shader) {
-          apply({ style: { shader: { ...source.style.shader, params: { ...source.style.shader.params, color: colorVal, tint: colorVal } as any } } })
-        }
-      } else {
-        apply({ style: { fill: colorVal } })
-      }
-    } else if (property.kind === 'number') {
-      const numVal = Number(value)
-      if (Number.isFinite(numVal)) {
-        const target = property.targetProperty ?? 'opacity'
-        if (target === 'opacity') {
-          apply({ style: { opacity: numVal } })
-        } else if (target === 'cornerRadius' && ('cornerRadius' in source)) {
-          apply({ properties: { cornerRadius: numVal } as any })
-        } else if (target === 'width') {
-          apply({ properties: { width: numVal } })
-        } else if (target === 'height') {
-          apply({ properties: { height: numVal } })
-        } else if (target === 'rotation') {
-          apply({ properties: { rotation: numVal } })
-        } else if (target === 'strokeWidth') {
-          apply({ style: { stroke: { color: source.style.stroke?.color ?? '#080808', width: numVal, dash: source.style.stroke?.dash ?? [] } } })
-        } else if (target === 'fontSize' && source.type === 'text') {
-          apply({ properties: { fontSize: numVal } })
-        } else if (target === 'fontWeight' && source.type === 'text') {
-          apply({ properties: { fontWeight: numVal } })
-        } else if (target === 'letterSpacing' && source.type === 'text') {
-          apply({ properties: { letterSpacing: numVal } })
-        } else if (target === 'lineHeight' && source.type === 'text') {
-          apply({ properties: { lineHeight: numVal } })
-        } else if (target === 'layout.gap' && source.type === 'frame' && source.layout) {
-          apply({ properties: { layout: { ...source.layout, gap: numVal } } as any })
-        }
-      }
-    } else if (property.kind === 'kinetic' && source.type === 'text') {
-      const currentKinetic = source.kinetic ?? {
-        enabled: true,
-        playing: true,
-        amplitude: 16,
-        rotation: 0,
-        duration: 800,
-        stagger: 40,
-        phase: 0,
-        staggerMode: 'cascade',
-        waveShape: 'sine',
-      }
-      apply({ properties: { kinetic: { ...currentKinetic, [property.targetProperty]: value } } as any })
-    } else if (property.kind === 'shader' && source.style.shader) {
-      const prop = property.targetProperty
-      const existingShader = source.style.shader
-      if (['speed', 'scale', 'rotation'].includes(prop)) {
-        apply({ style: { shader: { ...existingShader, [prop]: typeof value === 'number' ? value : Number(value) } } })
-      } else if (prop === 'blendMode') {
-        apply({ style: { shader: { ...existingShader, composite: { blendMode: value as any, opacity: existingShader.composite?.opacity ?? 1 } } } })
-      } else {
-        const nextParams = { ...existingShader.params, [prop]: value } as any
-        let nextMesh = existingShader.mesh
-        if (nextMesh && prop in nextMesh) {
-          nextMesh = { ...nextMesh, [prop]: value }
-        }
-        apply({ style: { shader: { ...existingShader, params: nextParams, ...(nextMesh ? { mesh: nextMesh } : {}) } } })
-      }
-    }
+    next = applyPropertyValueToElement(next, property, value)
   }
   return next
 }

@@ -101,6 +101,8 @@ export interface MeshMaterial {
   readonly distortionMode?: MeshDistortionMode
   /** Grid-based mesh topology for NxM bicubic patch control */
   readonly grid?: MeshGridConfig
+  /** Surface inspection view mode: shaded, normal-map, displacement (defaults to 'shaded') */
+  readonly viewMode?: 'shaded' | 'normal-map' | 'displacement'
 }
 
 export interface ProceduralNoiseParams {

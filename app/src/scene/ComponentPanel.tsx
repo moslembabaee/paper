@@ -1,6 +1,6 @@
 import { ComponentPropertiesPanel } from './ComponentPropertiesPanel'
 import { useMemo, useState, useSyncExternalStore } from 'react'
-import { ArrowUpRight, Diamond, Component as Diamonds, Plus, RotateCcw, Search, Unlink } from 'lucide-react'
+import { ArrowUpRight, Copy, Diamond, Component as Diamonds, Plus, RotateCcw, Search, Sparkles, Unlink, Upload } from 'lucide-react'
 import type { ViewportController } from '../canvas/ViewportController'
 import type { ComponentOverrides, SceneElement } from './types'
 import type { SceneStore } from './store'
@@ -13,30 +13,99 @@ function overrideCount(overrides: ComponentOverrides): number {
   const stroke = overrides.style?.stroke
   return Object.keys(overrides.properties ?? {}).length + Object.keys(overrides.style ?? {}).length + (stroke ? Math.max(0, Object.keys(stroke).length - 1) : 0) + Object.keys(overrides.tokenBindings ?? {}).length + Object.keys(overrides.sharedStyleBindings ?? {}).length
 }
-function overrideLabels(node: SceneElement): string[] {
+
+export interface OverrideDetail {
+  key: string
+  label: string
+  value?: string
+}
+
+export function overrideDetails(node: SceneElement): OverrideDetail[] {
   if (node.component?.kind !== 'instance') return []
-  const { properties, style, tokenBindings, sharedStyleBindings } = node.component.overrides
-  const names: Record<string, string> = {
+  const { properties = {}, style = {}, tokenBindings, sharedStyleBindings } = node.component.overrides
+  const details: OverrideDetail[] = []
+
+  const styleNames: Record<string, string> = {
     fill: 'Fill',
     stroke: 'Stroke',
     opacity: 'Opacity',
+    shadow: 'Shadow',
+    shader: 'Shader FX',
+  }
+
+  for (const [key, val] of Object.entries(style)) {
+    let valStr: string | undefined
+    if (key === 'fill') valStr = String(val)
+    else if (key === 'opacity') valStr = `${Math.round(Number(val) * 100)}%`
+    else if (key === 'stroke' && val && typeof val === 'object') {
+      valStr = (val as any).color ?? 'Stroke'
+    }
+    details.push({
+      key: `style.${key}`,
+      label: styleNames[key] ?? key[0].toUpperCase() + key.slice(1),
+      value: valStr,
+    })
+  }
+
+  const propNames: Record<string, string> = {
     text: 'Text',
     name: 'Name',
     fontFamily: 'Font',
     fontSize: 'Text size',
     fontWeight: 'Weight',
+    lineHeight: 'Leading',
+    letterSpacing: 'Tracking',
+    textAlign: 'Alignment',
+    textTransform: 'Transform',
     cornerRadius: 'Radius',
-    tokenBindings: 'Tokens',
-    sharedStyleBindings: 'Styles',
-    shader: 'Shader FX',
+    width: 'Width',
+    height: 'Height',
+    x: 'X',
+    y: 'Y',
+    rotation: 'Rotation',
     kinetic: 'Kinetic Motion',
+    variableAxes: 'Variable Axes',
+    openTypeFeatures: 'OpenType',
+    clipContent: 'Clip Content',
+    d: 'Vector Path',
   }
-  return [
-    ...Object.keys(properties ?? {}),
-    ...Object.keys(style ?? {}),
-    ...(tokenBindings && Object.keys(tokenBindings).length ? ['tokenBindings'] : []),
-    ...(sharedStyleBindings && Object.keys(sharedStyleBindings).length ? ['sharedStyleBindings'] : []),
-  ].map(key => names[key] ?? key[0].toUpperCase() + key.slice(1))
+
+  for (const [key, val] of Object.entries(properties)) {
+    let valStr: string | undefined
+    if (['fontSize', 'cornerRadius', 'width', 'height', 'x', 'y'].includes(key)) {
+      valStr = `${val}px`
+    } else if (key === 'letterSpacing') {
+      valStr = `${val}px`
+    } else if (key === 'lineHeight') {
+      valStr = `${val}`
+    } else if (key === 'rotation') {
+      valStr = `${val}°`
+    } else if (key === 'text') {
+      valStr = String(val).slice(0, 15)
+    } else if (key === 'kinetic' && typeof val === 'object' && val) {
+      valStr = `${Object.keys(val).length} props`
+    } else if (key === 'variableAxes' && typeof val === 'object' && val) {
+      valStr = `${Object.keys(val).length} axes`
+    }
+    details.push({
+      key: `properties.${key}`,
+      label: propNames[key] ?? key[0].toUpperCase() + key.slice(1),
+      value: valStr,
+    })
+  }
+
+  if (tokenBindings && Object.keys(tokenBindings).length) {
+    details.push({ key: 'tokenBindings', label: 'Tokens' })
+  }
+  if (sharedStyleBindings && Object.keys(sharedStyleBindings).length) {
+    details.push({ key: 'sharedStyleBindings', label: 'Styles' })
+  }
+
+  return details
+}
+
+export function overrideLabels(node: SceneElement): string[] {
+  return overrideDetails(node).map(d => d.label)
 }
 
 export function ComponentInspector({ store, controller, node }: { store: SceneStore; controller: ViewportController; node: SceneElement }) {
@@ -49,7 +118,7 @@ export function ComponentInspector({ store, controller, node }: { store: SceneSt
   const focus = (id: string) => { store.select([id]); controller.fit(getWorldBounds(store.getSnapshot(), id)) }
   if (!root?.component) return <div className="inspector-section component-section">
     <span className="section-caption">REUSABLE DESIGN</span>
-    <button className="component-action" disabled={!!reason} title={reason ?? 'Turn this layer and its children into a reusable master'} onClick={() => perform(() => { store.createComponent(node.id) })}><Diamonds size={14} />Create component<Plus size={12} /></button>
+    <button className="component-action" disabled={!!reason} title={reason ?? 'Turn this layer and its children into a reusable master'} onClick={() => perform(() => { store.createComponent(node.id); store.autoExposeComponentProperties(node.id) })}><Diamonds size={14} />Create component<Plus size={12} /></button>
     {!reason && <p>One master. Every detail in sync.</p>}
     {error && <p role="alert" className="component-error">{error}</p>}
   </div>
@@ -59,16 +128,136 @@ export function ComponentInspector({ store, controller, node }: { store: SceneSt
   const instances = Object.values(state.elements).filter(layer => layer.component?.kind === 'instance' && layer.component.masterId === masterId && layer.component.instanceId === layer.id).length
   const layers = node.id === root.id ? subtree(state.elements, root.id) : [node]
   const count = Object.keys(node.id === root.id && root.component.kind === 'instance' ? root.component.propertyValues ?? {} : {}).length + layers.reduce((total, layer) => total + (layer.component?.kind === 'instance' ? overrideCount(layer.component.overrides) : 0), 0)
+  const dynamicOverrides = node.id === root.id && root.component.kind === 'instance' && root.component.propertyValues
+    ? Object.entries(root.component.propertyValues).map(([propId, val]) => {
+        const prop = master?.component?.kind === 'master' ? master.component.properties?.find(p => p.id === propId) : undefined
+        return { id: propId, name: prop?.name ?? propId, value: String(val) }
+      })
+    : []
   return <div className="inspector-section component-section" data-testid="component-inspector">
     <div className="component-section-heading"><span className="section-caption">{instance ? 'COMPONENT INSTANCE' : 'MASTER COMPONENT'}</span>{instance ? <Diamond size={13} /> : <Diamonds size={13} />}</div>
     <div className="component-identity"><span className={`component-mark ${instance ? '' : 'is-master'}`}><Diamond size={18} /></span><div><strong>{master?.name}</strong><span>{instance ? count ? `${count} local override${count === 1 ? '' : 's'}` : 'Synced with master' : `${instances} instance${instances === 1 ? '' : 's'} in this document`}</span></div></div>
     {master && <ComponentPropertiesPanel key={root.id} store={store} master={master} root={root} disabled={active || store.isLocked(root.id) || (!instance && store.isLocked(masterId))} />}
     {instance ? <>
       <button className="text-action" disabled={active || !store.isVisible(masterId) || store.isLocked(masterId)} onClick={() => focus(masterId)}>Go to master<ArrowUpRight size={12} /></button>
-      {count > 0 && <div className="component-override-list" aria-label="Property overrides">{layers.filter(layer => overrideLabels(layer).length).map(layer => <div key={layer.id}><span>{layer.name}</span><div>{overrideLabels(layer).map(label => <span key={label} className="component-override-chip">{label}</span>)}</div></div>)}</div>}
-      <div className="component-actions"><button className="component-action" disabled={!count || active} onClick={() => perform(() => store.resetComponentOverrides(node.id))}><RotateCcw size={12} />Reset overrides</button><button className="component-action" disabled={active} onClick={() => perform(() => store.detachComponentInstance(node.id))}><Unlink size={12} />Detach instance</button></div>
+      {count > 0 && (
+        <div className="component-override-list" aria-label="Property overrides">
+          {dynamicOverrides.length > 0 && (
+            <div className="component-override-group">
+              <div className="component-override-group-header">
+                <span className="component-override-group-title">Dynamic Properties</span>
+                <span className="component-override-count-badge">{dynamicOverrides.length}</span>
+              </div>
+              <div className="component-override-chips">
+                {dynamicOverrides.map(prop => (
+                  <div key={prop.id} className="component-override-chip-wrapper">
+                    <span className="component-override-chip is-interactive" title={`${prop.name}: ${prop.value}`}>
+                      <span className="property-override-dot" />
+                      <span className="override-chip-label">{prop.name}</span>
+                      <span className="override-chip-val">{prop.value}</span>
+                    </span>
+                    <button
+                      className="chip-action-btn"
+                      disabled={active || store.isLocked(masterId)}
+                      title={`Push ${prop.name} to master`}
+                      aria-label={`Push ${prop.name} to master`}
+                      onClick={() => perform(() => store.pushComponentPropertyToMaster(root.id, prop.id))}
+                    >
+                      <Upload size={10} />
+                    </button>
+                    <button
+                      className="chip-action-btn"
+                      disabled={active}
+                      title={`Reset ${prop.name}`}
+                      aria-label={`Reset ${prop.name}`}
+                      onClick={() => perform(() => store.setComponentProperty(root.id, prop.id, null))}
+                    >
+                      <RotateCcw size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {layers.filter(layer => overrideDetails(layer).length > 0).map(layer => (
+            <div key={layer.id} className="component-override-group">
+              <div className="component-override-group-header">
+                <span className="component-override-group-title">{layer.name}</span>
+                <div className="component-override-group-actions">
+                  <button
+                    className="quiet-button override-header-action"
+                    disabled={active || store.isLocked(masterId)}
+                    title={`Push ${layer.name} overrides to master`}
+                    aria-label={`Push ${layer.name} to master`}
+                    onClick={() => perform(() => store.pushLayerOverridesToMaster(layer.id))}
+                  >
+                    <Upload size={11} />
+                  </button>
+                  <button
+                    className="quiet-button override-header-action"
+                    disabled={active}
+                    title={`Reset ${layer.name} overrides`}
+                    aria-label={`Reset ${layer.name}`}
+                    onClick={() => perform(() => store.resetComponentOverrides(layer.id))}
+                  >
+                    <RotateCcw size={11} />
+                  </button>
+                </div>
+              </div>
+              <div className="component-override-chips">
+                {overrideDetails(layer).map(item => (
+                  <div key={item.key} className="component-override-chip-wrapper">
+                    <span className="component-override-chip" title={`${item.label}${item.value ? `: ${item.value}` : ''}`}>
+                      <span className="property-override-dot" />
+                      <span className="override-chip-label">{item.label}</span>
+                      {item.value && <span className="override-chip-val">{item.value}</span>}
+                    </span>
+                    <button
+                      className="chip-action-btn"
+                      disabled={active || store.isLocked(masterId)}
+                      title={`Push ${item.label} to master`}
+                      aria-label={`Push ${item.label} to master`}
+                      onClick={() => perform(() => store.pushPropertyOverrideToMaster(layer.id, item.key))}
+                    >
+                      <Upload size={10} />
+                    </button>
+                    <button
+                      className="chip-action-btn"
+                      disabled={active}
+                      title={`Reset ${item.label}`}
+                      aria-label={`Reset ${item.label}`}
+                      onClick={() => perform(() => store.resetPropertyOverride(layer.id, item.key))}
+                    >
+                      <RotateCcw size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="component-actions">
+        {count > 0 && (
+          <button
+            className="component-action primary"
+            disabled={active || store.isLocked(masterId)}
+            title="Push local overrides back to master symbol for all instances"
+            onClick={() => perform(() => store.pushOverridesToMaster(node.id))}
+          >
+            <Upload size={12} />Push overrides to master
+          </button>
+        )}
+        <button className="component-action" disabled={!count || active} onClick={() => perform(() => store.resetComponentOverrides(node.id))}><RotateCcw size={12} />Reset overrides</button>
+        <button className="component-action" disabled={active} onClick={() => perform(() => store.detachComponentInstance(node.id))}><Unlink size={12} />Detach instance</button>
+      </div>
       <p>{node.id === root.id ? 'Edit any layer to override it. Reset restores the master’s current values.' : 'Overrides belong to this layer. Detach releases the whole instance.'}</p>
-    </> : <><button className="component-action primary" disabled={active} onClick={() => perform(() => { const instance = store.createComponentInstance(masterId); focus(instance.id) })}><Plus size={13} />Insert instance<ArrowUpRight size={12} /></button><p>Changes to this master flow to every linked instance.</p></>}
+    </> : <>
+      <button className="component-action primary" disabled={active} onClick={() => perform(() => { const instance = store.createComponentInstance(masterId); focus(instance.id) })}><Plus size={13} />Insert instance<ArrowUpRight size={12} /></button>
+      <button className="component-action" disabled={active || store.isLocked(masterId)} title="Duplicate master component on 120px grid" onClick={() => perform(() => { const copy = store.duplicateComponent(masterId); focus(copy.id) })}><Copy size={12} />Duplicate master</button>
+      <button className="component-action" disabled={active || store.isLocked(masterId)} title="Auto-expose detected properties" onClick={() => perform(() => store.autoExposeComponentProperties(masterId))}><Sparkles size={12} />Auto-expose properties</button>
+      <p>Changes to this master flow to every linked instance.</p>
+    </>}
     {error && <p role="alert" className="component-error">{error}</p>}
   </div>
 }

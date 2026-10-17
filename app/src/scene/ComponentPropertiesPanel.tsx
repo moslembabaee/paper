@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Plus, RotateCcw, Sparkles, Trash2, Upload } from 'lucide-react'
 import type { SceneStore } from './store'
 import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, SceneElement } from './types'
 import { subtree } from './components'
@@ -48,6 +48,23 @@ function propertySubtitle(prop: ComponentProperty): string {
   if (prop.kind === 'kinetic') return `Kinetic · ${prop.targetProperty}`
   if (prop.kind === 'shader') return `Shader · ${prop.targetProperty}`
   return 'Property'
+}
+
+function formatMasterDefault(property: ComponentProperty): string {
+  if (property.kind === 'boolean') {
+    return property.defaultValue ? 'Active' : 'Off'
+  }
+  if (property.kind === 'number') {
+    return `${property.defaultValue}${property.targetProperty === 'opacity' ? '' : 'px'}`
+  }
+  if (property.kind === 'color') {
+    return String(property.defaultValue)
+  }
+  if (property.kind === 'text') {
+    const str = String(property.defaultValue)
+    return str.length > 14 ? `"${str.slice(0, 12)}…"` : `"${str}"`
+  }
+  return String(property.defaultValue)
 }
 
 function PropertyField({
@@ -158,7 +175,11 @@ function PropertyField({
   }
 
   if (property.kind === 'kinetic') {
-    if (property.targetProperty === 'enabled') {
+    if (property.targetProperty === 'enabled' || property.targetProperty === 'playing') {
+      const isPlayingProp = property.targetProperty === 'playing'
+      const labelText = isPlayingProp
+        ? (value ? 'Playing' : 'Paused')
+        : (value ? 'Kinetic Active' : 'Static')
       return (
         <label className="component-property-switch">
           <input
@@ -168,7 +189,7 @@ function PropertyField({
             checked={Boolean(value)}
             onChange={event => onChange(event.currentTarget.checked)}
           />
-          <span>{value ? 'Kinetic Active' : 'Static'}</span>
+          <span>{labelText}</span>
         </label>
       )
     }
@@ -205,6 +226,15 @@ function PropertyField({
         </select>
       )
     }
+    const kineticStep = property.targetProperty === 'duration'
+      ? 50
+      : property.targetProperty === 'stagger'
+      ? 5
+      : property.targetProperty === 'scaleModulation'
+      ? 0.05
+      : property.targetProperty === 'weightModulation'
+      ? 10
+      : 1
     return (
       <input
         type="number"
@@ -212,7 +242,7 @@ function PropertyField({
         aria-label={property.name}
         disabled={disabled}
         value={Number(value)}
-        step={property.targetProperty === 'duration' ? 50 : property.targetProperty === 'stagger' ? 5 : 1}
+        step={kineticStep}
         onChange={event => onChange(event.currentTarget.valueAsNumber)}
       />
     )
@@ -245,13 +275,34 @@ function PropertyField({
           value={String(value)}
           onChange={event => onChange(event.currentTarget.value)}
         >
-          <option value="render">Render</option>
-          <option value="normal">Normal</option>
-          <option value="depth">Depth</option>
-          <option value="uv">UV</option>
+          <option value="shaded">Shaded Surface</option>
+          <option value="normal-map">Tangent Normal Map</option>
+          <option value="displacement">Height / Displacement</option>
         </select>
       )
     }
+    if (property.targetProperty === 'noiseType') {
+      return (
+        <select
+          className="property-input"
+          aria-label={property.name}
+          disabled={disabled}
+          value={String(value)}
+          onChange={event => onChange(event.currentTarget.value)}
+        >
+          <option value="simplex">Simplex</option>
+          <option value="perlin">Perlin</option>
+          <option value="worley">Worley</option>
+        </select>
+      )
+    }
+    const shaderStep = property.targetProperty === 'octaves'
+      ? 1
+      : ['frequency', 'turbulence', 'displacement', 'normalPerturbation', 'lacunarity', 'fluidAdvection', 'fluidViscosity'].includes(property.targetProperty)
+      ? 0.05
+      : property.targetProperty === 'chromaticAberration'
+      ? 0.01
+      : 0.1
     return (
       <input
         type="number"
@@ -259,7 +310,7 @@ function PropertyField({
         aria-label={property.name}
         disabled={disabled}
         value={Number(value)}
-        step={property.targetProperty === 'octaves' ? 1 : 0.1}
+        step={shaderStep}
         onChange={event => onChange(event.currentTarget.valueAsNumber)}
       />
     )
@@ -379,13 +430,20 @@ export function ComponentPropertiesPanel({
             | 'staggerMode'
             | 'weightModulation'
             | 'slantModulation'
-            | 'scaleModulation') || 'amplitude'
+            | 'scaleModulation'
+            | 'playing'
+            | 'phase'
+            | 'horizontalAmplitude'
+            | 'widthModulation'
+            | 'opticalSizeModulation') || 'amplitude'
         let def: string | number | boolean = 16
         if (tProp === 'enabled') def = source.kinetic?.enabled ?? true
+        else if (tProp === 'playing') def = source.kinetic?.playing ?? true
         else if (tProp === 'waveShape') def = source.kinetic?.waveShape ?? 'sine'
         else if (tProp === 'staggerMode') def = source.kinetic?.staggerMode ?? 'cascade'
         else if (tProp === 'duration') def = source.kinetic?.duration ?? 800
         else if (tProp === 'stagger') def = source.kinetic?.stagger ?? 40
+        else if (tProp === 'phase') def = source.kinetic?.phase ?? 0
         else if (source.kinetic && tProp in source.kinetic) {
           def = (source.kinetic as any)[tProp] ?? 16
         }
@@ -402,12 +460,26 @@ export function ComponentPropertiesPanel({
             | 'turbulence'
             | 'displacement'
             | 'viewMode'
-            | 'blendMode') || 'speed'
+            | 'blendMode'
+            | 'lacunarity'
+            | 'persistence'
+            | 'normalPerturbation'
+            | 'grainOverlay'
+            | 'chromaticAberration'
+            | 'warpModulation'
+            | 'fluidAdvection'
+            | 'fluidViscosity'
+            | 'noiseType') || 'speed'
         let def: string | number | boolean = 1
         if (tProp === 'speed') def = source.style.shader.speed ?? 1
         else if (tProp === 'scale') def = source.style.shader.scale ?? 1
         else if (tProp === 'rotation') def = source.style.shader.rotation ?? 0
-        else if (source.style.shader.params && tProp in source.style.shader.params) {
+        else if (tProp === 'viewMode') def = (source.style.shader.mesh?.viewMode ?? (source.style.shader.params as any)?.viewMode) ?? 'shaded'
+        else if (tProp === 'noiseType') def = (source.style.shader.mesh?.noiseType ?? (source.style.shader.params as any)?.noiseType) ?? 'simplex'
+        else if (tProp === 'blendMode') def = source.style.shader.composite?.blendMode ?? 'normal'
+        else if (source.style.shader.mesh && tProp in source.style.shader.mesh) {
+          def = (source.style.shader.mesh as any)[tProp] ?? 1
+        } else if (source.style.shader.params && tProp in source.style.shader.params) {
           def = (source.style.shader.params as any)[tProp] ?? 1
         }
         property = { ...common, kind, sourceId: source.id, defaultValue: def, targetProperty: tProp }
@@ -425,15 +497,26 @@ export function ComponentPropertiesPanel({
       <div className="component-section-heading">
         <span className="section-caption">DYNAMIC PROPERTIES</span>
         {!instance && (
-          <button
-            className="quiet-button"
-            title="Add component property"
-            aria-label="Add component property"
-            disabled={disabled}
-            onClick={() => setAdding(value => !value)}
-          >
-            <Plus size={13} />
-          </button>
+          <div className="component-heading-actions">
+            <button
+              className="quiet-button"
+              title="Auto-expose detected properties (kinetic typography, shaders, colors)"
+              aria-label="Auto-expose properties"
+              disabled={disabled}
+              onClick={() => perform(() => store.autoExposeComponentProperties(master.id))}
+            >
+              <Sparkles size={13} />
+            </button>
+            <button
+              className="quiet-button"
+              title="Add component property"
+              aria-label="Add component property"
+              disabled={disabled}
+              onClick={() => setAdding(value => !value)}
+            >
+              <Plus size={13} />
+            </button>
+          </div>
         )}
       </div>
 
@@ -452,15 +535,21 @@ export function ComponentPropertiesPanel({
               Interactive State<small>Micro-interaction</small>
             </span>
             {instance.activeState && (
-              <button
-                className="quiet-button"
-                disabled={disabled}
-                aria-label="Reset interactive state"
-                title="Use default state"
-                onClick={() => perform(() => store.setComponentActiveState(root.id, null))}
-              >
-                <RotateCcw size={11} />
-              </button>
+              <div className="component-property-actions">
+                <span className="property-override-badge" title="Locally overridden state">
+                  <span className="property-override-dot" />
+                  Override
+                </span>
+                <button
+                  className="quiet-button"
+                  disabled={disabled}
+                  aria-label="Reset interactive state"
+                  title="Use default state"
+                  onClick={() => perform(() => store.setComponentActiveState(root.id, null))}
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </div>
             )}
           </div>
           <select
@@ -501,18 +590,40 @@ export function ComponentPropertiesPanel({
             <div className="component-property-heading">
               <span>
                 {property.name}
-                <small>{propertySubtitle(property)}</small>
+                <small>
+                  {propertySubtitle(property)}
+                  {local && <span className="property-master-hint"> · Master: {formatMasterDefault(property)}</span>}
+                </small>
               </span>
               {instance ? (
-                <button
-                  className="quiet-button"
-                  disabled={!local || disabled}
-                  aria-label={`Reset ${property.name}`}
-                  title="Use master default"
-                  onClick={() => perform(() => store.setComponentProperty(root.id, property.id, null))}
-                >
-                  <RotateCcw size={11} />
-                </button>
+                <div className="component-property-actions">
+                  {local && (
+                    <>
+                      <span className="property-override-badge" title={`Locally overridden (Master default: ${formatMasterDefault(property)})`}>
+                        <span className="property-override-dot" />
+                        Override
+                      </span>
+                      <button
+                        className="quiet-button"
+                        disabled={disabled || store.isLocked(master.id)}
+                        aria-label={`Push ${property.name} to master`}
+                        title={`Push "${property.name}" override back to master symbol`}
+                        onClick={() => perform(() => store.pushComponentPropertyToMaster(root.id, property.id))}
+                      >
+                        <Upload size={11} />
+                      </button>
+                    </>
+                  )}
+                  <button
+                    className="quiet-button"
+                    disabled={!local || disabled}
+                    aria-label={`Reset ${property.name}`}
+                    title={local ? `Reset "${property.name}" to master default (${formatMasterDefault(property)})` : 'Inherited from master'}
+                    onClick={() => perform(() => store.setComponentProperty(root.id, property.id, null))}
+                  >
+                    <RotateCcw size={11} />
+                  </button>
+                </div>
               ) : (
                 <button
                   className="quiet-button"
@@ -746,15 +857,20 @@ export function ComponentPropertiesPanel({
               onChange={event => setTargetProperty(event.currentTarget.value)}
             >
               <option value="amplitude">Amplitude (px)</option>
+              <option value="horizontalAmplitude">Horizontal amplitude (px)</option>
               <option value="rotation">Rotation (°)</option>
               <option value="duration">Duration (ms)</option>
               <option value="stagger">Stagger delay (ms)</option>
+              <option value="phase">Phase offset (°)</option>
               <option value="waveShape">Wave shape</option>
               <option value="staggerMode">Stagger mode</option>
               <option value="weightModulation">Weight modulation</option>
               <option value="slantModulation">Slant modulation</option>
               <option value="scaleModulation">Scale modulation</option>
+              <option value="widthModulation">Width modulation</option>
+              <option value="opticalSizeModulation">Optical size modulation</option>
               <option value="enabled">Active toggle</option>
+              <option value="playing">Playing toggle</option>
             </select>
           )}
 
@@ -772,8 +888,17 @@ export function ComponentPropertiesPanel({
               <option value="octaves">Noise octaves</option>
               <option value="turbulence">Turbulence</option>
               <option value="displacement">Displacement</option>
+              <option value="viewMode">Surface view mode</option>
+              <option value="noiseType">Noise generator</option>
+              <option value="normalPerturbation">Normal perturbation</option>
+              <option value="lacunarity">Lacunarity</option>
+              <option value="persistence">Persistence</option>
+              <option value="grainOverlay">Grain overlay</option>
+              <option value="chromaticAberration">Chromatic aberration</option>
+              <option value="warpModulation">Warp modulation</option>
+              <option value="fluidAdvection">Fluid advection</option>
+              <option value="fluidViscosity">Fluid viscosity</option>
               <option value="blendMode">Blend mode</option>
-              <option value="viewMode">View mode</option>
             </select>
           )}
 

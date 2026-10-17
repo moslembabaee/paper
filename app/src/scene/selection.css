@@ -419,3 +419,103 @@
   cursor: default;
 }
 
+/* ── Canvas Floating Component Symbol & Instance Affordances ── */
+.sel-component-badge {
+  position: absolute;
+  z-index: 10;
+  pointer-events: auto;
+  user-select: none;
+  transition: opacity 120ms ease;
+}
+
+.sel-component-badge-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 8px;
+  background: #080808f0;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--paper-border-strong, #222222);
+  border-radius: 5px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.sel-component-badge.is-master .sel-component-badge-inner {
+  border-color: rgba(129, 173, 236, 0.45);
+}
+
+.sel-component-badge.is-instance .sel-component-badge-inner {
+  border-color: rgba(129, 173, 236, 0.3);
+}
+
+.sel-component-badge.is-group .sel-component-badge-inner {
+  border-color: rgba(129, 173, 236, 0.35);
+}
+
+.sel-component-badge-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 10px var(--font-mono);
+  font-weight: 500;
+  color: var(--paper-accent-text, #81adec);
+  letter-spacing: -0.01em;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sel-component-badge-tag svg {
+  flex-shrink: 0;
+}
+
+.sel-component-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  background: var(--paper-surface, #141414);
+  border: 1px solid var(--paper-border, #2a2a2a);
+  border-radius: 3px;
+  color: var(--paper-text-secondary, #cccccc);
+  font: 9px var(--font-mono);
+  cursor: pointer;
+  transition: all 120ms ease;
+  white-space: nowrap;
+}
+
+.sel-component-btn:hover:not(:disabled) {
+  background: var(--paper-hover, #222222);
+  border-color: var(--paper-accent-text, #81adec);
+  color: var(--paper-text, #edebe1);
+}
+
+.sel-component-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.sel-component-btn.primary {
+  background: var(--paper-accent-soft, rgba(129, 173, 236, 0.15));
+  border-color: var(--paper-accent-text, #81adec);
+  color: var(--paper-accent-text, #81adec);
+}
+
+.sel-component-btn.primary:hover:not(:disabled) {
+  background: var(--paper-accent-text, #81adec);
+  color: #080808;
+}
+
+.sel-component-badge-overrides {
+  font: 8px var(--font-mono);
+  color: var(--paper-accent-text, #81adec);
+  background: var(--paper-accent-soft, rgba(129, 173, 236, 0.15));
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+

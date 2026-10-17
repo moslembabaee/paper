@@ -264,12 +264,11 @@ export function CanvasContextMenu({ store, controller, position, onClose, onEdit
   const compRoot = isSingle && firstNode ? componentRoot(state.elements, firstNode.id) : undefined
   const isMaster = firstNode?.component?.kind === 'master'
   const isInstance = compRoot?.component?.kind === 'instance'
-  const canMakeComponent = isSingle && firstNode && !firstNode.component && !store.componentCreationReason(firstNode.id)
+  const canMakeComponent = selectedRoots.length > 0 && !store.selectionComponentCreationReason(selectedRoots)
 
   const handleCreateComponent = () => {
-    if (firstNode && canMakeComponent) {
-      store.createComponent(firstNode.id)
-      store.autoExposeComponentProperties(firstNode.id)
+    if (canMakeComponent) {
+      store.createComponentFromSelection(selectedRoots)
     }
     onClose()
   }
@@ -469,7 +468,12 @@ export function CanvasContextMenu({ store, controller, position, onClose, onEdit
               <div className="context-menu-separator" />
               <div className="context-menu-header">Component</div>
               {canMakeComponent && (
-                <MenuItem icon={<Diamonds size={14} />} label="Create Component" shortcut="Alt+Cmd+K" onClick={handleCreateComponent} />
+                <MenuItem
+                  icon={<Diamonds size={14} />}
+                  label={selectedRoots.length > 1 ? `Create Component (${selectedRoots.length} layers)` : 'Create Component'}
+                  shortcut="Alt+Cmd+K"
+                  onClick={handleCreateComponent}
+                />
               )}
               {isMaster && (
                 <>
@@ -481,7 +485,7 @@ export function CanvasContextMenu({ store, controller, position, onClose, onEdit
                 <>
                   <MenuItem icon={<ArrowUpRight size={14} />} label="Push Overrides to Master" onClick={handlePushOverrides} />
                   <MenuItem icon={<RotateCcw size={14} />} label="Reset Overrides" onClick={handleResetOverrides} />
-                  <MenuItem icon={<Unlink size={14} />} label="Detach Instance" onClick={handleDetachInstance} />
+                  <MenuItem icon={<Unlink size={14} />} label="Detach Instance" shortcut="Alt+Cmd+B" onClick={handleDetachInstance} />
                   <MenuItem icon={<Diamond size={14} />} label="Go to Master Component" onClick={handleGoToMaster} />
                 </>
               )}

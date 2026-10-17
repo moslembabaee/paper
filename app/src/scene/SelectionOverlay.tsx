@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useRef, useState } from 'react'
-import { PenTool } from 'lucide-react'
+import { ArrowUpRight, Diamond, Component as Diamonds, PenTool, Plus, RotateCcw, Sparkles, Unlink } from 'lucide-react'
 import type { ViewportController } from '../canvas'
 import type { Bounds, Point } from '../canvas/types'
 import { getWorldBounds } from './geometry'
@@ -15,6 +15,7 @@ import type { AutoLayout, ElementGeometry } from './types'
 import { AutoLayoutHandles } from './AutoLayoutHandles'
 import { dragSpacing, layoutHandleCursor } from './layoutHandles'
 import type { SpacingProperty } from './layoutHandles'
+import { componentRoot } from './components'
 import { useScene } from './useScene'
 import './selection.css'
 import { MeasurementHUD } from './MeasurementHUD'
@@ -270,6 +271,17 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
     }
   }, [store, controller, panMode])
 
+  const compRoot = selectedNode ? componentRoot(state.elements, selectedNode.id) : undefined
+  const isMaster = selectedNode?.component?.kind === 'master'
+  const isInstance = compRoot?.component?.kind === 'instance'
+  const hasLocalOverrides = selectedNode?.component?.kind === 'instance' && (
+    Object.keys(selectedNode.component.overrides.properties ?? {}).length > 0 ||
+    Object.keys(selectedNode.component.overrides.style ?? {}).length > 0 ||
+    (selectedNode.id === selectedNode.component.instanceId && Object.keys(selectedNode.component.propertyValues ?? {}).length > 0)
+  )
+  const canMakeComponent = state.selection.length > 1 && !store.selectionComponentCreationReason(state.selection)
+  const badgeTop = box ? ((box.y * camera.zoom + camera.y) > 36 ? box.y * camera.zoom + camera.y - 30 : (box.y + box.height) * camera.zoom + camera.y + 8) : 0
+
   return <div ref={overlayRef} className="selection-overlay" data-testid="selection-overlay" style={{ cursor: activeCursor ?? undefined }} data-transforming={activeCursor !== null}>
     <SnapGuides guides={guides} camera={camera} />
     {marquee && <div className="marquee-rect" data-testid="marquee-rect" style={{ left: marquee.x * camera.zoom + camera.x, top: marquee.y * camera.zoom + camera.y, width: marquee.width * camera.zoom, height: marquee.height * camera.zoom }} />}
@@ -278,6 +290,132 @@ export const SelectionOverlay = memo(function SelectionOverlay({ store, controll
       <div data-handle="rotate" className="sel-rotate-handle" title="Rotate · Shift for 15° increments" />
       {selectedNode?.type === 'frame' && <AutoLayoutHandles frame={selectedNode} state={state} store={store} zoom={camera.zoom} rotation={box.rotation} active={activeSpacing} />}
     </div>}
+    {!panMode && box && isMaster && selectedNode && !activeCursor && (
+      <div
+        className="sel-component-badge is-master"
+        data-testid="sel-master-badge"
+        style={{
+          left: box.x * camera.zoom + camera.x,
+          top: badgeTop,
+        }}
+      >
+        <div className="sel-component-badge-inner">
+          <span className="sel-component-badge-tag" title={selectedNode.name}>
+            <Diamonds size={11} />
+            <span>Master: {selectedNode.name}</span>
+          </span>
+          <button
+            type="button"
+            className="sel-component-btn primary"
+            title="Insert instance on canvas"
+            onClick={e => {
+              e.stopPropagation()
+              const inst = store.createComponentInstance(selectedNode.id)
+              store.select([inst.id])
+            }}
+          >
+            <Plus size={10} />
+            <span>Instance</span>
+          </button>
+          <button
+            type="button"
+            className="sel-component-btn"
+            title="Auto-expose detected properties"
+            onClick={e => {
+              e.stopPropagation()
+              store.autoExposeComponentProperties(selectedNode.id)
+            }}
+          >
+            <Sparkles size={10} />
+          </button>
+        </div>
+      </div>
+    )}
+    {!panMode && box && isInstance && selectedNode && compRoot && !activeCursor && (
+      <div
+        className="sel-component-badge is-instance"
+        data-testid="sel-instance-badge"
+        style={{
+          left: box.x * camera.zoom + camera.x,
+          top: badgeTop,
+        }}
+      >
+        <div className="sel-component-badge-inner">
+          <span className="sel-component-badge-tag" title={selectedNode.name}>
+            <Diamond size={10} />
+            <span>Instance: {selectedNode.name}</span>
+          </span>
+          <button
+            type="button"
+            className="sel-component-btn"
+            title="Locate master symbol on canvas"
+            onClick={e => {
+              e.stopPropagation()
+              const masterId = compRoot.component?.kind === 'instance' ? compRoot.component.masterId : compRoot.id
+              store.select([masterId])
+              controller.fit(getWorldBounds(store.getSnapshot(), masterId))
+            }}
+          >
+            <ArrowUpRight size={10} />
+            <span>Master</span>
+          </button>
+          <button
+            type="button"
+            className="sel-component-btn"
+            title="Detach instance into editable layers (Alt+Cmd+B)"
+            onClick={e => {
+              e.stopPropagation()
+              store.detachComponentInstance(selectedNode.id)
+            }}
+          >
+            <Unlink size={10} />
+            <span>Detach</span>
+          </button>
+          {hasLocalOverrides && (
+            <>
+              <span className="sel-component-badge-overrides" title="Local overrides present">Overridden</span>
+              <button
+                type="button"
+                className="sel-component-btn"
+                title="Reset local overrides to master"
+                onClick={e => {
+                  e.stopPropagation()
+                  store.resetComponentOverrides(selectedNode.id)
+                }}
+              >
+                <RotateCcw size={10} />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )}
+    {!panMode && box && canMakeComponent && !activeCursor && (
+      <div
+        className="sel-component-badge is-group"
+        data-testid="sel-create-component-badge"
+        style={{
+          left: box.x * camera.zoom + camera.x,
+          top: badgeTop,
+        }}
+      >
+        <div className="sel-component-badge-inner">
+          <button
+            type="button"
+            className="sel-component-btn primary"
+            title="Create master component symbol from selection (Alt+Cmd+K)"
+            onClick={e => {
+              e.stopPropagation()
+              const comp = store.createComponentFromSelection(state.selection)
+              store.select([comp.id])
+            }}
+          >
+            <Diamonds size={11} />
+            <span>Create Component ({state.selection.length} layers)</span>
+          </button>
+        </div>
+      </div>
+    )}
     {!panMode && box && selectedNode?.type === 'text' && !activeCursor && (
       <CanvasTypographyScrubber node={selectedNode} store={store} camera={camera} box={box} />
     )}

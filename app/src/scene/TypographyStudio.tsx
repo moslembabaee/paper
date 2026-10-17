@@ -88,6 +88,45 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
   const [newAxisTag, setNewAxisTag] = useState('')
   const [newAxisVal, setNewAxisVal] = useState(0)
 
+  const isInstance = node.component?.kind === 'instance'
+  const masterId = isInstance ? node.component.masterId : undefined
+  const isMasterLocked = masterId ? store.isLocked(masterId) : false
+  const overrides = isInstance ? (node.component.overrides.properties ?? {}) : {}
+  const hasFontFamilyOverride = isInstance && Object.hasOwn(overrides, 'fontFamily')
+  const hasFontSizeOverride = isInstance && Object.hasOwn(overrides, 'fontSize')
+  const hasFontWeightOverride = isInstance && Object.hasOwn(overrides, 'fontWeight')
+  const hasLineHeightOverride = isInstance && Object.hasOwn(overrides, 'lineHeight')
+  const hasLetterSpacingOverride = isInstance && Object.hasOwn(overrides, 'letterSpacing')
+  const hasVariableAxesOverride = isInstance && Object.hasOwn(overrides, 'variableAxes')
+
+  const renderOverrideControls = (label: string, channel: string) => (
+    <div className="override-inline-controls">
+      <span className="property-override-badge mini" title={`${label} overridden from master`}>
+        <span className="property-override-dot" />
+        Override
+      </span>
+      <button
+        type="button"
+        className="quiet-button override-inline-push"
+        disabled={isMasterLocked}
+        aria-label={`Push ${label.toLowerCase()} to master`}
+        title={`Push ${label.toLowerCase()} override to master`}
+        onClick={() => store.pushPropertyOverrideToMaster(node.id, channel)}
+      >
+        <Upload size={10} />
+      </button>
+      <button
+        type="button"
+        className="quiet-button override-inline-reset"
+        aria-label={`Reset ${label.toLowerCase()} override`}
+        title={`Reset ${label.toLowerCase()} override to master`}
+        onClick={() => store.resetPropertyOverride(node.id, channel)}
+      >
+        <RotateCcw size={10} />
+      </button>
+    </div>
+  )
+
   const update = (patch: Partial<TextElement>) => {
     const supported = fontInfo?.font?.variationAxes
     if (supported && patch.variableAxes) {
@@ -286,7 +325,10 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
           />
 
           <label className="property-label">
-            Font family
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Font family</span>
+              {hasFontFamilyOverride && renderOverrideControls('Font family', 'properties.fontFamily')}
+            </div>
             {!customFont ? (
               <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                 <select
@@ -392,7 +434,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                   }}
                 />
               </label>
-              {binding?.('fontSize', 'Font size')}
+              {hasFontSizeOverride ? renderOverrideControls('Size', 'properties.fontSize') : binding?.('fontSize', 'Font size')}
             </div>
             <div className="token-number-field" style={{ flex: 1 }}>
               <label className="property-number">
@@ -410,7 +452,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                   }}
                 />
               </label>
-              {binding?.('fontWeight', 'Weight')}
+              {hasFontWeightOverride ? renderOverrideControls('Weight', 'properties.fontWeight') : binding?.('fontWeight', 'Weight')}
             </div>
           </div>
 
@@ -430,7 +472,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                   }}
                 />
               </label>
-              {binding?.('lineHeight', 'Line height')}
+              {hasLineHeightOverride ? renderOverrideControls('Leading', 'properties.lineHeight') : binding?.('lineHeight', 'Line height')}
             </div>
             <div className="token-number-field" style={{ flex: 1 }}>
               <label className="property-number">
@@ -446,7 +488,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
                   }}
                 />
               </label>
-              {binding?.('letterSpacing', 'Tracking')}
+              {hasLetterSpacingOverride ? renderOverrideControls('Tracking', 'properties.letterSpacing') : binding?.('letterSpacing', 'Tracking')}
             </div>
           </div>
 
@@ -504,6 +546,7 @@ export function TypographyStudio({ store, node, binding }: TypographyStudioProps
         <div className="typography-tab-pane">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 10, color: 'var(--paper-text-secondary)' }}>Variable Font Axes</span>
+            {hasVariableAxesOverride && renderOverrideControls('Axes', 'properties.variableAxes')}
             <button
               type="button"
               className="quiet-button"

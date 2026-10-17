@@ -75,13 +75,52 @@ export function SceneCanvas({ store, controller, grid, panMode, penMode = false,
       }
       setContextMenu({ x: event.clientX, y: event.clientY, worldPos })
     }
+    const handleDragOver = (event: DragEvent) => {
+      const types = event.dataTransfer?.types
+      if (types && (Array.from(types).includes('application/paper-component-master-id') || Array.from(types).includes('application/paper-component-preset'))) {
+        event.preventDefault()
+        event.dataTransfer!.dropEffect = 'copy'
+      }
+    }
+    const handleDrop = (event: DragEvent) => {
+      const masterId = event.dataTransfer?.getData('application/paper-component-master-id')
+      const presetKey = event.dataTransfer?.getData('application/paper-component-preset')
+      if (!masterId && !presetKey) return
+      event.preventDefault()
+      const rect = viewport.getBoundingClientRect()
+      const worldPos = controller.screenToWorld({ x: event.clientX - rect.left, y: event.clientY - rect.top })
+
+      if (masterId) {
+        const master = store.getSnapshot().elements[masterId]
+        if (master) {
+          const snappedX = Math.round((worldPos.x - master.width / 2) / 120) * 120
+          const snappedY = Math.round((worldPos.y - master.height / 2) / 120) * 120
+          const instance = store.createComponentInstance(masterId, { x: snappedX, y: snappedY })
+          store.select([instance.id])
+        }
+      } else if (presetKey) {
+        const snappedX = Math.round(worldPos.x / 120) * 120
+        const snappedY = Math.round(worldPos.y / 120) * 120
+        const { instance } = store.insertPresetMasterSymbol(presetKey, { x: snappedX, y: snappedY })
+        store.select([instance.id])
+      }
+    }
     viewport.addEventListener('dblclick', doubleClick); document.addEventListener('keydown', keydown); viewport.addEventListener('contextmenu', handleContextMenu)
+    viewport.addEventListener('dragover', handleDragOver)
+    viewport.addEventListener('drop', handleDrop)
     const unsubscribe = store.subscribe(() => {
       if (!editingId) return
       const state = store.getSnapshot(), node = state.elements[editingId]
       if (node?.type !== 'path' || node.boolean || store.isLocked(editingId) || !store.isVisible(editingId) || state.selection.length !== 1 || state.selection[0] !== editingId) setEditingId(null)
     })
-    return () => { unsubscribe(); viewport.removeEventListener('dblclick', doubleClick); document.removeEventListener('keydown', keydown); viewport.removeEventListener('contextmenu', handleContextMenu) }
+    return () => {
+      unsubscribe()
+      viewport.removeEventListener('dblclick', doubleClick)
+      document.removeEventListener('keydown', keydown)
+      viewport.removeEventListener('contextmenu', handleContextMenu)
+      viewport.removeEventListener('dragover', handleDragOver)
+      viewport.removeEventListener('drop', handleDrop)
+    }
   }, [store, controller, panMode, penMode, editingId, interactionDisabled])
   const elements = useScene(store, state => state.elements)
   const rootIds = useScene(store, state => state.rootIds)

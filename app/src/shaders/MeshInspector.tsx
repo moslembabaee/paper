@@ -6,11 +6,13 @@ import {
   Crosshair,
   Download,
   Grid,
+  Layers,
   LayoutGrid,
   Pipette,
   Plus,
   RotateCcw,
   Sparkles,
+  Sun,
   Wand2,
   Waves,
   X,
@@ -30,6 +32,7 @@ import {
   interpolatePaletteColors,
   meshHarmonyModes,
   meshToSurface,
+  MESH_DISPLACEMENT_PRESETS,
   MESH_PALETTE_PRESETS,
   smoothMeshColors,
   surfaceToMesh,
@@ -145,6 +148,18 @@ export function MeshInspector({
     commit({
       ...paint,
       params: { ...paint.params, colors: mapped },
+    })
+  }
+
+  const applyDisplacementPreset = (preset: (typeof MESH_DISPLACEMENT_PRESETS)[number]) => {
+    update({
+      noiseType: preset.noiseType,
+      octaves: preset.octaves,
+      lacunarity: preset.lacunarity,
+      turbulence: preset.turbulence,
+      frequency: preset.frequency,
+      normalPerturbation: preset.normalPerturbation,
+      grainDisplacement: preset.grainDisplacement,
     })
   }
 
@@ -639,6 +654,56 @@ export function MeshInspector({
             value={mesh.fluidViscosity ?? 0.5}
             onChange={fluidViscosity => update({ fluidViscosity })}
           />
+
+          <div className="shader-divider" />
+          <span className="section-caption">SURFACE VIEW MODE</span>
+          <div className="mesh-tool-row" role="group" aria-label="Surface view mode">
+            <button
+              type="button"
+              className={`mesh-tool-btn ${(!mesh.viewMode || mesh.viewMode === 'shaded') ? 'active' : ''}`}
+              onClick={() => update({ viewMode: 'shaded' })}
+              title="Shaded material surface"
+            >
+              <Sun size={13} />
+              <span>Shaded</span>
+            </button>
+            <button
+              type="button"
+              className={`mesh-tool-btn ${mesh.viewMode === 'normal-map' ? 'active' : ''}`}
+              onClick={() => update({ viewMode: 'normal-map' })}
+              title="Tangent space normal map"
+            >
+              <Layers size={13} />
+              <span>Normals</span>
+            </button>
+            <button
+              type="button"
+              className={`mesh-tool-btn ${mesh.viewMode === 'displacement' ? 'active' : ''}`}
+              onClick={() => update({ viewMode: 'displacement' })}
+              title="Height / displacement map"
+            >
+              <Waves size={13} />
+              <span>Height</span>
+            </button>
+          </div>
+
+          <div className="mesh-presets-section">
+            <span className="section-caption">DISPLACEMENT PRESETS</span>
+            <div className="mesh-preset-chips" role="group" aria-label="Displacement presets">
+              {MESH_DISPLACEMENT_PRESETS.map(preset => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className="mesh-preset-chip"
+                  title={preset.description}
+                  aria-label={`Apply ${preset.name} displacement preset`}
+                  onClick={() => applyDisplacementPreset(preset)}
+                >
+                  <span>{preset.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="shader-divider" />
           <span className="section-caption">PROCEDURAL NOISE & DISPLACEMENT</span>

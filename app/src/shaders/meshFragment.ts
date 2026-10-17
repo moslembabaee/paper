@@ -17,6 +17,7 @@ uniform float u_grainDisplacement;
 uniform float u_fluidAdvection;
 uniform float u_fluidViscosity;
 uniform float u_distortionMode; // 0.0 = curl-fluid, 1.0 = domain-warp, 2.0 = turbulent-swirl, 3.0 = simplex-flow
+uniform float u_viewMode; // 0.0 = shaded, 1.0 = normal-map, 2.0 = displacement
 uniform float u_turbulence, u_frequency, u_chromatic, u_distortion, u_swirl;
 uniform float u_grainMixer, u_grainOverlay, u_scale, u_rotation;
 uniform float u_grainBlend;
@@ -309,22 +310,50 @@ void main() {
     color = vec3(red.r / max(red.a, 0.0001), color.g, blue.b / max(blue.a, 0.0001));
   }
 
-  // Normal-map surface perturbation pass
+  // Normal-map surface perturbation pass & multi-octave displacement
+  float eps = 0.004;
+  float nL = sampleMultiOctave((p - vec2(eps, 0.0)) * 2.0, t) * (0.5 + u_grainDisplacement * 0.8);
+  float nR = sampleMultiOctave((p + vec2(eps, 0.0)) * 2.0, t) * (0.5 + u_grainDisplacement * 0.8);
+  float nD = sampleMultiOctave((p - vec2(0.0, eps)) * 2.0, t) * (0.5 + u_grainDisplacement * 0.8);
+  float nU = sampleMultiOctave((p + vec2(0.0, eps)) * 2.0, t) * (0.5 + u_grainDisplacement * 0.8);
+
+  vec4 fL = field(p - vec2(eps, 0.0));
+  vec4 fR = field(p + vec2(eps, 0.0));
+  vec4 fD = field(p - vec2(0.0, eps));
+  vec4 fU = field(p + vec2(0.0, eps));
+
+  float lumL = dot(fL.rgb, vec3(0.299, 0.587, 0.114)) * 0.35 + nL * 0.65;
+  float lumR = dot(fR.rgb, vec3(0.299, 0.587, 0.114)) * 0.35 + nR * 0.65;
+  float lumD = dot(fD.rgb, vec3(0.299, 0.587, 0.114)) * 0.35 + nD * 0.65;
+  float lumU = dot(fU.rgb, vec3(0.299, 0.587, 0.114)) * 0.35 + nU * 0.65;
+
+  float dhdx = (lumR - lumL) / (2.0 * eps);
+  float dhdy = (lumU - lumD) / (2.0 * eps);
+  float bumpStrength = max(0.08, u_normalPerturbation) * 5.5;
+  vec3 nPerturb = normalize(vec3(-dhdx * bumpStrength,
+                                 -dhdy * bumpStrength,
+                                 1.0));
+
+  // Mode 1: Tangent Space Normal Map [0, 1]
+  if (u_viewMode > 0.5 && u_viewMode < 1.5) {
+    fragColor = vec4(nPerturb * 0.5 + 0.5, base.a);
+    return;
+  }
+
+  // Mode 2: Height / Displacement Map
+  if (u_viewMode > 1.5) {
+    float hCenter = dot(base.rgb, vec3(0.299, 0.587, 0.114)) * 0.35 + sampleMultiOctave(p * 2.0, t) * (0.5 + u_grainDisplacement * 0.8) * 0.65;
+    float hNorm = clamp(hCenter * 0.5 + 0.5, 0.0, 1.0);
+    fragColor = vec4(vec3(hNorm), base.a);
+    return;
+  }
+
+  // Mode 0: Shaded Surface Material with Directional Lighting & Specular Relief
   if (u_normalPerturbation > 0.0) {
-    float eps = 0.004;
-    float hL = field(p - vec2(eps, 0.0)).r;
-    float hR = field(p + vec2(eps, 0.0)).r;
-    float hD = field(p - vec2(0.0, eps)).r;
-    float hU = field(p + vec2(0.0, eps)).r;
-    float dhdx = (hR - hL) / (2.0 * eps);
-    float dhdy = (hU - hD) / (2.0 * eps);
-    vec3 nPerturb = normalize(vec3(-dhdx * u_normalPerturbation * 4.5,
-                                   -dhdy * u_normalPerturbation * 4.5,
-                                   1.0));
     vec3 lightDir = normalize(vec3(0.5, 0.5, 0.75));
     vec3 halfDir = normalize(lightDir + vec3(0.0, 0.0, 1.0));
     float diff = max(dot(nPerturb, lightDir), 0.0) * 0.6 + 0.4;
-    float spec = pow(max(dot(nPerturb, halfDir), 0.0), 16.0) * u_normalPerturbation * 0.3;
+    float spec = pow(max(dot(nPerturb, halfDir), 0.0), 16.0) * u_normalPerturbation * 0.35;
     color = clamp(color * diff + vec3(spec), 0.0, 1.0);
   }
 

@@ -65,6 +65,7 @@ const meshProperties = {
   fluidAdvection: unitInterval,
   fluidViscosity: unitInterval,
   distortionMode: { type: 'string', enum: meshDistortionModes } as JsonSchema,
+  viewMode: { type: 'string', enum: ['shaded', 'normal-map', 'displacement'] } as JsonSchema,
 }
 const pipelinePassProperties = {
   id: str(),
@@ -208,8 +209,8 @@ export const componentPropertySchema: JsonSchema = { anyOf: [
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['boolean'] }, sourceId: str(), defaultValue: flag, targetProperty: { type: 'string', enum: ['visible', 'kinetic.enabled', 'clipContent'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['color'] }, sourceId: str(), defaultValue: str(), targetProperty: { type: 'string', enum: ['fill', 'stroke', 'shader'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['number'] }, sourceId: str(), defaultValue: num, min: num, max: num, step: positive, targetProperty: str() }, ['id', 'name', 'kind', 'sourceId', 'defaultValue']),
-  object({ ...propertyIdentity, kind: { type: 'string', enum: ['kinetic'] }, sourceId: str(), defaultValue: { anyOf: [str(), num, flag] }, targetProperty: { type: 'string', enum: ['enabled', 'amplitude', 'rotation', 'duration', 'stagger', 'waveShape', 'staggerMode', 'weightModulation', 'slantModulation', 'scaleModulation'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue', 'targetProperty']),
-  object({ ...propertyIdentity, kind: { type: 'string', enum: ['shader'] }, sourceId: str(), defaultValue: { anyOf: [str(), num, flag] }, targetProperty: { type: 'string', enum: ['speed', 'scale', 'rotation', 'frequency', 'octaves', 'turbulence', 'displacement', 'viewMode', 'blendMode'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue', 'targetProperty']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['kinetic'] }, sourceId: str(), defaultValue: { anyOf: [str(), num, flag] }, targetProperty: { type: 'string', enum: ['enabled', 'amplitude', 'rotation', 'duration', 'stagger', 'waveShape', 'staggerMode', 'weightModulation', 'slantModulation', 'scaleModulation', 'playing', 'phase', 'horizontalAmplitude', 'widthModulation', 'opticalSizeModulation'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue', 'targetProperty']),
+  object({ ...propertyIdentity, kind: { type: 'string', enum: ['shader'] }, sourceId: str(), defaultValue: { anyOf: [str(), num, flag] }, targetProperty: { type: 'string', enum: ['speed', 'scale', 'rotation', 'frequency', 'octaves', 'turbulence', 'displacement', 'viewMode', 'blendMode', 'lacunarity', 'persistence', 'normalPerturbation', 'grainOverlay', 'chromaticAberration', 'warpModulation', 'fluidAdvection', 'fluidViscosity', 'noiseType'] } }, ['id', 'name', 'kind', 'sourceId', 'defaultValue', 'targetProperty']),
   object({ ...propertyIdentity, kind: { type: 'string', enum: ['variant'] }, defaultValue: str(), options: { ...list(object({ value: { ...str(), maxLength: 100 }, layers: { type: 'object', additionalProperties: componentOverridesSchema } }, ['value', 'layers'])), minItems: 1, maxItems: 100 }, stateMachine: componentStateMachineSchema }, ['id', 'name', 'kind', 'defaultValue', 'options']),
 ] }
 export const componentSchema: JsonSchema = { anyOf: [

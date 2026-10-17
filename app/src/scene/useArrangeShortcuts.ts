@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import type { ViewportController } from '../canvas'
 import { alignSelection, createAutoLayoutSelection, deleteSelection, distributeSelection, duplicateSelection, groupSelection, nudgeSelection, orderSelection, removeAutoLayoutSelection, resizeSelection, ungroupSelection } from './arrange'
 import type { Alignment } from './arrange'
+import { componentRoot } from './components'
 import type { SceneStore } from './store'
 
 const ALIGN_KEYS: Readonly<Record<string, Alignment>> = { KeyW: 'top', KeyS: 'bottom', KeyA: 'left', KeyD: 'right', KeyH: 'horizontal-center', KeyV: 'vertical-center' }
@@ -40,11 +41,22 @@ export function useArrangeShortcuts(store: SceneStore, controller: ViewportContr
       }
       if (command && event.altKey && (key === 'KeyK' || event.key === 'k' || event.key === 'K')) {
         const selection = store.getSnapshot().selection
-        if (selection.length === 1) {
-          const reason = store.componentCreationReason(selection[0])
+        if (selection.length > 0) {
+          const reason = store.selectionComponentCreationReason(selection)
           if (!reason) {
             event.preventDefault(); finish()
-            store.createComponent(selection[0])
+            store.createComponentFromSelection(selection)
+            return
+          }
+        }
+      }
+      if (command && (event.altKey || event.shiftKey) && (key === 'KeyB' || event.key === 'b' || event.key === 'B')) {
+        const selection = store.getSnapshot().selection
+        if (selection.length > 0) {
+          const root = componentRoot(store.getSnapshot().elements, selection[0])
+          if (root?.component?.kind === 'instance' && !store.isLocked(root.id)) {
+            event.preventDefault(); finish()
+            store.detachComponentInstance(selection[0])
             return
           }
         }

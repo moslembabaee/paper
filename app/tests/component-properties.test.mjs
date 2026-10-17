@@ -166,3 +166,398 @@ test('generated elevation handoff compiles through Tailwind', async () => {
   assert.match(css, /var\(--elevation-raised\)/)
   assert.match(css, /--tw-shadow:/)
 })
+
+test('kinetic typography master symbols support dynamic wave, stagger and weight modulation overrides', () => {
+  const store = new SceneStore()
+  store.add('text', {
+    id: 'headline',
+    text: 'Kinetic Craft',
+    fontSize: 32,
+    kinetic: {
+      enabled: true,
+      playing: true,
+      amplitude: 24,
+      rotation: 5,
+      duration: 1.2,
+      stagger: 45,
+      phase: 0.1,
+      waveShape: 'sine',
+      staggerMode: 'cascade',
+      weightModulation: 200,
+      horizontalAmplitude: 12,
+    },
+  })
+  store.createComponent('headline')
+  store.autoExposeComponentProperties('headline')
+
+  const master = store.getSnapshot().elements.headline
+  assert.equal(master.component.kind, 'master')
+  const propNames = master.component.properties.map(p => p.name)
+  assert.ok(propNames.includes('Text'))
+  assert.ok(propNames.includes('Kinetic Active'))
+  assert.ok(propNames.includes('Wave Amplitude'))
+  assert.ok(propNames.includes('Wave Shape'))
+  assert.ok(propNames.includes('Stagger Delay'))
+  assert.ok(propNames.includes('Weight Modulation'))
+  assert.ok(propNames.includes('Stagger Mode'))
+  assert.ok(propNames.includes('Horizontal Amplitude'))
+
+  const instance = store.createComponentInstance('headline')
+  const ampProp = master.component.properties.find(p => p.targetProperty === 'amplitude')
+  const shapeProp = master.component.properties.find(p => p.targetProperty === 'waveShape')
+  const weightProp = master.component.properties.find(p => p.targetProperty === 'weightModulation')
+
+  store.setComponentProperty(instance.id, ampProp.id, 48)
+  store.setComponentProperty(instance.id, shapeProp.id, 'triangle')
+  store.setComponentProperty(instance.id, weightProp.id, 350)
+
+  const instLayer = store.getSnapshot().elements[instance.id]
+  assert.equal(instLayer.kinetic.amplitude, 48)
+  assert.equal(instLayer.kinetic.waveShape, 'triangle')
+  assert.equal(instLayer.kinetic.weightModulation, 350)
+
+  // Master is untouched
+  const masterNow = store.getSnapshot().elements.headline
+  assert.equal(masterNow.kinetic.amplitude, 24)
+  assert.equal(masterNow.kinetic.waveShape, 'sine')
+  assert.equal(masterNow.kinetic.weightModulation, 200)
+
+  // Resetting restores master defaults
+  store.resetComponentOverrides(instance.id)
+  const instReset = store.getSnapshot().elements[instance.id]
+  assert.equal(instReset.kinetic.amplitude, 24)
+  assert.equal(instReset.kinetic.waveShape, 'sine')
+  assert.equal(instReset.kinetic.weightModulation, 200)
+
+  roundtrip(store)
+})
+
+test('shader setup master symbols support dynamic shader parameters and pushing overrides back to master', () => {
+  const store = new SceneStore()
+  store.add('frame', {
+    id: 'shader-card',
+    width: 320,
+    height: 240,
+    style: {
+      fill: '#080808',
+      shader: {
+        kind: 'mesh-gradient',
+        animated: true,
+        speed: 1.0,
+        frame: 0,
+        scale: 1.2,
+        rotation: 15,
+        offsetX: 0,
+        offsetY: 0,
+        params: {
+          colors: ['#edebe1', '#81adec', '#222222', '#080808'],
+          distortion: 0.65,
+          swirl: 0.25,
+          grainMixer: 0.08,
+          grainOverlay: 0.04,
+        },
+        mesh: {
+          anchors: [
+            { x: 0.2, y: 0.2, radius: 0.5 },
+            { x: 0.8, y: 0.2, radius: 0.5 },
+            { x: 0.5, y: 0.8, radius: 0.5 },
+            { x: 0.5, y: 0.5, radius: 0.5 },
+          ],
+          turbulence: 0.3,
+          frequency: 2.5,
+          chromaticAberration: 0.05,
+          grainBlend: 'overlay',
+          normalPerturbation: 0.4,
+          viewMode: 'shaded',
+        },
+      },
+    },
+  })
+
+  store.createComponent('shader-card')
+  store.autoExposeComponentProperties('shader-card')
+
+  const master = store.getSnapshot().elements['shader-card']
+  assert.equal(master.component.kind, 'master')
+  const propNames = master.component.properties.map(p => p.name)
+  assert.ok(propNames.includes('Shader Speed'))
+  assert.ok(propNames.includes('Shader Scale'))
+  assert.ok(propNames.includes('Mesh Frequency'))
+  assert.ok(propNames.includes('Mesh Turbulence'))
+  assert.ok(propNames.includes('Surface View Mode'))
+
+  const instance = store.createComponentInstance('shader-card')
+  const turbProp = master.component.properties.find(p => p.name === 'Mesh Turbulence')
+  const viewModeProp = master.component.properties.find(p => p.name === 'Surface View Mode')
+
+  store.setComponentProperty(instance.id, turbProp.id, 0.85)
+  store.setComponentProperty(instance.id, viewModeProp.id, 'normal-map')
+
+  let instLayer = store.getSnapshot().elements[instance.id]
+  assert.equal(instLayer.style.shader.mesh.turbulence, 0.85)
+  assert.equal(instLayer.style.shader.mesh.viewMode, 'normal-map')
+
+  // Master symbol remains shaded and 0.3 turbulence
+  let masterNow = store.getSnapshot().elements['shader-card']
+  assert.equal(masterNow.style.shader.mesh.turbulence, 0.3)
+  assert.equal(masterNow.style.shader.mesh.viewMode, 'shaded')
+
+  // Push overrides back to master
+  store.pushOverridesToMaster(instance.id)
+
+  masterNow = store.getSnapshot().elements['shader-card']
+  assert.equal(masterNow.style.shader.mesh.turbulence, 0.85)
+  assert.equal(masterNow.style.shader.mesh.viewMode, 'normal-map')
+
+  // New instance inherits updated master values
+  const secondInstance = store.createComponentInstance('shader-card')
+  const secondLayer = store.getSnapshot().elements[secondInstance.id]
+  assert.equal(secondLayer.style.shader.mesh.turbulence, 0.85)
+  assert.equal(secondLayer.style.shader.mesh.viewMode, 'normal-map')
+
+  roundtrip(store)
+})
+
+test('recursive property override resolution for canvas element trees, kinetic typography, and shader setups', () => {
+  const store = new SceneStore()
+  store.add('frame', {
+    id: 'card',
+    width: 400,
+    height: 300,
+    cornerRadius: 12,
+    style: {
+      fill: '#edebe1',
+      stroke: { color: '#222222', width: 2, dash: [] },
+      opacity: 1,
+      shadow: null,
+    },
+    layout: { direction: 'vertical', justify: 'start', align: 'start', gap: 16, padding: { top: 0, right: 0, bottom: 0, left: 0 } },
+  })
+  store.add('frame', {
+    id: 'header',
+    parentId: 'card',
+    width: 360,
+    height: 60,
+    style: { fill: null, stroke: null, opacity: 1, shadow: null },
+  })
+  store.add('text', {
+    id: 'title',
+    parentId: 'header',
+    text: 'Reactive Master',
+    fontSize: 24,
+    kinetic: {
+      enabled: true,
+      playing: true,
+      amplitude: 16,
+      rotation: 4,
+      duration: 0.8,
+      stagger: 30,
+      phase: 0.2,
+      waveShape: 'sine',
+      staggerMode: 'cascade',
+    },
+    variableAxes: { wght: 600, wdth: 100 },
+    style: { fill: '#080808', stroke: null, opacity: 1, shadow: null },
+  })
+  store.add('rectangle', {
+    id: 'preview',
+    parentId: 'card',
+    width: 360,
+    height: 180,
+    style: {
+      fill: '#080808',
+      stroke: null,
+      opacity: 1,
+      shadow: null,
+      shader: {
+        kind: 'procedural-noise',
+        animated: true,
+        speed: 1.0,
+        frame: 0,
+        scale: 1.0,
+        rotation: 0,
+        offsetX: 0,
+        offsetY: 0,
+        params: {
+          frequency: 2.0,
+          turbulence: 0.5,
+          octaves: 3,
+          normalPerturbation: 0.2,
+          colorFront: '#edebe1',
+          colorMid: '#81adec',
+          colorBack: '#080808',
+          noiseType: 'simplex',
+          viewMode: 'shaded',
+          displacement: 0.3,
+          lacunarity: 2.0,
+          persistence: 0.5,
+          grainMixer: 0.1,
+          grainOverlay: 0.05,
+          lightAngle: 45,
+          specularStrength: 0.5,
+        },
+      },
+    },
+  })
+
+  store.createComponent('card')
+  const inst1 = store.createComponentInstance('card')
+  const inst2 = store.createComponentInstance('card')
+
+  const findLayer = (rootId, sourceId) =>
+    subtree(store.getSnapshot().elements, rootId).find(node => node.component?.sourceId === sourceId)
+
+  // Local overrides on inst1:
+  const inst1Title = findLayer(inst1.id, 'title')
+  const inst1Preview = findLayer(inst1.id, 'preview')
+  const inst1Root = store.getSnapshot().elements[inst1.id]
+
+  // Override text
+  store.update(inst1Title.id, 'text', { text: 'Instance Override' })
+  // Override kinetic amplitude only
+  store.update(inst1Title.id, 'text', {
+    kinetic: { ...inst1Title.kinetic, amplitude: 32 },
+  })
+  // Override preview shader frequency only
+  store.update(inst1Preview.id, 'rectangle', {
+    style: {
+      ...inst1Preview.style,
+      shader: {
+        ...inst1Preview.style.shader,
+        params: {
+          ...inst1Preview.style.shader.params,
+          frequency: 5.0,
+        },
+      },
+    },
+  })
+  // Override corner radius on card root
+  store.update(inst1Root.id, 'frame', { cornerRadius: 24 })
+
+  // Verify local overrides took effect on inst1
+  let currentInst1Title = findLayer(inst1.id, 'title')
+  let currentInst1Preview = findLayer(inst1.id, 'preview')
+  let currentInst1Root = store.getSnapshot().elements[inst1.id]
+  assert.equal(currentInst1Title.text, 'Instance Override')
+  assert.equal(currentInst1Title.kinetic.amplitude, 32)
+  assert.equal(currentInst1Preview.style.shader.params.frequency, 5.0)
+  assert.equal(currentInst1Root.cornerRadius, 24)
+
+  // Now update MASTER properties:
+  // 1. Kinetic duration, stagger, waveShape on master title
+  store.update('title', 'text', {
+    kinetic: {
+      ...store.getSnapshot().elements.title.kinetic,
+      duration: 1.2,
+      stagger: 60,
+      staggerMode: 'wave',
+    },
+    variableAxes: { wght: 800, wdth: 100 },
+  })
+
+  // 2. Shader speed, colorFront, turbulence on master preview
+  store.update('preview', 'rectangle', {
+    style: {
+      ...store.getSnapshot().elements.preview.style,
+      shader: {
+        ...store.getSnapshot().elements.preview.style.shader,
+        speed: 2.5,
+        params: {
+          ...store.getSnapshot().elements.preview.style.shader.params,
+          turbulence: 0.8,
+          colorFront: '#81adec',
+        },
+      },
+    },
+  })
+
+  // 3. Stroke width and fill on master card
+  store.update('card', 'frame', {
+    style: {
+      ...store.getSnapshot().elements.card.style,
+      fill: '#ffffff',
+      stroke: { color: '#222222', width: 4, dash: [] },
+    },
+  })
+
+  // Check inst1: local overrides preserved, master updates propagated!
+  currentInst1Title = findLayer(inst1.id, 'title')
+  currentInst1Preview = findLayer(inst1.id, 'preview')
+  currentInst1Root = store.getSnapshot().elements[inst1.id]
+
+  // Title:
+  assert.equal(currentInst1Title.text, 'Instance Override') // local override wins!
+  assert.equal(currentInst1Title.kinetic.amplitude, 32) // local override wins!
+  assert.equal(currentInst1Title.kinetic.duration, 1.2) // propagated from master!
+  assert.equal(currentInst1Title.kinetic.stagger, 60) // propagated from master!
+  assert.equal(currentInst1Title.kinetic.staggerMode, 'wave') // propagated from master!
+  assert.equal(currentInst1Title.variableAxes.wght, 800) // propagated from master!
+
+  // Preview shader:
+  assert.equal(currentInst1Preview.style.shader.params.frequency, 5.0) // local override wins!
+  assert.equal(currentInst1Preview.style.shader.speed, 2.5) // propagated from master!
+  assert.equal(currentInst1Preview.style.shader.params.turbulence, 0.8) // propagated from master!
+  assert.equal(currentInst1Preview.style.shader.params.colorFront, '#81adec') // propagated from master!
+
+  // Card root:
+  assert.equal(currentInst1Root.cornerRadius, 24) // local override wins!
+  assert.equal(currentInst1Root.style.stroke.width, 4) // propagated from master!
+  assert.equal(currentInst1Root.style.fill, '#ffffff') // propagated from master!
+
+  // Check inst2: all master updates inherited!
+  const inst2Title = findLayer(inst2.id, 'title')
+  const inst2Preview = findLayer(inst2.id, 'preview')
+  const inst2Root = store.getSnapshot().elements[inst2.id]
+
+  assert.equal(inst2Title.text, 'Reactive Master')
+  assert.equal(inst2Title.kinetic.amplitude, 16)
+  assert.equal(inst2Title.kinetic.duration, 1.2)
+  assert.equal(inst2Title.kinetic.stagger, 60)
+  assert.equal(inst2Title.kinetic.staggerMode, 'wave')
+  assert.equal(inst2Title.variableAxes.wght, 800)
+
+  assert.equal(inst2Preview.style.shader.params.frequency, 2.0)
+  assert.equal(inst2Preview.style.shader.speed, 2.5)
+  assert.equal(inst2Preview.style.shader.params.turbulence, 0.8)
+  assert.equal(inst2Preview.style.shader.params.colorFront, '#81adec')
+
+  assert.equal(inst2Root.cornerRadius, 12)
+  assert.equal(inst2Root.style.stroke.width, 4)
+  assert.equal(inst2Root.style.fill, '#ffffff')
+
+  // Test granular reset on inst1:
+  store.resetPropertyOverride(inst1Title.id, 'kinetic.amplitude')
+  currentInst1Title = findLayer(inst1.id, 'title')
+  assert.equal(currentInst1Title.kinetic.amplitude, 16) // now inherited from master!
+  assert.equal(currentInst1Title.text, 'Instance Override') // text override remains!
+
+  store.resetPropertyOverride(inst1Preview.id, 'shader.frequency')
+  currentInst1Preview = findLayer(inst1.id, 'preview')
+  assert.equal(currentInst1Preview.style.shader.params.frequency, 2.0) // now inherited from master!
+
+  // Test granular push on inst1:
+  // Override kinetic rotation on inst1Title
+  store.update(currentInst1Title.id, 'text', {
+    kinetic: { ...currentInst1Title.kinetic, rotation: 12 },
+  })
+  store.pushPropertyOverrideToMaster(currentInst1Title.id, 'kinetic.rotation')
+
+  // Master has rotation: 12
+  assert.equal(store.getSnapshot().elements.title.kinetic.rotation, 12)
+  // inst2 inherits rotation: 12
+  assert.equal(findLayer(inst2.id, 'title').kinetic.rotation, 12)
+  // inst1 has rotation: 12 without override
+  assert.equal(findLayer(inst1.id, 'title').kinetic.rotation, 12)
+
+  // Test dynamic layer addition to master component subtree:
+  store.add('ellipse', { id: 'badge', parentId: 'header', width: 14, height: 14, style: { fill: '#81adec', stroke: null, opacity: 1, shadow: null } })
+  assert.ok(findLayer(inst1.id, 'badge'), 'inst1 receives new badge child')
+  assert.ok(findLayer(inst2.id, 'badge'), 'inst2 receives new badge child')
+
+  // Test dynamic layer removal from master component subtree:
+  store.remove('badge')
+  assert.equal(findLayer(inst1.id, 'badge'), undefined, 'inst1 drops removed badge child')
+  assert.equal(findLayer(inst2.id, 'badge'), undefined, 'inst2 drops removed badge child')
+
+  roundtrip(store)
+})

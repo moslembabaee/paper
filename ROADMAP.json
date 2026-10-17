@@ -5,6 +5,64 @@
   "current_task_id": null,
   "tasks": [
     {
+      "id": "T-ISSUE-58-4",
+      "phase": "Community & Issues",
+      "title": "[T-ISSUE-58 #4/4] Dynamic Overrides Inspector and Master-Instance Test Suite",
+      "description": "Implement property inspector controls for instance overrides with indicators for overridden values, reset/push actions, and comprehensive unit tests verifying master-instance synchronization. Verify with 'cd /root/projects/paper/app && npm run build'.",
+      "assigned_agent": "claude",
+      "status": "blocked",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "parent_id": "T-ISSUE-58",
+      "subtask_index": 4,
+      "total_subtasks": 4,
+      "github_issue_number": 58,
+      "last_error": "Reached max turns (80) with unrecognized_model warning on 9router. Blocked by supervisor."
+    },
+    {
+      "id": "T-ISSUE-58-3",
+      "phase": "Community & Issues",
+      "title": "[T-ISSUE-58 #3/4] Component Library Panel and Canvas Instantiation Workflows",
+      "description": "Build UI components and canvas actions to create master symbols from selected canvas items, browse the component library, insert instances into the scene graph, and detach instances. Verify with 'cd /root/projects/paper/app && npm run build'.",
+      "assigned_agent": "claude",
+      "status": "failed",
+      "retry_count": 1,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "parent_id": "T-ISSUE-58",
+      "subtask_index": 3,
+      "total_subtasks": 4,
+      "github_issue_number": 58
+    },
+    {
+      "id": "T-ISSUE-58-2",
+      "phase": "Community & Issues",
+      "title": "[T-ISSUE-58 #2/4] Reactive Property Override Engine and Propagation System",
+      "description": "Implement recursive property override resolution for canvas elements, kinetic typography, and shader setups, ensuring local instance overrides take precedence while master updates propagate to linked instances. Verify with 'cd /root/projects/paper/app && npm run build'.",
+      "assigned_agent": "claude",
+      "status": "completed",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "parent_id": "T-ISSUE-58",
+      "subtask_index": 2,
+      "total_subtasks": 4,
+      "github_issue_number": 58,
+      "completed_at": "2026-10-17T02:18:12.764622+00:00"
+    },
+    {
+      "id": "T-ISSUE-58-1",
+      "phase": "Community & Issues",
+      "title": "[T-ISSUE-58 #1/4] Master Component Schema and Store State Architecture",
+      "description": "Extend scene types and store state with definitions for MasterComponent and ComponentInstance nodes, supporting exposed property schemas, instance registration, and serialization. Verify with 'cd /root/projects/paper/app && npm run build'.",
+      "assigned_agent": "claude",
+      "status": "approved",
+      "retry_count": 0,
+      "verification_cmd": "cd /root/projects/paper/app && npm run build",
+      "parent_id": "T-ISSUE-58",
+      "subtask_index": 1,
+      "total_subtasks": 4,
+      "github_issue_number": 58
+    },
+    {
       "id": "T-ISSUE-55-3",
       "phase": "Community & Issues",
       "title": "[T-ISSUE-55 #3/3] Glyph-Level Kinetic Motion Staggering & Spring Timeline Integration",
@@ -57,7 +115,8 @@
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 56,
       "active_attempt": null,
-      "completed_at": "2026-10-16T23:59:08.557316+00:00"
+      "completed_at": "2026-10-16T23:59:08.557316+00:00",
+      "closed_at": "2026-10-17T00:08:43Z"
     },
     {
       "id": "T-ISSUE-57",
@@ -77,10 +136,16 @@
       "title": "Issue #58: feat: Reusable Component Architecture with Dynamic Property Overrides",
       "description": "### \ud83c\udfaf Autonomous Roadmap Proposal\n\n> \u23f3 **Status:** Proposal created by Tri-Agent Architect. Waiting for approval by @moslembabaee before development begins. Add the `approved` label or comment `/approve` to authorize this task.\n\n**Task ID:** `T-EVOLVE-1792163349-3`\n**Phase:** `Continuous Polish & Evolution`\n**Planned By:** Tri-Agent Autonomous Architect\n**Assigned Agent:** `CLAUDE`\n\n#### Description & Scope\nBuild a component master and instance system allowing canvas elements, kinetic typography, and shader setups to be saved as master symbols, instantiated across the scene graph, updated reactively, and configured with local visual and parameter overrides.\n\n#### Quality Gate Verification\n```bash\ncd /root/projects/paper/app && npm run build\n```\n\n\nReference: Closes #58",
       "assigned_agent": "claude",
-      "status": "failed",
-      "retry_count": 1,
+      "status": "decomposed",
+      "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
-      "github_issue_number": 58
+      "github_issue_number": 58,
+      "children": [
+        "T-ISSUE-58-1",
+        "T-ISSUE-58-2",
+        "T-ISSUE-58-3",
+        "T-ISSUE-58-4"
+      ]
     },
     {
       "id": "T-ISSUE-53",
@@ -1469,7 +1534,8 @@
       "retry_count": 0,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 56,
-      "completed_at": "2026-10-17T00:08:40.256300+00:00"
+      "completed_at": "2026-10-17T00:08:40.256300+00:00",
+      "closed_at": "2026-10-17T00:08:43Z"
     },
     {
       "id": "T-EVOLVE-1792163349-2",
@@ -1477,8 +1543,8 @@
       "title": "Procedural Noise and Grain Displacement Shader Material Engine",
       "description": "Develop a procedural texture and displacement shader engine supporting multi-octave Simplex, Perlin, and Worley noise generators with controls for frequency, lacunarity, turbulence, and normal-map surface perturbation within the ShaderBrowser and MeshInspector.",
       "assigned_agent": "claude",
-      "status": "approved",
-      "retry_count": 0,
+      "status": "failed",
+      "retry_count": 1,
       "verification_cmd": "cd /root/projects/paper/app && npm run build",
       "github_issue_number": 57
     },

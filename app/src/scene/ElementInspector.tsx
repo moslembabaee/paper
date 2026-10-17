@@ -3,7 +3,7 @@ import { resolveTokens } from '../tokens/library'
 import type { ReactNode } from 'react'
 import { TokenSelector } from '../tokens/TokenSelector'
 import type { TokenProperty } from '../tokens/types'
-import { ArrowDown, ArrowUp, ChevronRight, Circle, LockKeyhole, Trash2, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronRight, Circle, Component as Diamonds, LockKeyhole, Plus, RotateCcw, Trash2, Upload, X } from 'lucide-react'
 import type { ViewportController } from '../canvas/ViewportController'
 import { getWorldBounds } from './geometry'
 import type { SceneStore } from './store'
@@ -46,6 +46,22 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
   const binding = (property: TokenProperty, label: string, color = false) => node ? <TokenSelector key={`${node.id}-${property}`} store={store} node={node} property={property} label={label} tokens={resolveTokens(state.tokens, state.styleLibrary.activeThemeId)} color={color} /> : null
   const patch = (changes: ElementPatch<ElementType>) => { if (node) store.update(node.id, node.type, changes) }
   const style = (changes: Partial<SceneElement['style']>) => patch({ style: changes })
+  const isInstanceLayer = node?.component?.kind === 'instance'
+  const masterId = node?.component?.kind === 'instance' ? node.component.masterId : undefined
+  const isMasterLocked = masterId ? store.isLocked(masterId) : false
+  const hasFillOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'fill')
+  const hasStrokeOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'stroke')
+  const hasOpacityOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'opacity')
+  const hasShadowOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'shadow')
+  const hasShaderOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.style ?? {}, 'shader')
+  const hasRadiusOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.properties ?? {}, 'cornerRadius')
+  const hasXOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.properties ?? {}, 'x')
+  const hasYOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.properties ?? {}, 'y')
+  const hasWidthOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.properties ?? {}, 'width')
+  const hasHeightOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.properties ?? {}, 'height')
+  const hasRotationOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.properties ?? {}, 'rotation')
+  const hasTextOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.properties ?? {}, 'text')
+  const hasKineticOverride = isInstanceLayer && Object.hasOwn(node.component.overrides.properties ?? {}, 'kinetic')
   const parentOptions = Object.values(state.elements).filter(candidate => {
     if (candidate.type !== 'frame' || candidate.id === node?.id) return false
     const destination = componentRoot(state.elements, candidate.id)
@@ -59,30 +75,420 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
     <ArrangeBar store={store} controller={controller} />
     <BooleanBar key={state.selection.join(':')} store={store} />
     <MaskInspector key={`mask-${state.selection.join(':')}`} store={store} />
+    {!node && state.selection.length > 1 && (
+      <div className="inspector-section component-section" data-testid="multi-selection-component">
+        <span className="section-caption">REUSABLE DESIGN</span>
+        <button
+          className="component-action primary"
+          disabled={!!store.selectionComponentCreationReason(state.selection)}
+          title={store.selectionComponentCreationReason(state.selection) ?? 'Turn selection into a master component symbol'}
+          onClick={() => store.createComponentFromSelection(state.selection)}
+        >
+          <Diamonds size={14} />
+          Create component symbol ({state.selection.length} layers)
+          <Plus size={12} />
+        </button>
+      </div>
+    )}
     {node ? <>
       <ComponentInspector key={`component-${node.id}`} store={store} controller={controller} node={node} />
       <div className="inspector-section">
         <span className="section-caption">SELECTION</span>
         <input className="property-name" key={node.id + node.name} aria-label="Layer name" defaultValue={node.name} onBlur={event => { const name = event.currentTarget.value.trim(); if (name) patch({ name }); else event.currentTarget.value = node.name }} onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur() }} />
-        <div className="property-pair"><NumberField disabled={managed} binding={managed ? null : binding('x', 'X')} label="X" value={node.x} onChange={x => patch({ x })} /><NumberField disabled={managed} binding={managed ? null : binding('y', 'Y')} label="Y" value={node.y} onChange={y => patch({ y })} /></div>
-        <div className="property-pair"><NumberField binding={binding('width', 'Width')} label="Width" value={node.width} min={.01} onChange={width => patch({ width })} /><NumberField binding={binding('height', 'Height')} label="Height" value={node.height} min={.01} onChange={height => patch({ height })} /></div>
-        <div className="property-pair"><NumberField label="Rotation" value={node.rotation} onChange={rotation => patch({ rotation })} /><NumberField label="Opacity %" value={node.style.opacity * 100} min={0} max={100} onChange={opacity => style({ opacity: opacity / 100 })} /></div>
-        {'cornerRadius' in node && <NumberField binding={binding('cornerRadius', 'Radius')} label="Radius" value={node.cornerRadius} min={0} onChange={cornerRadius => patch({ cornerRadius })} />}
+        <div className="property-pair">
+          <NumberField
+            disabled={managed}
+            binding={
+              managed ? null : hasXOverride ? (
+                <div className="override-inline-controls">
+                  <span className="property-override-badge mini" title="X position overridden from master">
+                    <span className="property-override-dot" />
+                    Override
+                  </span>
+                  <button
+                    className="quiet-button override-inline-push"
+                    disabled={isMasterLocked}
+                    aria-label="Push X to master"
+                    title="Push X position override to master"
+                    onClick={() => store.pushPropertyOverrideToMaster(node.id, 'properties.x')}
+                  >
+                    <Upload size={10} />
+                  </button>
+                  <button
+                    className="quiet-button override-inline-reset"
+                    aria-label="Reset X override"
+                    title="Reset X position override to master"
+                    onClick={() => store.resetPropertyOverride(node.id, 'properties.x')}
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                </div>
+              ) : (
+                binding('x', 'X')
+              )
+            }
+            label="X"
+            value={node.x}
+            onChange={x => patch({ x })}
+          />
+          <NumberField
+            disabled={managed}
+            binding={
+              managed ? null : hasYOverride ? (
+                <div className="override-inline-controls">
+                  <span className="property-override-badge mini" title="Y position overridden from master">
+                    <span className="property-override-dot" />
+                    Override
+                  </span>
+                  <button
+                    className="quiet-button override-inline-push"
+                    disabled={isMasterLocked}
+                    aria-label="Push Y to master"
+                    title="Push Y position override to master"
+                    onClick={() => store.pushPropertyOverrideToMaster(node.id, 'properties.y')}
+                  >
+                    <Upload size={10} />
+                  </button>
+                  <button
+                    className="quiet-button override-inline-reset"
+                    aria-label="Reset Y override"
+                    title="Reset Y position override to master"
+                    onClick={() => store.resetPropertyOverride(node.id, 'properties.y')}
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                </div>
+              ) : (
+                binding('y', 'Y')
+              )
+            }
+            label="Y"
+            value={node.y}
+            onChange={y => patch({ y })}
+          />
+        </div>
+        <div className="property-pair">
+          <NumberField
+            binding={
+              hasWidthOverride ? (
+                <div className="override-inline-controls">
+                  <span className="property-override-badge mini" title="Width overridden from master">
+                    <span className="property-override-dot" />
+                    Override
+                  </span>
+                  <button
+                    className="quiet-button override-inline-push"
+                    disabled={isMasterLocked}
+                    aria-label="Push width to master"
+                    title="Push width override to master"
+                    onClick={() => store.pushPropertyOverrideToMaster(node.id, 'properties.width')}
+                  >
+                    <Upload size={10} />
+                  </button>
+                  <button
+                    className="quiet-button override-inline-reset"
+                    aria-label="Reset width override"
+                    title="Reset width override to master"
+                    onClick={() => store.resetPropertyOverride(node.id, 'properties.width')}
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                </div>
+              ) : (
+                binding('width', 'Width')
+              )
+            }
+            label="Width"
+            value={node.width}
+            min={.01}
+            onChange={width => patch({ width })}
+          />
+          <NumberField
+            binding={
+              hasHeightOverride ? (
+                <div className="override-inline-controls">
+                  <span className="property-override-badge mini" title="Height overridden from master">
+                    <span className="property-override-dot" />
+                    Override
+                  </span>
+                  <button
+                    className="quiet-button override-inline-push"
+                    disabled={isMasterLocked}
+                    aria-label="Push height to master"
+                    title="Push height override to master"
+                    onClick={() => store.pushPropertyOverrideToMaster(node.id, 'properties.height')}
+                  >
+                    <Upload size={10} />
+                  </button>
+                  <button
+                    className="quiet-button override-inline-reset"
+                    aria-label="Reset height override"
+                    title="Reset height override to master"
+                    onClick={() => store.resetPropertyOverride(node.id, 'properties.height')}
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                </div>
+              ) : (
+                binding('height', 'Height')
+              )
+            }
+            label="Height"
+            value={node.height}
+            min={.01}
+            onChange={height => patch({ height })}
+          />
+        </div>
+        <div className="property-pair">
+          <NumberField
+            label="Rotation"
+            value={node.rotation}
+            onChange={rotation => patch({ rotation })}
+            binding={
+              hasRotationOverride ? (
+                <div className="override-inline-controls">
+                  <span className="property-override-badge mini" title="Rotation overridden from master">
+                    <span className="property-override-dot" />
+                    Override
+                  </span>
+                  <button
+                    className="quiet-button override-inline-push"
+                    disabled={isMasterLocked}
+                    aria-label="Push rotation to master"
+                    title="Push rotation override to master"
+                    onClick={() => store.pushPropertyOverrideToMaster(node.id, 'properties.rotation')}
+                  >
+                    <Upload size={10} />
+                  </button>
+                  <button
+                    className="quiet-button override-inline-reset"
+                    aria-label="Reset rotation override"
+                    title="Reset rotation override to master"
+                    onClick={() => store.resetPropertyOverride(node.id, 'properties.rotation')}
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                </div>
+              ) : null
+            }
+          />
+          <NumberField
+            label="Opacity %"
+            value={node.style.opacity * 100}
+            min={0}
+            max={100}
+            onChange={opacity => style({ opacity: opacity / 100 })}
+            binding={
+              hasOpacityOverride ? (
+                <div className="override-inline-controls">
+                  <span className="property-override-badge mini" title="Opacity overridden from master">
+                    <span className="property-override-dot" />
+                    Override
+                  </span>
+                  <button
+                    className="quiet-button override-inline-push"
+                    disabled={isMasterLocked}
+                    aria-label="Push opacity to master"
+                    title="Push opacity override to master"
+                    onClick={() => store.pushPropertyOverrideToMaster(node.id, 'style.opacity')}
+                  >
+                    <Upload size={10} />
+                  </button>
+                  <button
+                    className="quiet-button override-inline-reset"
+                    aria-label="Reset opacity override"
+                    title="Reset opacity override to master"
+                    onClick={() => store.resetPropertyOverride(node.id, 'style.opacity')}
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                </div>
+              ) : null
+            }
+          />
+        </div>
+        {'cornerRadius' in node && (
+          <NumberField
+            binding={
+              hasRadiusOverride ? (
+                <div className="override-inline-controls">
+                  <span className="property-override-badge mini" title="Radius overridden from master">
+                    <span className="property-override-dot" />
+                    Override
+                  </span>
+                  <button
+                    className="quiet-button override-inline-push"
+                    disabled={isMasterLocked}
+                    aria-label="Push radius to master"
+                    title="Push corner radius override to master"
+                    onClick={() => store.pushPropertyOverrideToMaster(node.id, 'properties.cornerRadius')}
+                  >
+                    <Upload size={10} />
+                  </button>
+                  <button
+                    className="quiet-button override-inline-reset"
+                    aria-label="Reset radius override"
+                    title="Reset corner radius override to master"
+                    onClick={() => store.resetPropertyOverride(node.id, 'properties.cornerRadius')}
+                  >
+                    <RotateCcw size={10} />
+                  </button>
+                </div>
+              ) : binding('cornerRadius', 'Radius')
+            }
+            label="Radius"
+            value={node.cornerRadius}
+            min={0}
+            onChange={cornerRadius => patch({ cornerRadius })}
+          />
+        )}
         <button className="text-action" onClick={() => controller.fit(getWorldBounds(state, node.id))}>Focus element <ChevronRight size={12} /></button>
       </div>
       <SharedStyleInspector key={`shared-${node.id}`} store={store} node={node} />
       <AutoLayoutInspector key={`layout-${node.id}`} node={node} parent={parent} store={store} />
       <div className="inspector-section">
         <span className="section-caption">APPEARANCE</span>
-        <div className="property-heading"><span>Fill</span><button className="quiet-button paint-toggle" aria-label="Toggle fill" aria-pressed={node.style.fill !== null} onClick={() => style({ fill: node.style.fill === null ? '#81adec' : null })}>{node.style.fill === null ? '+' : '−'}</button></div>
+        <div className="property-heading">
+          <span className="property-heading-title">
+            Fill
+            {hasFillOverride && (
+              <span className="property-override-badge mini" title="Fill locally overridden from master">
+                <span className="property-override-dot" />
+                Override
+              </span>
+            )}
+          </span>
+          <div className="property-heading-actions">
+            {hasFillOverride && (
+              <>
+                <button
+                  className="quiet-button"
+                  disabled={isMasterLocked}
+                  aria-label="Push fill to master"
+                  title="Push fill override to master"
+                  onClick={() => store.pushPropertyOverrideToMaster(node.id, 'style.fill')}
+                >
+                  <Upload size={11} />
+                </button>
+                <button
+                  className="quiet-button"
+                  aria-label="Reset fill override"
+                  title="Reset fill override to master"
+                  onClick={() => store.resetPropertyOverride(node.id, 'style.fill')}
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </>
+            )}
+            <button className="quiet-button paint-toggle" aria-label="Toggle fill" aria-pressed={node.style.fill !== null} onClick={() => style({ fill: node.style.fill === null ? '#81adec' : null })}>{node.style.fill === null ? '+' : '−'}</button>
+          </div>
+        </div>
         {node.style.fill !== null && <ColorField binding={binding('fill', 'Fill', true)} label="Fill" value={node.style.fill} onChange={fill => style({ fill })} />}
-        <div className="property-heading"><span>Stroke</span><button className="quiet-button paint-toggle" aria-label="Toggle stroke" aria-pressed={node.style.stroke !== null} onClick={() => style({ stroke: node.style.stroke ? null : { color: '#080808', width: 1, dash: [] } })}>{node.style.stroke ? '−' : '+'}</button></div>
+        <div className="property-heading">
+          <span className="property-heading-title">
+            Stroke
+            {hasStrokeOverride && (
+              <span className="property-override-badge mini" title="Stroke locally overridden from master">
+                <span className="property-override-dot" />
+                Override
+              </span>
+            )}
+          </span>
+          <div className="property-heading-actions">
+            {hasStrokeOverride && (
+              <>
+                <button
+                  className="quiet-button"
+                  disabled={isMasterLocked}
+                  aria-label="Push stroke to master"
+                  title="Push stroke override to master"
+                  onClick={() => store.pushPropertyOverrideToMaster(node.id, 'style.stroke')}
+                >
+                  <Upload size={11} />
+                </button>
+                <button
+                  className="quiet-button"
+                  aria-label="Reset stroke override"
+                  title="Reset stroke override to master"
+                  onClick={() => store.resetPropertyOverride(node.id, 'style.stroke')}
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </>
+            )}
+            <button className="quiet-button paint-toggle" aria-label="Toggle stroke" aria-pressed={node.style.stroke !== null} onClick={() => style({ stroke: node.style.stroke ? null : { color: '#080808', width: 1, dash: [] } })}>{node.style.stroke ? '−' : '+'}</button>
+          </div>
+        </div>
         {node.style.stroke && <><ColorField binding={binding('stroke', 'Stroke', true)} label="Stroke" value={node.style.stroke.color} onChange={color => style({ stroke: { ...node.style.stroke!, color } })} /><NumberField label="Stroke width" value={node.style.stroke.width} min={0} step={.5} onChange={width => style({ stroke: { ...node.style.stroke!, width } })} /></>}
-        <div className="property-heading"><span>Shadow</span><button className="quiet-button paint-toggle" aria-label="Toggle shadow" aria-pressed={node.style.shadow !== null} onClick={() => style({ shadow: node.style.shadow ? null : { color: '#08080833', x: 0, y: 4, blur: 16 }, effects: [] })}>{node.style.shadow ? '−' : '+'}</button></div>
+        <div className="property-heading">
+          <span className="property-heading-title">
+            Shadow
+            {hasShadowOverride && (
+              <span className="property-override-badge mini" title="Shadow locally overridden from master">
+                <span className="property-override-dot" />
+                Override
+              </span>
+            )}
+          </span>
+          <div className="property-heading-actions">
+            {hasShadowOverride && (
+              <>
+                <button
+                  className="quiet-button"
+                  disabled={isMasterLocked}
+                  aria-label="Push shadow to master"
+                  title="Push shadow override to master"
+                  onClick={() => store.pushPropertyOverrideToMaster(node.id, 'style.shadow')}
+                >
+                  <Upload size={11} />
+                </button>
+                <button
+                  className="quiet-button"
+                  aria-label="Reset shadow override"
+                  title="Reset shadow override to master"
+                  onClick={() => store.resetPropertyOverride(node.id, 'style.shadow')}
+                >
+                  <RotateCcw size={11} />
+                </button>
+              </>
+            )}
+            <button className="quiet-button paint-toggle" aria-label="Toggle shadow" aria-pressed={node.style.shadow !== null} onClick={() => style({ shadow: node.style.shadow ? null : { color: '#08080833', x: 0, y: 4, blur: 16 }, effects: [] })}>{node.style.shadow ? '−' : '+'}</button>
+          </div>
+        </div>
         {binding('shadow', 'Elevation')}
         {node.style.shadow && <><ColorField label="Shadow" value={node.style.shadow.color} onChange={color => style({ shadow: { ...node.style.shadow!, color } })} /><div className="property-pair"><NumberField label="Shadow X" value={node.style.shadow.x} onChange={x => style({ shadow: { ...node.style.shadow!, x } })} /><NumberField label="Shadow Y" value={node.style.shadow.y} onChange={y => style({ shadow: { ...node.style.shadow!, y } })} /></div><NumberField label="Blur" value={node.style.shadow.blur} min={0} onChange={blur => style({ shadow: { ...node.style.shadow!, blur } })} /></>}
       </div>
       <div className="inspector-section"><span className="section-caption">LAYER EFFECTS</span><EffectStackEditor effects={node.style.effects ?? []} tokens={resolveTokens(state.tokens, state.styleLibrary.activeThemeId)} onChange={effects => { try { style({ effects, shadow: null }) } catch { /* Keep the last valid effect while a color is being typed. */ } }} /></div>
+      {hasShaderOverride && (
+        <div className="property-heading" style={{ marginTop: 8 }}>
+          <span className="property-heading-title">
+            Shader FX
+            <span className="property-override-badge mini" title="Shader effect locally overridden from master">
+              <span className="property-override-dot" />
+              Override
+            </span>
+          </span>
+          <div className="property-heading-actions">
+            <button
+              className="quiet-button"
+              disabled={isMasterLocked}
+              aria-label="Push shader to master"
+              title="Push shader effect override to master"
+              onClick={() => store.pushPropertyOverrideToMaster(node.id, 'style.shader')}
+            >
+              <Upload size={11} />
+            </button>
+            <button
+              className="quiet-button"
+              aria-label="Reset shader override"
+              title="Reset shader effect override to master"
+              onClick={() => store.resetPropertyOverride(node.id, 'style.shader')}
+            >
+              <RotateCcw size={11} />
+            </button>
+          </div>
+        </div>
+      )}
       <ShaderInspector
         onGestureStart={meshGestureStart}
         onGestureEnd={meshGestureEnd}
@@ -110,6 +516,66 @@ export function ElementInspector({ store, controller, grid, onGridChange, onOpen
           }
         }}
       />
+      {node.type === 'text' && hasTextOverride && (
+        <div className="property-heading" style={{ marginTop: 8 }}>
+          <span className="property-heading-title">
+            Text Copy
+            <span className="property-override-badge mini" title="Text copy locally overridden from master">
+              <span className="property-override-dot" />
+              Override
+            </span>
+          </span>
+          <div className="property-heading-actions">
+            <button
+              className="quiet-button"
+              disabled={isMasterLocked}
+              aria-label="Push text override to master"
+              title="Push text override to master"
+              onClick={() => store.pushPropertyOverrideToMaster(node.id, 'properties.text')}
+            >
+              <Upload size={11} />
+            </button>
+            <button
+              className="quiet-button"
+              aria-label="Reset text override"
+              title="Reset text override to master"
+              onClick={() => store.resetPropertyOverride(node.id, 'properties.text')}
+            >
+              <RotateCcw size={11} />
+            </button>
+          </div>
+        </div>
+      )}
+      {node.type === 'text' && hasKineticOverride && (
+        <div className="property-heading" style={{ marginTop: 8 }}>
+          <span className="property-heading-title">
+            Kinetic Motion
+            <span className="property-override-badge mini" title="Kinetic typography locally overridden from master">
+              <span className="property-override-dot" />
+              Override
+            </span>
+          </span>
+          <div className="property-heading-actions">
+            <button
+              className="quiet-button"
+              disabled={isMasterLocked}
+              aria-label="Push kinetic override to master"
+              title="Push kinetic typography override to master"
+              onClick={() => store.pushPropertyOverrideToMaster(node.id, 'properties.kinetic')}
+            >
+              <Upload size={11} />
+            </button>
+            <button
+              className="quiet-button"
+              aria-label="Reset kinetic override"
+              title="Reset kinetic typography override to master"
+              onClick={() => store.resetPropertyOverride(node.id, 'properties.kinetic')}
+            >
+              <RotateCcw size={11} />
+            </button>
+          </div>
+        </div>
+      )}
       {node.type === 'text' && <TypographyStudio key={node.id} store={store} node={node} binding={binding} />}
       {node.type === 'path' && <div className="inspector-section"><span className="section-caption">VECTOR PATH</span><textarea className="property-textarea property-mono" key={node.id + node.d} aria-label="SVG path data" readOnly={!!node.boolean} defaultValue={node.d} onBlur={event => { if (!node.boolean && event.currentTarget.value !== node.d) store.update(node.id, 'path', { d: event.currentTarget.value }) }} />{node.boolean && <p>Flatten the compound to edit its merged outline with the pen tool.</p>}{!node.boolean && onOpenMorph && <button className="text-action" style={{ marginTop: 8 }} onClick={() => onOpenMorph?.({ id: `canvas-${node.id}`, name: node.name, d: node.d, viewBox: node.viewBox ?? [0, 0, 120, 120], fillRule: node.fillRule, color: node.style.fill ?? '#81adec' })}>Morph vector path <ChevronRight size={12} /></button>}</div>}
       {node.type === 'image' && <div className="inspector-section"><span className="section-caption">IMAGE</span><label className="property-label">Source<input className="property-input" key={node.id + node.src} aria-label="Image source" defaultValue={node.src} onBlur={event => store.update(node.id, 'image', { src: event.currentTarget.value })} /></label><label className="property-label">Alt text<input className="property-input" key={node.id + node.alt} aria-label="Image alt text" defaultValue={node.alt} onBlur={event => store.update(node.id, 'image', { alt: event.currentTarget.value })} /></label><label className="property-select">Fit<select aria-label="Image fit" value={node.fit} onChange={event => store.update(node.id, 'image', { fit: event.currentTarget.value as typeof node.fit })}><option value="contain">Contain</option><option value="cover">Cover</option><option value="fill">Fill</option></select></label></div>}

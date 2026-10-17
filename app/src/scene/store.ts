@@ -1,7 +1,7 @@
 import { EMPTY_MOTION, pruneMotion, validateMotion } from '../motion/model.ts'
 import type { MotionDocument } from '../motion/types.ts'
 import type { ComponentOverrides, ComponentProperty, ComponentPropertyValue, ComponentStateMachine, ComponentVariant } from './types.ts'
-import { releaseComponentResources, validPropertyValue, validatePropertyTargets } from './componentProperties.ts'
+import { applyPropertyValueToElement, releaseComponentResources, validPropertyValue, validatePropertyTargets } from './componentProperties.ts'
 import { createDefaultStateMachine, getEffectiveStateMachine, validateStateMachine } from './stateMachine.ts'
 import { EMPTY_COMMENTS, validateComments } from '../comments/model.ts'
 import type { CommentDocument } from '../comments/types.ts'
@@ -426,6 +426,27 @@ export class SceneStore {
     return null
   }
 
+  /** Validation check for creating a component from single or multiple selected canvas items. */
+  selectionComponentCreationReason(ids: readonly string[] = this.state.selection): string | null {
+    if (this.history.getSnapshot().active) return 'Finish the active edit first.'
+    const uniqueIds = [...new Set(ids)]
+    if (uniqueIds.length === 0) return 'Select one or more layers or frames to create a component.'
+    if (uniqueIds.length === 1) return this.componentCreationReason(uniqueIds[0])
+
+    const nodes = uniqueIds.map(id => this.state.elements[id]).filter(Boolean)
+    if (nodes.length !== uniqueIds.length) return 'One or more selected layers do not exist.'
+    if (nodes.some(n => this.isLocked(n.id))) return 'Unlock all selected layers first.'
+    if (nodes.some(n => !this.isVisible(n.id))) return 'Choose visible layers.'
+    if (nodes.some(n => componentRoot(this.state.elements, n.id) || subtree(this.state.elements, n.id).some(child => child.component))) {
+      return 'Choose layers outside an existing component.'
+    }
+    const parentId = nodes[0].parentId
+    if (nodes.some(n => n.parentId !== parentId)) {
+      return 'Choose layers sharing the same parent frame or canvas.'
+    }
+    return null
+  }
+
   /** Any layer, including a frame with a complete subtree, can become a master. */
   createComponent(id: string): SceneElement {
     const reason = this.componentCreationReason(id)
@@ -433,6 +454,60 @@ export class SceneStore {
     const node = freezeElement({ ...this.require(id), component: { kind: 'master' } })
     this.commit({ ...this.state.elements, [id]: node }, this.state.rootIds, [id], `Create ${node.name} component`)
     return node
+  }
+
+  /** Turn selection into a master component symbol. If multiple items are selected, groups them into a frame. */
+  createComponentFromSelection(ids: readonly string[] = this.state.selection): SceneElement {
+    const reason = this.selectionComponentCreationReason(ids)
+    if (reason) throw new Error(reason)
+    const uniqueIds = [...new Set(ids)]
+    if (uniqueIds.length === 1) {
+      const master = this.createComponent(uniqueIds[0])
+      this.autoExposeComponentProperties(master.id)
+      return master
+    }
+
+    const items = uniqueIds.map(id => getWorldBounds(this.state, id)).filter(Boolean)
+    const bounds = unionBounds(items)
+    if (!bounds) throw new Error('Could not calculate selection bounds')
+
+    const parentId = this.state.elements[uniqueIds[0]].parentId
+    const parentBounds = parentId ? getWorldBounds(this.state, parentId) : { x: 0, y: 0 }
+    const sortedIds = [...uniqueIds].sort((a, b) => this.state.elements[a].zIndex - this.state.elements[b].zIndex)
+    let master: SceneElement | null = null
+
+    this.batch(() => {
+      const frame = this.add('frame', {
+        name: 'Component Symbol',
+        parentId,
+        x: bounds.x - parentBounds.x,
+        y: bounds.y - parentBounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        clipContent: false,
+        style: { fill: null },
+      })
+      for (let i = 0; i < sortedIds.length; i++) {
+        const id = sortedIds[i]
+        const nodeWorld = getWorldBounds(this.state, id)
+        const node = this.state.elements[id]
+        this.reparent(id, frame.id, i)
+        const sizing = node.sizing
+        const resetSizing = sizing && (sizing.width === 'fill' || sizing.height === 'fill')
+          ? { ...sizing, width: sizing.width === 'fill' ? 'fixed' as const : sizing.width, height: sizing.height === 'fill' ? 'fixed' as const : sizing.height }
+          : undefined
+        this.update(id, node.type, {
+          x: nodeWorld.x - bounds.x,
+          y: nodeWorld.y - bounds.y,
+          ...(resetSizing ? { sizing: resetSizing } : {}),
+        })
+      }
+      master = this.createComponent(frame.id)
+      this.autoExposeComponentProperties(frame.id)
+    }, 'Create component symbol from selection')
+
+    this.select([master!.id])
+    return master!
   }
 
   /** Definitions are document data; updating them is one undoable command. */
@@ -773,8 +848,11 @@ export class SceneStore {
       // Apply property overrides (exclude root coordinates to preserve master position)
       for (const [key, val] of Object.entries(properties)) {
         if (masterLayer.id === master.id && ['x', 'y', 'rotation'].includes(key)) continue
-        if (key === 'kinetic' && val && masterLayer.type === 'text') {
-          updatedMaster.kinetic = { ...(masterLayer.kinetic ?? {}), ...(val as Record<string, unknown>) }
+        if (key === 'kinetic' && masterLayer.type === 'text') {
+          if (val === null) delete updatedMaster.kinetic
+          else updatedMaster.kinetic = { ...(masterLayer.kinetic ?? {}), ...(val as Record<string, unknown>) }
+        } else if (['variableAxes', 'openTypeFeatures', 'textOnPath'].includes(key) && val && masterLayer.type === 'text') {
+          updatedMaster[key] = { ...((masterLayer as any)[key] ?? {}), ...(val as Record<string, unknown>) }
         } else {
           updatedMaster[key] = val
         }
@@ -838,7 +916,6 @@ export class SceneStore {
     // If root instance had propertyValues, update master component.properties default values
     const rootComponent = root.component
     if (rootComponent.propertyValues && Object.keys(rootComponent.propertyValues).length && master.component.properties) {
-      const currentMaster = elements[master.id]
       const updatedProperties = master.component.properties.map(prop => {
         if (Object.hasOwn(rootComponent.propertyValues ?? {}, prop.id)) {
           const val = (rootComponent.propertyValues as any)[prop.id]
@@ -846,6 +923,34 @@ export class SceneStore {
         }
         return prop
       })
+
+      // Also apply the property values to the target master layers
+      for (const [propId, val] of Object.entries(rootComponent.propertyValues)) {
+        const prop = updatedProperties.find(p => p.id === propId)
+        if (!prop) continue
+        if (prop.kind === 'variant') {
+          const opt = prop.options.find(o => o.value === val)
+          if (opt?.layers) {
+            for (const [layerId] of Object.entries(opt.layers)) {
+              const layerElem = elements[layerId]
+              if (layerElem) {
+                const updatedLayer = applyPropertyValueToElement(layerElem, prop, val)
+                validateElement(updatedLayer)
+                elements[layerId] = freezeElement(updatedLayer)
+              }
+            }
+          }
+        } else {
+          const targetElement = elements[prop.sourceId]
+          if (targetElement) {
+            const updated = applyPropertyValueToElement(targetElement, prop, val)
+            validateElement(updated)
+            elements[prop.sourceId] = freezeElement(updated)
+          }
+        }
+      }
+
+      const currentMaster = elements[master.id]
       elements[master.id] = freezeElement({
         ...currentMaster,
         component: {
@@ -865,6 +970,562 @@ export class SceneStore {
     }
 
     this.commit(elements, this.state.rootIds, this.state.selection, `Push overrides to ${master.name}`)
+  }
+
+  /** Push a single local property override from an instance back to its master component. */
+  pushComponentPropertyToMaster(id: string, propertyId: string): void {
+    const root = componentRoot(this.state.elements, id)
+    if (root?.component?.kind !== 'instance') throw new Error('Choose a component instance')
+    if (this.isLocked(root.id) || this.history.getSnapshot().active) throw new Error('Unlock the instance and finish the active edit first')
+    const master = this.require(root.component.masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(master.id)) throw new Error('Unlock the master component first')
+
+    const rootComponent = root.component
+    if (!rootComponent.propertyValues || !Object.hasOwn(rootComponent.propertyValues, propertyId)) {
+      throw new Error('This property has no local override to push')
+    }
+    const val = rootComponent.propertyValues[propertyId]
+    const prop = master.component.properties?.find(p => p.id === propertyId)
+    if (!prop) throw new Error('Property not found on master component')
+
+    let elements = { ...this.state.elements }
+    const updatedProperties = (master.component.properties ?? []).map(p =>
+      p.id === propertyId ? { ...p, defaultValue: val } : p
+    )
+
+    if (prop.kind === 'variant') {
+      const opt = prop.options.find(o => o.value === val)
+      if (opt?.layers) {
+        for (const [layerId] of Object.entries(opt.layers)) {
+          const layerElem = elements[layerId]
+          if (layerElem) {
+            const updatedLayer = applyPropertyValueToElement(layerElem, prop, val)
+            validateElement(updatedLayer)
+            elements[layerId] = freezeElement(updatedLayer)
+          }
+        }
+      }
+    } else {
+      const targetElement = elements[prop.sourceId]
+      if (targetElement) {
+        const updated = applyPropertyValueToElement(targetElement, prop, val)
+        validateElement(updated)
+        elements[prop.sourceId] = freezeElement(updated)
+      }
+    }
+
+    const currentMaster = elements[master.id]
+    elements[master.id] = freezeElement({
+      ...currentMaster,
+      component: {
+        ...currentMaster.component,
+        properties: updatedProperties,
+      } as any,
+    })
+
+    const nextPropertyValues = { ...rootComponent.propertyValues }
+    delete nextPropertyValues[propertyId]
+    elements[root.id] = freezeElement({
+      ...elements[root.id],
+      component: {
+        ...elements[root.id].component,
+        propertyValues: nextPropertyValues,
+      } as any,
+    })
+
+    this.commit(elements, this.state.rootIds, this.state.selection, `Push ${prop.name} to ${master.name}`)
+  }
+
+  /** Push local visual and property overrides from a single instance layer back to its master layer. */
+  pushLayerOverridesToMaster(id: string): void {
+    const node = this.require(id)
+    if (node.component?.kind !== 'instance') throw new Error('Choose an instance layer')
+    if (this.isLocked(id) || this.history.getSnapshot().active) throw new Error('Unlock the layer and finish the active edit first')
+    const root = componentRoot(this.state.elements, id)
+    if (!root || root.component?.kind !== 'instance') throw new Error('Choose a component instance')
+    const master = this.require(root.component.masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(master.id)) throw new Error('Unlock the master component first')
+
+    let elements = { ...this.state.elements }
+    const sourceId = node.component.sourceId
+    const masterLayer = elements[sourceId]
+    if (!masterLayer) throw new Error('Master layer not found')
+
+    const { properties = {}, style = {}, tokenBindings = {}, sharedStyleBindings = {} } = node.component.overrides
+    let updatedMaster = { ...masterLayer } as any
+
+    for (const [key, val] of Object.entries(properties)) {
+      if (masterLayer.id === master.id && ['x', 'y', 'rotation'].includes(key)) continue
+      if (key === 'kinetic' && masterLayer.type === 'text') {
+        if (val === null) delete updatedMaster.kinetic
+        else updatedMaster.kinetic = { ...(masterLayer.kinetic ?? {}), ...(val as Record<string, unknown>) }
+      } else if (['variableAxes', 'openTypeFeatures', 'textOnPath'].includes(key) && val && masterLayer.type === 'text') {
+        updatedMaster[key] = { ...((masterLayer as any)[key] ?? {}), ...(val as Record<string, unknown>) }
+      } else {
+        updatedMaster[key] = val
+      }
+    }
+
+    if (Object.keys(style).length) {
+      const nextStyle = { ...masterLayer.style } as any
+      for (const [key, val] of Object.entries(style)) {
+        if (key === 'stroke' && val && masterLayer.style.stroke) {
+          nextStyle.stroke = { ...masterLayer.style.stroke, ...(val as Record<string, unknown>) }
+        } else if (key === 'shader' && val && masterLayer.style.shader) {
+          const shaderVal = val as any
+          nextStyle.shader = {
+            ...masterLayer.style.shader,
+            ...shaderVal,
+            params: { ...(masterLayer.style.shader.params ?? {}), ...(shaderVal.params ?? {}) },
+            ...(masterLayer.style.shader.mesh || shaderVal.mesh ? { mesh: { ...(masterLayer.style.shader.mesh ?? {}), ...(shaderVal.mesh ?? {}) } } : {}),
+            ...(masterLayer.style.shader.composite || shaderVal.composite ? { composite: { ...(masterLayer.style.shader.composite ?? {}), ...(shaderVal.composite ?? {}) } } : {}),
+          }
+        } else {
+          nextStyle[key] = val
+        }
+      }
+      updatedMaster.style = nextStyle
+    }
+
+    if (Object.keys(tokenBindings).length) {
+      const nextTokens = { ...(masterLayer.tokenBindings ?? {}) } as any
+      for (const [p, tokenId] of Object.entries(tokenBindings)) {
+        if (tokenId === null) delete nextTokens[p]
+        else nextTokens[p] = tokenId
+      }
+      updatedMaster.tokenBindings = Object.keys(nextTokens).length ? nextTokens : undefined
+    }
+
+    if (Object.keys(sharedStyleBindings).length) {
+      const nextShared = { ...(masterLayer.sharedStyleBindings ?? {}) } as any
+      for (const [k, sId] of Object.entries(sharedStyleBindings)) {
+        if (sId === null) delete nextShared[k]
+        else nextShared[k] = sId
+      }
+      updatedMaster.sharedStyleBindings = Object.keys(nextShared).length ? nextShared : undefined
+    }
+
+    validateElement(updatedMaster)
+    elements[sourceId] = freezeElement(updatedMaster)
+
+    elements[node.id] = freezeElement({
+      ...node,
+      component: {
+        ...node.component,
+        overrides: {},
+      },
+    })
+
+    this.commit(elements, this.state.rootIds, this.state.selection, `Push ${node.name} overrides to ${master.name}`)
+  }
+
+  /** Push a single channel override (e.g. 'style.fill', 'cornerRadius') from an instance layer back to master. */
+  /** Push a single channel override (e.g. 'style.fill', 'cornerRadius', 'kinetic.amplitude', 'shader.speed') from an instance layer back to master. */
+  /** Push a single channel override (e.g. 'style.fill', 'cornerRadius', 'kinetic.amplitude', 'shader.speed') from an instance layer back to master. */
+  pushPropertyOverrideToMaster(id: string, channel: string): void {
+    const node = this.require(id)
+    if (node.component?.kind !== 'instance') throw new Error('Choose an instance layer')
+    if (this.isLocked(id) || this.history.getSnapshot().active) throw new Error('Unlock the layer and finish the active edit first')
+    const root = componentRoot(this.state.elements, id)
+    if (!root || root.component?.kind !== 'instance') throw new Error('Choose a component instance')
+    const master = this.require(root.component.masterId)
+    if (master.component?.kind !== 'master') throw new Error('Choose a master component')
+    if (this.isLocked(master.id)) throw new Error('Unlock the master component first')
+
+    let elements = { ...this.state.elements }
+    const sourceId = node.component.sourceId
+    const masterLayer = elements[sourceId]
+    if (!masterLayer) throw new Error('Master layer not found')
+
+    const overrides = node.component.overrides
+    let updatedMaster = { ...masterLayer } as any
+    const nextOverrides: {
+      properties?: Record<string, any>
+      style?: Record<string, any>
+      tokenBindings?: Record<string, any>
+      sharedStyleBindings?: Record<string, any>
+    } = {
+      ...(overrides.properties ? { properties: { ...(overrides.properties as Record<string, any>) } } : {}),
+      ...(overrides.style ? { style: { ...(overrides.style as Record<string, any>) } } : {}),
+      ...(overrides.tokenBindings ? { tokenBindings: { ...(overrides.tokenBindings as Record<string, any>) } } : {}),
+      ...(overrides.sharedStyleBindings ? { sharedStyleBindings: { ...(overrides.sharedStyleBindings as Record<string, any>) } } : {}),
+    }
+
+    const cleanEmpty = () => {
+      if (nextOverrides.properties && Object.keys(nextOverrides.properties).length === 0) delete nextOverrides.properties
+      if (nextOverrides.style && Object.keys(nextOverrides.style).length === 0) delete nextOverrides.style
+      if (nextOverrides.tokenBindings && Object.keys(nextOverrides.tokenBindings).length === 0) delete nextOverrides.tokenBindings
+      if (nextOverrides.sharedStyleBindings && Object.keys(nextOverrides.sharedStyleBindings).length === 0) delete nextOverrides.sharedStyleBindings
+    }
+
+    let pushedLabel = channel
+
+    // Kinetic typography channel
+    if (channel === 'kinetic' || channel === 'properties.kinetic') {
+      const val = nextOverrides.properties?.kinetic
+      if (val !== undefined && masterLayer.type === 'text') {
+        if (val === null) delete updatedMaster.kinetic
+        else updatedMaster.kinetic = { ...(masterLayer.kinetic ?? {}), ...(val as Record<string, unknown>) }
+        delete nextOverrides.properties?.kinetic
+      }
+    } else if (channel.startsWith('kinetic.') || channel.startsWith('properties.kinetic.')) {
+      const kKey = channel.replace(/^properties\./, '').replace(/^kinetic\./, '')
+      pushedLabel = `kinetic ${kKey}`
+      if (nextOverrides.properties?.kinetic && typeof nextOverrides.properties.kinetic === 'object' && masterLayer.type === 'text') {
+        const kinetic = { ...(nextOverrides.properties.kinetic as Record<string, unknown>) }
+        if (Object.hasOwn(kinetic, kKey)) {
+          const val = kinetic[kKey]
+          updatedMaster.kinetic = { ...(updatedMaster.kinetic ?? {}), [kKey]: val }
+          delete kinetic[kKey]
+          if (Object.keys(kinetic).length === 0) delete nextOverrides.properties.kinetic
+          else nextOverrides.properties.kinetic = kinetic
+        }
+      }
+    }
+    // Variable font axes
+    else if (channel === 'variableAxes' || channel === 'properties.variableAxes') {
+      const val = nextOverrides.properties?.variableAxes
+      if (val && masterLayer.type === 'text') {
+        updatedMaster.variableAxes = { ...(masterLayer.variableAxes ?? {}), ...(val as Record<string, number>) }
+        delete nextOverrides.properties?.variableAxes
+      }
+    } else if (channel.startsWith('variableAxes.') || channel.startsWith('properties.variableAxes.')) {
+      const aKey = channel.replace(/^properties\./, '').replace(/^variableAxes\./, '')
+      pushedLabel = `axis ${aKey}`
+      if (nextOverrides.properties?.variableAxes && typeof nextOverrides.properties.variableAxes === 'object' && masterLayer.type === 'text') {
+        const axes = { ...(nextOverrides.properties.variableAxes as Record<string, number>) }
+        if (Object.hasOwn(axes, aKey)) {
+          updatedMaster.variableAxes = { ...(updatedMaster.variableAxes ?? {}), [aKey]: axes[aKey] }
+          delete axes[aKey]
+          if (Object.keys(axes).length === 0) delete nextOverrides.properties.variableAxes
+          else nextOverrides.properties.variableAxes = axes
+        }
+      }
+    }
+    // Shader property or subchannel
+    else if (channel === 'shader' || channel === 'style.shader') {
+      const val = nextOverrides.style?.shader as any
+      if (val && masterLayer.style.shader) {
+        updatedMaster.style = {
+          ...masterLayer.style,
+          shader: {
+            ...masterLayer.style.shader,
+            ...val,
+            params: { ...(masterLayer.style.shader.params ?? {}), ...(val.params ?? {}) },
+            ...(masterLayer.style.shader.mesh || val.mesh ? { mesh: { ...(masterLayer.style.shader.mesh ?? {}), ...(val.mesh ?? {}) } } : {}),
+            ...(masterLayer.style.shader.composite || val.composite ? { composite: { ...(masterLayer.style.shader.composite ?? {}), ...(val.composite ?? {}) } } : {}),
+            ...(masterLayer.style.shader.postProcessing || val.postProcessing ? { postProcessing: { ...(masterLayer.style.shader.postProcessing ?? {}), ...(val.postProcessing ?? {}) } } : {}),
+            ...(masterLayer.style.shader.pipeline || val.pipeline ? { pipeline: val.pipeline ?? masterLayer.style.shader.pipeline } : {}),
+          },
+        }
+        delete nextOverrides.style?.shader
+      }
+    } else if (channel.startsWith('shader.') || channel.startsWith('style.shader.')) {
+      const sKey = channel.replace(/^style\./, '').replace(/^shader\./, '')
+      pushedLabel = `shader ${sKey}`
+      if (nextOverrides.style?.shader && typeof nextOverrides.style.shader === 'object' && masterLayer.style.shader) {
+        const shaderObj = { ...(nextOverrides.style.shader as Record<string, any>) }
+        const currentShader = { ...masterLayer.style.shader } as any
+        if (sKey.startsWith('params.')) {
+          const pKey = sKey.replace(/^params\./, '')
+          if (shaderObj.params && Object.hasOwn(shaderObj.params, pKey)) {
+            currentShader.params = { ...(currentShader.params ?? {}), [pKey]: shaderObj.params[pKey] }
+            const params = { ...(shaderObj.params as Record<string, unknown>) }
+            delete params[pKey]
+            if (Object.keys(params).length === 0) delete shaderObj.params
+            else shaderObj.params = params
+          }
+        } else if (sKey.startsWith('mesh.')) {
+          const mKey = sKey.replace(/^mesh\./, '')
+          if (shaderObj.mesh && Object.hasOwn(shaderObj.mesh, mKey)) {
+            currentShader.mesh = { ...(currentShader.mesh ?? {}), [mKey]: shaderObj.mesh[mKey] }
+            const mesh = { ...(shaderObj.mesh as Record<string, unknown>) }
+            delete mesh[mKey]
+            if (Object.keys(mesh).length === 0) delete shaderObj.mesh
+            else shaderObj.mesh = mesh
+          }
+        } else if (['frequency', 'turbulence', 'octaves', 'displacement', 'normalPerturbation', 'noiseType', 'viewMode', 'colorFront', 'colorMid', 'colorBack', 'lacunarity', 'persistence', 'grainOverlay', 'grainMixer', 'specularStrength', 'lightAngle'].includes(sKey)) {
+          if (shaderObj.params && Object.hasOwn(shaderObj.params, sKey)) {
+            currentShader.params = { ...(currentShader.params ?? {}), [sKey]: shaderObj.params[sKey] }
+            const params = { ...(shaderObj.params as Record<string, unknown>) }
+            delete params[sKey]
+            if (Object.keys(params).length === 0) delete shaderObj.params
+            else shaderObj.params = params
+          }
+          if (shaderObj.mesh && Object.hasOwn(shaderObj.mesh, sKey)) {
+            currentShader.mesh = { ...(currentShader.mesh ?? {}), [sKey]: shaderObj.mesh[sKey] }
+            const mesh = { ...(shaderObj.mesh as Record<string, unknown>) }
+            delete mesh[sKey]
+            if (Object.keys(mesh).length === 0) delete shaderObj.mesh
+            else shaderObj.mesh = mesh
+          }
+        } else if (Object.hasOwn(shaderObj, sKey)) {
+          currentShader[sKey] = shaderObj[sKey]
+          delete shaderObj[sKey]
+        }
+        updatedMaster.style = { ...updatedMaster.style, shader: currentShader }
+        const hasShaderContent = Object.keys(shaderObj).filter(k => k !== 'kind').length > 0
+        if (!hasShaderContent) delete nextOverrides.style.shader
+        else nextOverrides.style.shader = shaderObj
+      }
+    }
+    // Stroke subchannel
+    else if (channel.startsWith('stroke.') || channel.startsWith('style.stroke.')) {
+      const strKey = channel.replace(/^style\./, '').replace(/^stroke\./, '')
+      pushedLabel = `stroke ${strKey}`
+      if (nextOverrides.style?.stroke && typeof nextOverrides.style.stroke === 'object' && masterLayer.style.stroke) {
+        const strokeObj = { ...(nextOverrides.style.stroke as Record<string, unknown>) }
+        if (Object.hasOwn(strokeObj, strKey)) {
+          updatedMaster.style = { ...updatedMaster.style, stroke: { ...updatedMaster.style.stroke, [strKey]: strokeObj[strKey] } }
+          delete strokeObj[strKey]
+          if (Object.keys(strokeObj).length === 0) delete nextOverrides.style.stroke
+          else nextOverrides.style.stroke = strokeObj
+        }
+      }
+    }
+    // Token bindings
+    else if (channel === 'tokenBindings' || channel.startsWith('tokenBindings.')) {
+      const tKey = channel === 'tokenBindings' ? undefined : channel.replace(/^tokenBindings\./, '')
+      pushedLabel = tKey ? `token binding ${tKey}` : 'token bindings'
+      const nextTokens = { ...(masterLayer.tokenBindings ?? {}) } as any
+      for (const [p, tokenId] of Object.entries(nextOverrides.tokenBindings ?? {})) {
+        if (!tKey || p === tKey) {
+          if (tokenId === null) delete nextTokens[p]
+          else nextTokens[p] = tokenId
+          if (nextOverrides.tokenBindings) delete nextOverrides.tokenBindings[p]
+        }
+      }
+      updatedMaster.tokenBindings = Object.keys(nextTokens).length ? nextTokens : undefined
+      if (nextOverrides.tokenBindings && Object.keys(nextOverrides.tokenBindings).length === 0) delete nextOverrides.tokenBindings
+    }
+    // Shared styles
+    else if (channel === 'sharedStyleBindings' || channel.startsWith('sharedStyleBindings.')) {
+      const sKey = channel === 'sharedStyleBindings' ? undefined : channel.replace(/^sharedStyleBindings\./, '')
+      pushedLabel = sKey ? `shared style ${sKey}` : 'shared styles'
+      const nextShared = { ...(masterLayer.sharedStyleBindings ?? {}) } as any
+      for (const [k, sId] of Object.entries(nextOverrides.sharedStyleBindings ?? {})) {
+        if (!sKey || k === sKey) {
+          if (sId === null) delete nextShared[k]
+          else nextShared[k] = sId
+          if (nextOverrides.sharedStyleBindings) delete nextOverrides.sharedStyleBindings[k]
+        }
+      }
+      updatedMaster.sharedStyleBindings = Object.keys(nextShared).length ? nextShared : undefined
+      if (nextOverrides.sharedStyleBindings && Object.keys(nextOverrides.sharedStyleBindings).length === 0) delete nextOverrides.sharedStyleBindings
+    }
+    // Style property (e.g. fill, opacity, shadow)
+    else if (channel.startsWith('style.') || (nextOverrides.style && Object.hasOwn(nextOverrides.style, channel))) {
+      const sKey = channel.replace(/^style\./, '')
+      pushedLabel = sKey
+      if (nextOverrides.style && Object.hasOwn(nextOverrides.style, sKey)) {
+        const val = nextOverrides.style[sKey]
+        if (sKey === 'stroke' && val && masterLayer.style.stroke) {
+          updatedMaster.style = { ...updatedMaster.style, stroke: { ...masterLayer.style.stroke, ...(val as Record<string, unknown>) } }
+        } else {
+          updatedMaster.style = { ...updatedMaster.style, [sKey]: val }
+        }
+        delete nextOverrides.style[sKey]
+        if (Object.keys(nextOverrides.style).length === 0) delete nextOverrides.style
+      }
+    }
+    // Property override (e.g. cornerRadius, text, fontSize)
+    else {
+      const pKey = channel.replace(/^properties\./, '')
+      pushedLabel = pKey
+      if (nextOverrides.properties && Object.hasOwn(nextOverrides.properties, pKey)) {
+        const val = nextOverrides.properties[pKey]
+        if (pKey === 'kinetic' && masterLayer.type === 'text') {
+          if (val === null) delete updatedMaster.kinetic
+          else updatedMaster.kinetic = { ...(masterLayer.kinetic ?? {}), ...(val as Record<string, unknown>) }
+        } else if (!(masterLayer.id === master.id && ['x', 'y', 'rotation'].includes(pKey))) {
+          updatedMaster[pKey] = val
+        }
+        delete nextOverrides.properties[pKey]
+        if (Object.keys(nextOverrides.properties).length === 0) delete nextOverrides.properties
+      }
+    }
+
+    cleanEmpty()
+    validateElement(updatedMaster)
+    elements[sourceId] = freezeElement(updatedMaster)
+
+    elements[node.id] = freezeElement({
+      ...node,
+      component: {
+        ...node.component,
+        overrides: nextOverrides as ComponentOverrides,
+      },
+    })
+
+    this.commit(elements, this.state.rootIds, this.state.selection, `Push ${pushedLabel} on ${node.name} to ${master.name}`)
+  }
+
+  /** Reset a single channel override (e.g. 'style.fill', 'cornerRadius', 'kinetic.amplitude', 'shader.speed') on an instance layer. */
+  resetPropertyOverride(id: string, channel: string): void {
+    const node = this.require(id)
+    if (node.component?.kind !== 'instance') throw new Error('Choose an instance layer')
+    if (this.isLocked(id) || this.history.getSnapshot().active) throw new Error('Unlock the layer and finish the active edit first')
+
+    const overrides = node.component.overrides
+    const nextOverrides: {
+      properties?: Record<string, any>
+      style?: Record<string, any>
+      tokenBindings?: Record<string, any>
+      sharedStyleBindings?: Record<string, any>
+    } = {
+      ...(overrides.properties ? { properties: { ...(overrides.properties as Record<string, any>) } } : {}),
+      ...(overrides.style ? { style: { ...(overrides.style as Record<string, any>) } } : {}),
+      ...(overrides.tokenBindings ? { tokenBindings: { ...(overrides.tokenBindings as Record<string, any>) } } : {}),
+      ...(overrides.sharedStyleBindings ? { sharedStyleBindings: { ...(overrides.sharedStyleBindings as Record<string, any>) } } : {}),
+    }
+
+    const cleanEmpty = () => {
+      if (nextOverrides.properties && Object.keys(nextOverrides.properties).length === 0) delete nextOverrides.properties
+      if (nextOverrides.style && Object.keys(nextOverrides.style).length === 0) delete nextOverrides.style
+      if (nextOverrides.tokenBindings && Object.keys(nextOverrides.tokenBindings).length === 0) delete nextOverrides.tokenBindings
+      if (nextOverrides.sharedStyleBindings && Object.keys(nextOverrides.sharedStyleBindings).length === 0) delete nextOverrides.sharedStyleBindings
+    }
+
+    let resetLabel = channel
+
+    // Kinetic typography channel
+    if (channel === 'kinetic' || channel === 'properties.kinetic') {
+      delete nextOverrides.properties?.kinetic
+    } else if (channel.startsWith('kinetic.') || channel.startsWith('properties.kinetic.')) {
+      const kKey = channel.replace(/^properties\./, '').replace(/^kinetic\./, '')
+      resetLabel = `kinetic ${kKey}`
+      if (nextOverrides.properties?.kinetic && typeof nextOverrides.properties.kinetic === 'object') {
+        const kinetic = { ...(nextOverrides.properties.kinetic as Record<string, unknown>) }
+        delete kinetic[kKey]
+        if (Object.keys(kinetic).length === 0) delete nextOverrides.properties.kinetic
+        else nextOverrides.properties.kinetic = kinetic
+      }
+    }
+    // Variable font axis
+    else if (channel === 'variableAxes' || channel === 'properties.variableAxes') {
+      delete nextOverrides.properties?.variableAxes
+    } else if (channel.startsWith('variableAxes.') || channel.startsWith('properties.variableAxes.')) {
+      const aKey = channel.replace(/^properties\./, '').replace(/^variableAxes\./, '')
+      resetLabel = `axis ${aKey}`
+      if (nextOverrides.properties?.variableAxes && typeof nextOverrides.properties.variableAxes === 'object') {
+        const axes = { ...(nextOverrides.properties.variableAxes as Record<string, number>) }
+        delete axes[aKey]
+        if (Object.keys(axes).length === 0) delete nextOverrides.properties.variableAxes
+        else nextOverrides.properties.variableAxes = axes
+      }
+    }
+    // Shader property or subchannel
+    else if (channel === 'shader' || channel === 'style.shader') {
+      delete nextOverrides.style?.shader
+    } else if (channel.startsWith('shader.') || channel.startsWith('style.shader.')) {
+      const sKey = channel.replace(/^style\./, '').replace(/^shader\./, '')
+      resetLabel = `shader ${sKey}`
+      if (nextOverrides.style?.shader && typeof nextOverrides.style.shader === 'object') {
+        const shaderObj = { ...(nextOverrides.style.shader as Record<string, any>) }
+        if (sKey.startsWith('params.')) {
+          const pKey = sKey.replace(/^params\./, '')
+          if (shaderObj.params) {
+            const params = { ...(shaderObj.params as Record<string, unknown>) }
+            delete params[pKey]
+            if (Object.keys(params).length === 0) delete shaderObj.params
+            else shaderObj.params = params
+          }
+        } else if (sKey.startsWith('mesh.')) {
+          const mKey = sKey.replace(/^mesh\./, '')
+          if (shaderObj.mesh) {
+            const mesh = { ...(shaderObj.mesh as Record<string, unknown>) }
+            delete mesh[mKey]
+            if (Object.keys(mesh).length === 0) delete shaderObj.mesh
+            else shaderObj.mesh = mesh
+          }
+        } else if (['frequency', 'turbulence', 'octaves', 'displacement', 'normalPerturbation', 'noiseType', 'viewMode', 'colorFront', 'colorMid', 'colorBack', 'lacunarity', 'persistence', 'grainOverlay', 'grainMixer', 'specularStrength', 'lightAngle'].includes(sKey)) {
+          if (shaderObj.params && Object.hasOwn(shaderObj.params, sKey)) {
+            const params = { ...(shaderObj.params as Record<string, unknown>) }
+            delete params[sKey]
+            if (Object.keys(params).length === 0) delete shaderObj.params
+            else shaderObj.params = params
+          }
+          if (shaderObj.mesh && Object.hasOwn(shaderObj.mesh, sKey)) {
+            const mesh = { ...(shaderObj.mesh as Record<string, unknown>) }
+            delete mesh[sKey]
+            if (Object.keys(mesh).length === 0) delete shaderObj.mesh
+            else shaderObj.mesh = mesh
+          }
+        } else {
+          delete shaderObj[sKey]
+        }
+        const hasShaderContent = Object.keys(shaderObj).filter(k => k !== 'kind').length > 0
+        if (!hasShaderContent) delete nextOverrides.style.shader
+        else nextOverrides.style.shader = shaderObj
+      }
+    }
+    // Stroke subchannel
+    else if (channel.startsWith('stroke.') || channel.startsWith('style.stroke.')) {
+      const strKey = channel.replace(/^style\./, '').replace(/^stroke\./, '')
+      resetLabel = `stroke ${strKey}`
+      if (nextOverrides.style?.stroke && typeof nextOverrides.style.stroke === 'object') {
+        const strokeObj = { ...(nextOverrides.style.stroke as Record<string, unknown>) }
+        delete strokeObj[strKey]
+        if (Object.keys(strokeObj).length === 0) delete nextOverrides.style.stroke
+        else nextOverrides.style.stroke = strokeObj
+      }
+    }
+    // Token bindings
+    else if (channel === 'tokenBindings') {
+      delete nextOverrides.tokenBindings
+    } else if (channel.startsWith('tokenBindings.')) {
+      const tKey = channel.replace(/^tokenBindings\./, '')
+      resetLabel = `token binding ${tKey}`
+      if (nextOverrides.tokenBindings) {
+        delete nextOverrides.tokenBindings[tKey]
+        if (Object.keys(nextOverrides.tokenBindings).length === 0) delete nextOverrides.tokenBindings
+      }
+    }
+    // Shared styles
+    else if (channel === 'sharedStyleBindings') {
+      delete nextOverrides.sharedStyleBindings
+    } else if (channel.startsWith('sharedStyleBindings.')) {
+      const sKey = channel.replace(/^sharedStyleBindings\./, '')
+      resetLabel = `shared style ${sKey}`
+      if (nextOverrides.sharedStyleBindings) {
+        delete nextOverrides.sharedStyleBindings[sKey]
+        if (Object.keys(nextOverrides.sharedStyleBindings).length === 0) delete nextOverrides.sharedStyleBindings
+      }
+    }
+    // Style properties
+    else if (channel.startsWith('style.') || (nextOverrides.style && Object.hasOwn(nextOverrides.style, channel))) {
+      const sKey = channel.replace(/^style\./, '')
+      resetLabel = sKey
+      if (nextOverrides.style) {
+        delete nextOverrides.style[sKey]
+        if (Object.keys(nextOverrides.style).length === 0) delete nextOverrides.style
+      }
+    }
+    // Layer properties
+    else {
+      const pKey = channel.replace(/^properties\./, '')
+      resetLabel = pKey
+      if (nextOverrides.properties) {
+        delete nextOverrides.properties[pKey]
+        if (Object.keys(nextOverrides.properties).length === 0) delete nextOverrides.properties
+      }
+    }
+
+    cleanEmpty()
+
+    const elements = {
+      ...this.state.elements,
+      [id]: freezeElement({
+        ...node,
+        component: {
+          ...node.component,
+          overrides: nextOverrides as ComponentOverrides,
+        },
+      }),
+    }
+    this.commit(elements, this.state.rootIds, this.state.selection, `Reset ${resetLabel} override on ${node.name}`)
   }
 
   /** Automatically detect and expose dynamic properties for text, kinetic typography, shaders, and visual parameters. */
@@ -902,6 +1563,30 @@ export class SceneStore {
             generated.push({ id: crypto.randomUUID(), name: 'Stagger Delay', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.stagger ?? 40, targetProperty: 'stagger' })
             names.add('stagger delay')
           }
+          if (layer.kinetic.weightModulation !== undefined && !names.has('weight modulation')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Weight Modulation', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.weightModulation, targetProperty: 'weightModulation' })
+            names.add('weight modulation')
+          }
+          if (layer.kinetic.staggerMode !== undefined && !names.has('stagger mode')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Stagger Mode', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.staggerMode, targetProperty: 'staggerMode' })
+            names.add('stagger mode')
+          }
+          if (layer.kinetic.horizontalAmplitude !== undefined && !names.has('horizontal amplitude')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Horizontal Amplitude', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.horizontalAmplitude, targetProperty: 'horizontalAmplitude' })
+            names.add('horizontal amplitude')
+          }
+          if (layer.kinetic.scaleModulation !== undefined && !names.has('scale modulation')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Scale Modulation', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.scaleModulation, targetProperty: 'scaleModulation' })
+            names.add('scale modulation')
+          }
+          if (layer.kinetic.slantModulation !== undefined && !names.has('slant modulation')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Slant Modulation', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.slantModulation, targetProperty: 'slantModulation' })
+            names.add('slant modulation')
+          }
+          if (layer.kinetic.widthModulation !== undefined && !names.has('width modulation')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Width Modulation', kind: 'kinetic', sourceId: layer.id, defaultValue: layer.kinetic.widthModulation, targetProperty: 'widthModulation' })
+            names.add('width modulation')
+          }
         }
       }
 
@@ -923,6 +1608,57 @@ export class SceneStore {
           if ('turbulence' in sParams && !names.has('turbulence')) {
             generated.push({ id: crypto.randomUUID(), name: 'Turbulence', kind: 'shader', sourceId: layer.id, defaultValue: Number(sParams.turbulence ?? 0.5), targetProperty: 'turbulence' })
             names.add('turbulence')
+          }
+          if ('octaves' in sParams && !names.has('octaves')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Octaves', kind: 'shader', sourceId: layer.id, defaultValue: Number(sParams.octaves ?? 3), targetProperty: 'octaves' })
+            names.add('octaves')
+          }
+          if ('displacement' in sParams && !names.has('displacement')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Displacement', kind: 'shader', sourceId: layer.id, defaultValue: Number(sParams.displacement ?? 0.4), targetProperty: 'displacement' })
+            names.add('displacement')
+          }
+          if ('normalPerturbation' in sParams && !names.has('normal perturbation')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Normal Perturbation', kind: 'shader', sourceId: layer.id, defaultValue: Number(sParams.normalPerturbation ?? 0.2), targetProperty: 'normalPerturbation' })
+            names.add('normal perturbation')
+          }
+          if ('noiseType' in sParams && typeof sParams.noiseType === 'string' && !names.has('noise generator')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Noise Generator', kind: 'shader', sourceId: layer.id, defaultValue: sParams.noiseType, targetProperty: 'noiseType' })
+            names.add('noise generator')
+          }
+          if ('viewMode' in sParams && typeof sParams.viewMode === 'string' && !names.has('surface view mode')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Surface View Mode', kind: 'shader', sourceId: layer.id, defaultValue: sParams.viewMode, targetProperty: 'viewMode' })
+            names.add('surface view mode')
+          }
+          if ('colorFront' in sParams && typeof sParams.colorFront === 'string' && !names.has('front color')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Front Color', kind: 'color', sourceId: layer.id, defaultValue: sParams.colorFront, targetProperty: 'shader.colorFront' })
+            names.add('front color')
+          }
+          if ('colorBack' in sParams && typeof sParams.colorBack === 'string' && !names.has('back color')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Back Color', kind: 'color', sourceId: layer.id, defaultValue: sParams.colorBack, targetProperty: 'shader.colorBack' })
+            names.add('back color')
+          }
+        }
+        const sMesh = layer.style.shader.mesh
+        if (sMesh) {
+          if (sMesh.frequency !== undefined && !names.has('mesh frequency')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Mesh Frequency', kind: 'shader', sourceId: layer.id, defaultValue: sMesh.frequency, targetProperty: 'frequency' })
+            names.add('mesh frequency')
+          }
+          if (sMesh.turbulence !== undefined && !names.has('mesh turbulence')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Mesh Turbulence', kind: 'shader', sourceId: layer.id, defaultValue: sMesh.turbulence, targetProperty: 'turbulence' })
+            names.add('mesh turbulence')
+          }
+          if (sMesh.normalPerturbation !== undefined && !names.has('normal perturbation')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Normal Perturbation', kind: 'shader', sourceId: layer.id, defaultValue: sMesh.normalPerturbation, targetProperty: 'normalPerturbation' })
+            names.add('normal perturbation')
+          }
+          if (sMesh.noiseType !== undefined && !names.has('noise generator')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Noise Generator', kind: 'shader', sourceId: layer.id, defaultValue: sMesh.noiseType, targetProperty: 'noiseType' })
+            names.add('noise generator')
+          }
+          if (sMesh.viewMode !== undefined && !names.has('surface view mode')) {
+            generated.push({ id: crypto.randomUUID(), name: 'Surface View Mode', kind: 'shader', sourceId: layer.id, defaultValue: sMesh.viewMode, targetProperty: 'viewMode' })
+            names.add('surface view mode')
           }
         }
         if (layer.style.shader.composite && !names.has('blend mode')) {

@@ -85,7 +85,7 @@ export function recordComponentEdit(node: SceneElement, updated: SceneElement, p
         properties.kinetic = nextKinetic
       } else {
         const baseKinetic = node.kinetic as unknown as Record<string, unknown>
-        for (const channel of ['enabled', 'playing', 'amplitude', 'rotation', 'duration', 'stagger', 'phase', 'staggerMode', 'waveShape', 'weightModulation', 'slantModulation', 'scaleModulation'] as const) {
+        for (const channel of ['enabled', 'playing', 'amplitude', 'rotation', 'duration', 'stagger', 'phase', 'staggerMode', 'waveShape', 'weightModulation', 'slantModulation', 'scaleModulation', 'horizontalAmplitude', 'widthModulation', 'opticalSizeModulation'] as const) {
           if (!equalValue(baseKinetic[channel], nextKinetic[channel])) {
             kineticOverrides[channel] = nextKinetic[channel]
           }
@@ -94,6 +94,26 @@ export function recordComponentEdit(node: SceneElement, updated: SceneElement, p
       }
     } else if (key === 'kinetic' && value === null && node.type === 'text') {
       properties.kinetic = null
+    } else if (key === 'variableAxes' && value && node.type === 'text' && updated.type === 'text' && updated.variableAxes) {
+      const axesOverrides = { ...(properties.variableAxes as Record<string, number> ?? {}) }
+      const baseAxes = (node.variableAxes ?? {}) as Record<string, number>
+      const nextAxes = updated.variableAxes as Record<string, number>
+      for (const [axis, axisVal] of Object.entries(nextAxes)) {
+        if (!equalValue(baseAxes[axis], axisVal)) {
+          axesOverrides[axis] = axisVal
+        }
+      }
+      properties.variableAxes = axesOverrides
+    } else if (key === 'openTypeFeatures' && value && node.type === 'text' && updated.type === 'text' && updated.openTypeFeatures) {
+      const featOverrides = { ...(properties.openTypeFeatures as Record<string, boolean> ?? {}) }
+      const baseFeat = (node.openTypeFeatures ?? {}) as Record<string, boolean>
+      const nextFeat = updated.openTypeFeatures as Record<string, boolean>
+      for (const [feat, featVal] of Object.entries(nextFeat)) {
+        if (!equalValue(baseFeat[feat], featVal)) {
+          featOverrides[feat] = featVal
+        }
+      }
+      properties.openTypeFeatures = featOverrides
     } else if (PROPERTY_KEYS.has(key) && !equalValue(node[key as keyof SceneElement], value)) {
       properties[key] = updated[key as keyof SceneElement]
     }
@@ -130,7 +150,16 @@ export function recordComponentEdit(node: SceneElement, updated: SceneElement, p
         shaderPatch.params = paramOverrides
       }
       if (updated.style.shader.mesh && !equalValue(node.style.shader.mesh, updated.style.shader.mesh)) {
-        shaderPatch.mesh = updated.style.shader.mesh
+        const existingMeshOverrides = ((existingShaderOverrides.mesh as Record<string, unknown>) ?? {})
+        const meshPatch: Record<string, unknown> = { ...existingMeshOverrides }
+        const baseMesh = (node.style.shader.mesh ?? {}) as unknown as Record<string, unknown>
+        const nextMesh = updated.style.shader.mesh as unknown as Record<string, unknown>
+        for (const [mKey, mVal] of Object.entries(nextMesh)) {
+          if (!equalValue(baseMesh[mKey], mVal)) {
+            meshPatch[mKey] = mVal
+          }
+        }
+        shaderPatch.mesh = meshPatch
       }
       if (updated.style.shader.postProcessing && !equalValue(node.style.shader.postProcessing, updated.style.shader.postProcessing)) {
         shaderPatch.postProcessing = updated.style.shader.postProcessing
@@ -276,7 +305,7 @@ export function synchronizeComponents(input: Readonly<Record<string, SceneElemen
     }
     let sources = sourceTrees.get(master.id)
     if (!sources) { sources = subtree(input, master.id); sourceTrees.set(master.id, sources) }
-    if (previous && sources.every(source => source === previous[source.id]) && existing.every(node => node === previous[node.id])) continue
+    if (previous && existing.length === sources.length && sources.every(source => source === previous[source.id]) && existing.every(node => node === previous[node.id])) continue
     const definitions = master.component.properties ?? []
     const propertyValues = Object.fromEntries(Object.entries(link.propertyValues ?? {}).filter(([id, value]) => definitions.some(property => property.id === id && validPropertyValue(property, value))))
     const oldBySource = new Map(existing.map(node => [node.component?.kind === 'instance' ? node.component.sourceId : '', node]))
@@ -285,13 +314,19 @@ export function synchronizeComponents(input: Readonly<Record<string, SceneElemen
       const old = oldBySource.get(source.id)
       const id = ids.get(source.id)!
       let component: Extract<ComponentLink, { kind: 'instance' }> = old?.component?.kind === 'instance' ? old.component : { kind: 'instance', masterId: master.id, instanceId: root.id, sourceId: source.id, overrides: {} }
-      if (source.id === master.id && link.propertyValues !== undefined) component = { ...component, propertyValues }
-      if (source.id === master.id && link.activeState !== undefined) component = { ...component, activeState: link.activeState }
+      if (source.id === master.id) {
+        const { activeState: _discarded, ...rest } = component
+        component = {
+          ...rest,
+          propertyValues,
+          ...(link.activeState !== undefined ? { activeState: link.activeState } : {}),
+        }
+      }
       const configured = resolveComponentProperties(source, definitions, propertyValues, tokens, library, link.activeState)
       let node = applyComponentOverrides(configured, component, tokens, library)
       node = { ...node, id, parentId: source.id === master.id ? root.parentId : ids.get(source.parentId!)!, zIndex: source.id === master.id ? root.zIndex : source.zIndex,
         ...(source.id === master.id ? { x: root.x, y: root.y, rotation: root.rotation } : {}),
-        ...(source.type === 'frame' ? { children: source.children.map(child => ids.get(child)!) } : {}),
+        ...(source.type === 'frame' ? { children: source.children.map(child => ids.get(child)!).filter(Boolean) } : {}),
       } as SceneElement
       validateElement(node)
       put(node)

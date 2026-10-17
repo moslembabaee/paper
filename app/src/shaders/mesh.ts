@@ -27,6 +27,7 @@ export function createMeshMaterial(
     fluidAdvection?: number
     fluidViscosity?: number
     distortionMode?: MeshDistortionMode
+    viewMode?: 'shaded' | 'normal-map' | 'displacement'
   }
 ): MeshMaterial {
   const length = typeof count === 'number' ? count : count.length
@@ -46,6 +47,7 @@ export function createMeshMaterial(
     fluidAdvection: options?.fluidAdvection ?? 0.35,
     fluidViscosity: options?.fluidViscosity ?? 0.5,
     distortionMode: options?.distortionMode ?? 'curl-fluid',
+    viewMode: options?.viewMode ?? 'shaded',
   }
 }
 
@@ -66,6 +68,7 @@ const allowedMeshKeys = new Set([
   'fluidViscosity',
   'distortionMode',
   'grid',
+  'viewMode',
 ])
 
 export function validateMeshMaterial(mesh: MeshMaterial, paint: ShaderPaint) {
@@ -129,10 +132,101 @@ export function validateMeshMaterial(mesh: MeshMaterial, paint: ShaderPaint) {
   if (mesh.distortionMode !== undefined && !meshDistortionModes.includes(mesh.distortionMode)) {
     throw new Error('Invalid shader mesh material')
   }
+  if (mesh.viewMode !== undefined && !['shaded', 'normal-map', 'displacement'].includes(mesh.viewMode)) {
+    throw new Error('Invalid shader mesh material')
+  }
   if (mesh.grid !== undefined) {
     validateMeshGrid(mesh.grid)
   }
 }
+
+export interface MeshDisplacementPreset {
+  readonly id: string
+  readonly name: string
+  readonly description: string
+  readonly noiseType: NoiseGenerator
+  readonly octaves: number
+  readonly lacunarity: number
+  readonly turbulence: number
+  readonly frequency: number
+  readonly normalPerturbation: number
+  readonly grainDisplacement: number
+}
+
+export const MESH_DISPLACEMENT_PRESETS: readonly MeshDisplacementPreset[] = [
+  {
+    id: 'subtle-grain',
+    name: 'Subtle Grain',
+    description: 'Fine microscopic grain displacement with gentle surface bump.',
+    noiseType: 'simplex',
+    octaves: 2,
+    lacunarity: 2.0,
+    turbulence: 0.1,
+    frequency: 3.5,
+    normalPerturbation: 0.15,
+    grainDisplacement: 0.1,
+  },
+  {
+    id: 'silk-wave',
+    name: 'Silk Wave',
+    description: 'Harmonic 2D Simplex wave displacement with smooth normal sheen.',
+    noiseType: 'simplex',
+    octaves: 3,
+    lacunarity: 2.2,
+    turbulence: 0.2,
+    frequency: 4.0,
+    normalPerturbation: 0.35,
+    grainDisplacement: 0.12,
+  },
+  {
+    id: 'granite-sheen',
+    name: 'Granite Sheen',
+    description: 'Multi-octave Perlin noise with pronounced textural normal perturbation.',
+    noiseType: 'perlin',
+    octaves: 4,
+    lacunarity: 2.4,
+    turbulence: 0.35,
+    frequency: 5.0,
+    normalPerturbation: 0.5,
+    grainDisplacement: 0.22,
+  },
+  {
+    id: 'basalt-relief',
+    name: 'Basalt Relief',
+    description: 'Cellular Worley crystals with crisp faceted normal map displacement.',
+    noiseType: 'worley',
+    octaves: 3,
+    lacunarity: 2.0,
+    turbulence: 0.4,
+    frequency: 4.5,
+    normalPerturbation: 0.65,
+    grainDisplacement: 0.18,
+  },
+  {
+    id: 'volcanic-magma',
+    name: 'Volcanic Magma',
+    description: 'High-turbulence Simplex ridges with deep normal crevices and fissures.',
+    noiseType: 'simplex',
+    octaves: 5,
+    lacunarity: 2.5,
+    turbulence: 0.75,
+    frequency: 4.2,
+    normalPerturbation: 0.8,
+    grainDisplacement: 0.25,
+  },
+  {
+    id: 'caustic-crest',
+    name: 'Caustic Crest',
+    description: 'Cellular Voronoi webbing with sharp specular normal crests.',
+    noiseType: 'worley',
+    octaves: 2,
+    lacunarity: 1.8,
+    turbulence: 0.15,
+    frequency: 6.0,
+    normalPerturbation: 0.6,
+    grainDisplacement: 0.08,
+  },
+] as const
 
 /** Same transform as the fragment shader; handles stay aligned through material transforms. */
 export function meshToSurface(anchor: Pick<MeshAnchor, 'x' | 'y'>, paint: ShaderPaint) {
@@ -167,6 +261,8 @@ export function meshUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradient'
   const fluidViscosity = mesh.fluidViscosity ?? 0.5
   const distortionMode = mesh.distortionMode ?? 'curl-fluid'
   const distortionModeValue = distortionMode === 'curl-fluid' ? 0 : distortionMode === 'domain-warp' ? 1 : distortionMode === 'turbulent-swirl' ? 2 : 3
+  const viewMode = mesh.viewMode ?? 'shaded'
+  const viewModeValue = viewMode === 'normal-map' ? 1.0 : viewMode === 'displacement' ? 2.0 : 0.0
 
   const gridUniforms = grid ? {
     u_gridMode: 1.0,
@@ -206,6 +302,7 @@ export function meshUniforms(paint: Extract<ShaderPaint, { kind: 'mesh-gradient'
     u_fluidAdvection: fluidAdvection,
     u_fluidViscosity: fluidViscosity,
     u_distortionMode: distortionModeValue,
+    u_viewMode: viewModeValue,
     u_turbulence: mesh.turbulence,
     u_frequency: mesh.frequency,
     u_chromatic: mesh.chromaticAberration,
