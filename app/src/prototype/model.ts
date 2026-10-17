@@ -5,7 +5,7 @@ import { DEFAULT_SPRING, springCSS, springDuration, springProgress, validateSpri
 
 export const TRIGGERS = { click: 'On Click', hover: 'On Hover', drag: 'Drag', delay: 'After Delay' } as const
 export const ACTIONS = { navigate: 'Navigate to', overlay: 'Open Overlay', scroll: 'Scroll to' } as const
-export const TRANSITIONS = { instant: 'Instant', dissolve: 'Dissolve', smart: 'Smart Animate', 'slide-in': 'Slide In', 'slide-out': 'Slide Out' } as const
+export const TRANSITIONS = { instant: 'Instant', dissolve: 'Dissolve', smart: 'Smart Animate', slide: 'Slide', 'slide-in': 'Slide In', 'slide-out': 'Slide Out', push: 'Push' } as const
 export const EASINGS = { linear: 'Linear', 'ease-in': 'Ease in', 'ease-out': 'Ease out', 'ease-in-out': 'Ease in & out', custom: 'Custom curve', spring: 'Spring · Physics' } as const
 export const CURVES: Readonly<Record<Exclude<Easing, 'custom' | 'spring'>, BezierCurve>> = {
   linear: [0, 0, 1, 1], 'ease-in': [.42, 0, 1, 1], 'ease-out': [0, 0, .16, 1], 'ease-in-out': [.65, 0, .35, 1],
@@ -100,8 +100,14 @@ export function transitionFrames(t: PrototypeTransition): { incoming: Keyframe[]
   const reverse = { left: ['-100%', '0'], right: ['100%', '0'], up: ['0', '-100%'], down: ['0', '100%'] }[t.direction]
   const still = [{ opacity: 1 }, { opacity: 1 }]
   if (t.kind === 'instant') return { incoming: still, outgoing: still }
-  if (t.kind === 'slide-in') return { incoming: [{ transform: `translate(${offset[0]}, ${offset[1]})` }, { transform: 'translate(0, 0)' }], outgoing: still }
+  if (t.kind === 'slide-in' || t.kind === 'slide') return { incoming: [{ transform: `translate(${offset[0]}, ${offset[1]})` }, { transform: 'translate(0, 0)' }], outgoing: still }
   if (t.kind === 'slide-out') return { incoming: still, outgoing: [{ transform: 'translate(0, 0)' }, { transform: `translate(${reverse[0]}, ${reverse[1]})` }] }
+  if (t.kind === 'push') {
+    return {
+      incoming: [{ transform: `translate(${offset[0]}, ${offset[1]})` }, { transform: 'translate(0, 0)' }],
+      outgoing: [{ transform: 'translate(0, 0)' }, { transform: `translate(${reverse[0]}, ${reverse[1]})` }],
+    }
+  }
   return { incoming: [{ opacity: 0 }, { opacity: 1 }], outgoing: [{ opacity: 1 }, { opacity: 0 }] }
 }
 

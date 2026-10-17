@@ -25,6 +25,8 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
   const [motion, setMotion] = useState<Motion | null>(null)
   const [playing, setPlaying] = useState(true)
   const [hotspots, setHotspots] = useState(false)
+  const [flashHotspots, setFlashHotspots] = useState(false)
+  const flashTimer = useRef(0)
   const [delayEpoch, setDelayEpoch] = useState(0)
   const [available, setAvailable] = useState({ width: 800, height: 600 })
   const areaRef = useRef<HTMLDivElement>(null), currentRef = useRef<HTMLDivElement>(null), previousRef = useRef<HTMLDivElement>(null)
@@ -43,7 +45,7 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
     const observer = new ResizeObserver(([entry]) => setAvailable({ width: entry.contentRect.width, height: entry.contentRect.height }))
     observer.observe(areaRef.current!); return () => observer.disconnect()
   }, [])
-  useEffect(() => () => { cancelAnimationFrame(scrollFrame.current) }, [])
+  useEffect(() => () => { cancelAnimationFrame(scrollFrame.current); window.clearTimeout(flashTimer.current) }, [])
 
   const cancelMotion = useCallback(() => {
     cancelAnimationFrame(scrollFrame.current)
@@ -227,10 +229,17 @@ export function PresentationPlayer({ store, onClose }: { store: SceneStore; onCl
       {frame ? <div className={`prototype-device device-${prototype.device}`} style={{ width: size.width + bezel, height: size.height + bezel, transform: `scale(${scale})` }}>
         {prototype.device === 'phone' && <div className="prototype-device-island" aria-hidden="true" />}
         {prototype.device === 'desktop' && <div className="prototype-device-camera" aria-hidden="true" />}
-        <div className={`prototype-display ${hotspots ? 'show-hotspots' : ''}`} data-testid="prototype-display" data-frame-id={playback.frameId} data-overlay-id={playback.overlayId ?? ''} data-playing={playing} style={{ width: size.width, height: size.height }} onClick={event => {
+        <div className={`prototype-display ${hotspots || flashHotspots ? 'show-hotspots' : ''}`} data-testid="prototype-display" data-frame-id={playback.frameId} data-overlay-id={playback.overlayId ?? ''} data-playing={playing} style={{ width: size.width, height: size.height }} onClick={event => {
           if (suppressClick.current) { suppressClick.current = false; return }
           const interaction = lookup(event.target, 'click'); if (interaction) execute(interaction)
-          else triggerComponentTransition(event.target, 'on-click')
+          else {
+            const handled = triggerComponentTransition(event.target, 'on-click')
+            if (!handled && !hotspots) {
+              setFlashHotspots(true)
+              window.clearTimeout(flashTimer.current)
+              flashTimer.current = window.setTimeout(() => setFlashHotspots(false), 450)
+            }
+          }
         }} onPointerOver={event => {
           if (event.pointerType === 'touch') return
           const interaction = lookup(event.target, 'hover')

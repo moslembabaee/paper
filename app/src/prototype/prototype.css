@@ -94,6 +94,7 @@
 .prototype-screen-scroll { overflow: auto; overscroll-behavior: contain; scrollbar-width: none; }
 .prototype-screen-content { position: relative; }
 .prototype-display .scene-frame > .scene-content { box-shadow: none; }
+.prototype-display [data-hotspot] { transition: outline 0.15s ease, background 0.15s ease; }
 .prototype-display [data-hotspot='click'] { cursor: pointer; }
 .prototype-display [data-hotspot='drag'] { cursor: grab; touch-action: none; }
 .prototype-display [data-hotspot]:focus-visible { outline: 2px solid #81adec; outline-offset: 3px; }

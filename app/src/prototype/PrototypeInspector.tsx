@@ -26,7 +26,7 @@ export function PrototypeInspector({ store, selectedId, onSelect, onPresent }: {
       <span className="section-caption">PRESENTATION</span>
       <label className="prototype-field">Starting frame<select aria-label="Starting frame" value={prototype.startFrameId ?? ''} onChange={event => store.setPrototype({ ...prototype, startFrameId: event.target.value || null })}><option value="">First visible frame</option>{frames.map(frame => <option key={frame.id} value={frame.id}>{frame.name}</option>)}</select></label>
       <label className="prototype-field">Device<select aria-label="Presentation device" value={prototype.device} onChange={event => store.setPrototype({ ...prototype, device: event.target.value as DeviceFrame })}><option value="none">Canvas · No device</option><option value="phone">Phone · 390 × 844</option><option value="tablet">Tablet · 820 × 1180</option><option value="desktop">Desktop · 1440 × 900</option></select></label>
-      <button className="prototype-primary" disabled={!frames.length} onClick={onPresent}><Play size={12} fill="currentColor" />Play prototype</button>
+      <button className="prototype-primary" data-testid="open-preview-modal" disabled={!frames.length} onClick={onPresent}><Play size={12} fill="currentColor" />Play prototype</button>
     </div>
     <div className="inspector-section">
       <div className="prototype-section-heading"><span className="section-caption">INTERACTIONS</span><span className="prototype-count">{outgoing.length.toString().padStart(2, '0')}</span></div>
@@ -61,8 +61,9 @@ export function PrototypeInspector({ store, selectedId, onSelect, onPresent }: {
             if (!Number.isFinite(next) || next < (index % 2 === 0 ? 0 : -5) || next > (index % 2 === 0 ? 1 : 5)) return
             updateTransition({ curve: t.curve.map((n, i) => i === index ? next : n) as unknown as BezierCurve })
           }} /></label>)}</div>}
-          {(t.kind === 'slide-in' || t.kind === 'slide-out') && <label className="prototype-field">Direction<select aria-label="Slide direction" value={t.direction} onChange={event => updateTransition({ direction: event.target.value as SlideDirection })}>{['left', 'right', 'up', 'down'].map(direction => <option key={direction} value={direction}>{direction[0].toUpperCase() + direction.slice(1)}</option>)}</select></label>}
+          {(t.kind === 'slide-in' || t.kind === 'slide-out' || t.kind === 'slide' || t.kind === 'push') && <label className="prototype-field">Direction<select aria-label="Slide direction" value={t.direction} onChange={event => updateTransition({ direction: event.target.value as SlideDirection })}>{['left', 'right', 'up', 'down'].map(direction => <option key={direction} value={direction}>{direction[0].toUpperCase() + direction.slice(1)}</option>)}</select></label>}
           {t.kind === 'smart' && <p>Layers with matching names and hierarchy animate their position, scale, rotation and paint.</p>}
+          {t.kind === 'push' && <p>The incoming frame pushes the outgoing frame out with synchronized physics motion.</p>}
         </>}
       </div>
     </>}

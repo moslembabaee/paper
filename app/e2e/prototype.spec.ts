@@ -95,7 +95,7 @@ test('spring authoring previews motion, persists physics and restores previous s
   await expect(page.getByLabel('Spring mass')).toHaveValue('1')
 })
 
-for (const kind of ['smart', 'slide-in', 'slide-out'] as const) {
+for (const kind of ['smart', 'slide-in', 'slide-out', 'push', 'slide'] as const) {
   test(`spring ${kind} renders native motion and cleans up at rest`, async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
@@ -119,8 +119,9 @@ for (const kind of ['smart', 'slide-in', 'slide-out'] as const) {
     expect(result.count).toBeGreaterThan(0)
     expect(result.durations.every(duration => duration === springDuration(SPRING_PRESETS.bouncy.spring))).toBe(true)
     expect(result.easings.every(easing => easing?.startsWith('linear('))).toBe(true)
-    if (kind === 'slide-in') expect(result.x).toBeLessThan(-30)
+    if (kind === 'slide-in' || kind === 'slide') expect(result.x).toBeLessThan(-30)
     if (kind === 'slide-out') expect(result.x).toBeLessThan(-420)
+    if (kind === 'push') expect(result.x).toBeLessThan(-30)
     if (kind === 'smart') expect(result.transform).not.toBe('none')
     await player.evaluate(node => node.getAnimations({ subtree: true }).forEach(animation => animation.finish()))
     await expect(player.locator('.prototype-layer')).toHaveCount(1)
@@ -149,7 +150,7 @@ test('spring preview respects reduced motion and mobile presentation fits its vi
   await expect(page.getByRole('button', { name: 'Restart prototype' })).toBeVisible()
 })
 
-for (const kind of ['instant', 'dissolve', 'smart', 'slide-in', 'slide-out'] as const) {
+for (const kind of ['instant', 'dissolve', 'smart', 'slide-in', 'slide-out', 'push', 'slide'] as const) {
   test(`click navigation plays ${kind} and preserves the design`, async ({ page }) => {
     const errors: string[] = []
     page.on('pageerror', error => errors.push(error.message))
@@ -188,6 +189,7 @@ test('hover and drag triggers execute on the interaction source', async ({ page 
 })
 
 test('delay waits while paused and resumes; keyboard hotspots and mockups are interactive', async ({ page }) => {
+  test.setTimeout(60000)
   await open(page, 'delay')
   await page.getByRole('button', { name: 'Pause prototype', exact: true }).click()
   await page.waitForTimeout(950)

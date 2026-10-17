@@ -1,6 +1,6 @@
 export type InteractionTrigger = 'click' | 'hover' | 'drag' | 'delay'
 export type NavigationAction = 'navigate' | 'overlay' | 'scroll'
-export type TransitionKind = 'instant' | 'dissolve' | 'smart' | 'slide-in' | 'slide-out'
+export type TransitionKind = 'instant' | 'dissolve' | 'smart' | 'slide-in' | 'slide-out' | 'push' | 'slide'
 export type Easing = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'custom' | 'spring'
 export type SlideDirection = 'left' | 'right' | 'up' | 'down'
 export type DeviceFrame = 'none' | 'phone' | 'tablet' | 'desktop'
